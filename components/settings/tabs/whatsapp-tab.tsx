@@ -1,4 +1,4 @@
-import { MessageCircle, CheckCircle2, Info, Clock, Bell, Star } from 'lucide-react';
+import { MessageCircle, CheckCircle2, Info, Mail } from 'lucide-react';
 import { SettingsCard } from '../configuracion-shell';
 
 interface Props {
@@ -6,7 +6,7 @@ interface Props {
 }
 
 export function WhatsAppTab({ planTier }: Props) {
-  const isGratuito = planTier === 'gratuito';
+  const isGratuito = planTier === 'basico'; // BD 'gratuito' → UI tier 'basico'
 
   return (
     <div className="space-y-4">
@@ -29,7 +29,7 @@ export function WhatsAppTab({ planTier }: Props) {
         <div className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-border">
           <div className="flex items-center gap-2 bg-[#075E54] px-3 py-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#128C7E] text-white">
-              <Star className="h-4 w-4" />
+              <MessageCircle className="h-4 w-4" />
             </div>
             <span className="text-sm font-bold text-white">VYLTA · Tu Negocio</span>
           </div>
@@ -61,6 +61,14 @@ export function WhatsAppTab({ planTier }: Props) {
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
         <p className="text-xs text-blue-700 dark:text-blue-400">
           Los mensajes salen desde el número oficial de VYLTA — el mismo para todos los negocios en la plataforma. Esto nos permite mantener el servicio incluido en tu plan.
+        </p>
+      </div>
+
+      {/* Nota sobre cumpleaños → email */}
+      <div className="flex items-start gap-3 rounded-lg border border-pink-500/30 bg-pink-500/5 p-3">
+        <Mail className="mt-0.5 h-4 w-4 shrink-0 text-pink-600 dark:text-pink-400" />
+        <p className="text-xs text-pink-700 dark:text-pink-400">
+          Las felicitaciones de cumpleaños se envían por <strong>email</strong> (no WhatsApp), para cumplir con las políticas de Meta sobre mensajes promocionales. Confíguralas en la pestaña Avanzado.
         </p>
       </div>
 
