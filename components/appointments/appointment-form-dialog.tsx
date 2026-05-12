@@ -13,6 +13,7 @@ import {
   Search,
   AlertTriangle,
   StickyNote,
+  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -35,24 +36,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getInitials } from '@/lib/utils';
 import { toLocalDateString } from '@/lib/date-utils';
+import { getStaffAvailability } from '@/lib/appointments';
 
 // ══════════════════════════════════════════════════════════════════════
-// Form de Nueva Cita — alineado con schema real de la app móvil:
-//   • services.is_active (no active)
-//   • appointments: NO existe duration_minutes (se infiere de end_time)
-//   • appointments: NO existe paid (status='Pagado' indica pago)
-//   • service_id NO se guarda — solo se guarda service_name + service_cost
-//   • Detección de conflictos usa el patrón del backend móvil:
-//     .not('status', 'in', '("Cancelada","No asisti\u00f3","Rechazada")')
+// Form de Nueva Cita — ahora con campo de colaborador.
+// • Detecta automáticamente staff ocupado en la franja horaria
+// • Conflictos respetan el staff seleccionado (dos staff distintos pueden
+//   compartir hora sin colisión)
 // ══════════════════════════════════════════════════════════════════════
 
 const STATUS_OPTIONS = ['Confirmada', 'Pendiente'] as const;
+const UNASSIGNED_KEY = '__unassigned__';
 
 const appointmentSchema = z.object({
   clientId: z.string().min(1, 'Selecciona un cliente'),
   serviceId: z.string().min(1, 'Selecciona un servicio'),
+  staffId: z.string(),
   date: z.string().min(1, 'Selecciona una fecha'),
   start_time: z.string().regex(/^\d{2}:\d{2}$/, 'Hora inválida'),
   duration_minutes: z.number().min(5).max(720),
@@ -64,6 +65,7 @@ type AppointmentFormData = z.infer<typeof appointmentSchema>;
 
 interface ClientOption { id: string; name: string; phone: string | null; }
 interface ServiceOption { id: string; name: string; duration_minutes: number; price: number; is_active: boolean; }
+interface StaffOption { id: string; name: string; color: string; role: string | null; }
 
 interface AppointmentFormDialogProps {
   open: boolean;
@@ -81,6 +83,8 @@ export function AppointmentFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
+  const [staffMembers, setStaffMembers] = useState<StaffOption[]>([]);
+  const [busyStaff, setBusyStaff] = useState<Set<string>>(new Set());
   const [clientSearch, setClientSearch] = useState('');
   const [conflict, setConflict] = useState<string | null>(null);
 
@@ -97,6 +101,7 @@ export function AppointmentFormDialog({
     defaultValues: {
       clientId: '',
       serviceId: '',
+      staffId: UNASSIGNED_KEY,
       date: initialDate || toLocalDateString(new Date()),
       start_time: '09:00',
       duration_minutes: 60,
@@ -107,6 +112,7 @@ export function AppointmentFormDialog({
 
   const selectedClientId = watch('clientId');
   const selectedServiceId = watch('serviceId');
+  const selectedStaffId = watch('staffId');
   const selectedDate = watch('date');
   const selectedTime = watch('start_time');
   const duration = watch('duration_minutes');
@@ -114,26 +120,24 @@ export function AppointmentFormDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-
     (async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || cancelled) return;
-
-      const [clientsRes, servicesRes] = await Promise.all([
+      const [clientsRes, servicesRes, staffRes] = await Promise.all([
         supabase.from('clients').select('id, name, phone').eq('user_id', user.id).order('name'),
         supabase.from('services').select('id, name, duration_minutes, price, is_active').eq('user_id', user.id).eq('is_active', true).order('name'),
+        supabase.from('staff_members').select('id, name, color, role').eq('user_id', user.id).eq('is_active', true).order('sort_order'),
       ]);
-
       if (clientsRes.error) console.error('[AppointmentForm] clients error:', clientsRes.error);
       if (servicesRes.error) console.error('[AppointmentForm] services error:', servicesRes.error);
-
+      if (staffRes.error) console.error('[AppointmentForm] staff error:', staffRes.error);
       if (!cancelled) {
         setClients((clientsRes.data || []) as ClientOption[]);
         setServices((servicesRes.data || []) as ServiceOption[]);
+        setStaffMembers((staffRes.data || []) as StaffOption[]);
       }
     })();
-
     return () => { cancelled = true; };
   }, [open]);
 
@@ -143,50 +147,57 @@ export function AppointmentFormDialog({
     if (service) setValue('duration_minutes', service.duration_minutes);
   }, [selectedServiceId, services, setValue]);
 
-  // Detección de conflictos sin .not(...in) que causa problemas con URL-encode
+  // Calcula end_time desde start_time + duration
+  const endTime = useMemo(() => {
+    if (!selectedTime || !duration) return null;
+    const [h, m] = selectedTime.split(':').map(Number);
+    const endMin = h * 60 + (m || 0) + duration;
+    const hh = Math.floor(endMin / 60);
+    const mm = endMin % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  }, [selectedTime, duration]);
+
+  // Detecta staff ocupado + conflicto general
   useEffect(() => {
-    if (!selectedDate || !selectedTime || !duration) {
+    if (!selectedDate || !selectedTime || !duration || !endTime) {
       setConflict(null);
+      setBusyStaff(new Set());
       return;
     }
-
     const timer = setTimeout(async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Pedimos TODAS las citas del día y filtramos por status en cliente.
-      // Esto evita problemas con .not('status', 'in', ...) y caracteres especiales.
-      const { data, error } = await supabase
+      // 1. Staff ocupado
+      const busy = await getStaffAvailability(selectedDate, selectedTime, endTime);
+      setBusyStaff(busy);
+
+      // 2. Conflicto general (considerando staff)
+      const { data } = await supabase
         .from('appointments')
-        .select('id, start_time, end_time, status, service_name, client_name_temp, client:clients(name)')
+        .select('id, start_time, end_time, status, service_name, client_name_temp, client:clients(name), staff_id')
         .eq('user_id', user.id)
         .eq('date', selectedDate);
-
-      if (error) {
-        console.error('[conflict-check] error:', error);
-        return;
-      }
       if (!data) { setConflict(null); return; }
 
       const EXCLUDED = ['Cancelada', 'No asistió', 'Rechazada'];
       const active = data.filter((a: any) => !EXCLUDED.includes(a.status));
-
-      const [h, m] = selectedTime.split(':').map(Number);
-      const newStart = h * 60 + (m || 0);
-      const newEnd = newStart + duration;
-
       const timeToMin = (t: string) => {
         const [hh, mm] = t.split(':').map(Number);
         return (hh || 0) * 60 + (mm || 0);
       };
+      const newStart = timeToMin(selectedTime);
+      const newEnd = newStart + duration;
+      const staffIdForCheck = selectedStaffId === UNASSIGNED_KEY ? null : selectedStaffId;
 
       const conflicting = active.find((apt: any) => {
+        // Si ambos tienen staff distinto, no es conflicto
+        if (staffIdForCheck && apt.staff_id && apt.staff_id !== staffIdForCheck) return false;
         const aptStart = timeToMin(apt.start_time);
         const aptEnd = apt.end_time ? timeToMin(apt.end_time) : aptStart + 60;
         return newStart < aptEnd && newEnd > aptStart;
       });
-
       if (conflicting) {
         const name = (conflicting as any).client?.name || (conflicting as any).client_name_temp || 'cita';
         setConflict(`Conflicto: ${name} ya tiene cita a las ${(conflicting as any).start_time}.`);
@@ -194,9 +205,8 @@ export function AppointmentFormDialog({
         setConflict(null);
       }
     }, 400);
-
     return () => clearTimeout(timer);
-  }, [selectedDate, selectedTime, duration]);
+  }, [selectedDate, selectedTime, duration, selectedStaffId, endTime]);
 
   const filteredClients = useMemo(() => {
     if (!clientSearch.trim()) return clients.slice(0, 50);
@@ -208,10 +218,18 @@ export function AppointmentFormDialog({
 
   const selectedService = services.find(s => s.id === selectedServiceId);
   const selectedClient = clients.find(c => c.id === selectedClientId);
+  const selectedStaff = selectedStaffId !== UNASSIGNED_KEY
+    ? staffMembers.find(s => s.id === selectedStaffId)
+    : null;
 
   async function onSubmit(data: AppointmentFormData) {
     if (conflict) {
       const ok = confirm(`${conflict}\n\n¿Quieres crearla de todos modos?`);
+      if (!ok) return;
+    }
+    const staffIdToSave = data.staffId === UNASSIGNED_KEY ? null : data.staffId;
+    if (staffIdToSave && busyStaff.has(staffIdToSave)) {
+      const ok = confirm('Este colaborador ya tiene una cita en este horario. ¿Continuar?');
       if (!ok) return;
     }
 
@@ -225,7 +243,6 @@ export function AppointmentFormDialog({
     }
 
     const service = services.find(s => s.id === data.serviceId);
-    const client = clients.find(c => c.id === data.clientId);
 
     const [h, m] = data.start_time.split(':').map(Number);
     const startMin = h * 60 + (m || 0);
@@ -234,7 +251,6 @@ export function AppointmentFormDialog({
     const endM = endMin % 60;
     const end_time = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-    // Payload alineado con appointments schema real (sin duration_minutes ni paid)
     const payload = {
       user_id: user.id,
       client_id: data.clientId,
@@ -245,6 +261,7 @@ export function AppointmentFormDialog({
       end_time,
       status: data.status,
       notes: data.notes?.trim() || null,
+      staff_id: staffIdToSave,
     };
 
     const result = await supabase.from('appointments').insert(payload);
@@ -380,6 +397,54 @@ export function AppointmentFormDialog({
               </p>
             )}
           </Field>
+
+          {staffMembers.length > 0 && (
+            <Field label="Colaborador" icon={Users}>
+              <Controller
+                control={control}
+                name="staffId"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sin asignar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNASSIGNED_KEY}>
+                        <span className="text-muted-foreground">Sin asignar</span>
+                      </SelectItem>
+                      {staffMembers.map((m) => {
+                        const isBusy = busyStaff.has(m.id);
+                        return (
+                          <SelectItem key={m.id} value={m.id} disabled={isBusy}>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="inline-flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold"
+                                style={{ backgroundColor: `${m.color}33`, color: m.color }}
+                              >
+                                {getInitials(m.name)}
+                              </span>
+                              <span>{m.name}</span>
+                              {m.role && <span className="text-xs text-muted-foreground">· {m.role}</span>}
+                              {isBusy && <span className="ml-2 text-xs font-bold text-destructive">⛔ Ocupado</span>}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {selectedStaff && (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: selectedStaff.color }}
+                  />
+                  Atiende {selectedStaff.name}
+                </p>
+              )}
+            </Field>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Fecha" icon={CalendarIcon} error={errors.date?.message} required>
