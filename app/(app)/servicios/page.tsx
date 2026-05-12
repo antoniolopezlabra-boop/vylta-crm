@@ -18,7 +18,9 @@ import { Button } from '@/components/ui/button';
 import { ServiceFormDialog } from '@/components/services/service-form-dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// /servicios — ahora con formulario funcional de crear/editar
+// /servicios — alineado con schema real:
+//   • is_active (no 'active')
+//   • NO existe 'color' — lo simulamos en cliente para el avatar
 // ══════════════════════════════════════════════════════════════════════
 
 interface Service {
@@ -27,10 +29,12 @@ interface Service {
   description: string | null;
   duration_minutes: number;
   price: number;
-  active: boolean;
-  category: string | null;
-  color: string | null;
+  is_active: boolean;
+  category?: string | null;
+  color?: string | null;
 }
+
+const FALLBACK_COLORS = ['#10B981', '#6366F1', '#F59E0B', '#F472B6', '#3B82F6', '#A855F7', '#14B8A6', '#EF4444'];
 
 export default function ServiciosPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -45,12 +49,13 @@ export default function ServiciosPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('services')
       .select('*')
       .eq('user_id', user.id)
-      .order('active', { ascending: false })
+      .order('is_active', { ascending: false })
       .order('name', { ascending: true });
+    if (error) console.error('[services] reload error:', error);
     setServices((data || []) as Service[]);
     setLoading(false);
   }
@@ -59,20 +64,19 @@ export default function ServiciosPage() {
 
   const filtered = useMemo(() => {
     let result = services;
-    if (!showInactive) result = result.filter(s => s.active);
+    if (!showInactive) result = result.filter(s => s.is_active);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter(s =>
         s.name?.toLowerCase().includes(q) ||
-        s.description?.toLowerCase().includes(q) ||
-        s.category?.toLowerCase().includes(q),
+        s.description?.toLowerCase().includes(q),
       );
     }
     return result;
   }, [services, search, showInactive]);
 
-  const activeCount = services.filter(s => s.active).length;
-  const totalRevenue = services.filter(s => s.active).reduce((sum, s) => sum + (s.price || 0), 0);
+  const activeCount = services.filter(s => s.is_active).length;
+  const totalRevenue = services.filter(s => s.is_active).reduce((sum, s) => sum + (s.price || 0), 0);
 
   function openCreate() {
     setEditingService(null);
@@ -82,6 +86,10 @@ export default function ServiciosPage() {
   function openEdit(service: Service) {
     setEditingService(service);
     setFormOpen(true);
+  }
+
+  function colorForService(s: Service, idx: number): string {
+    return s.color || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
   }
 
   return (
@@ -135,10 +143,7 @@ export default function ServiciosPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState
-            hasFilter={search.length > 0 || !showInactive}
-            onCreate={openCreate}
-          />
+          <EmptyState hasFilter={search.length > 0 || !showInactive} onCreate={openCreate} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -152,68 +157,67 @@ export default function ServiciosPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((service) => (
-                  <tr
-                    key={service.id}
-                    onClick={() => openEdit(service)}
-                    className={cn(
-                      'group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-secondary/50',
-                      !service.active && 'opacity-60',
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                          style={{
-                            backgroundColor: `${service.color || '#10B981'}1A`,
-                            color: service.color || '#10B981',
-                          }}
-                        >
-                          <Briefcase className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold">{service.name}</div>
-                          {service.description && (
-                            <div className="truncate text-xs text-muted-foreground">{service.description}</div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
-                        <Clock className="h-3.5 w-3.5" />
-                        {service.duration_minutes} min
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green-600 dark:text-vylta-green-400">
-                      {formatCurrency(service.price)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {service.active ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/10 px-2 py-0.5 text-xs font-semibold text-vylta-green-700 dark:text-vylta-green-400">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Activo
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-                          <Circle className="h-3 w-3" />
-                          Inactivo
-                        </span>
+                {filtered.map((service, idx) => {
+                  const color = colorForService(service, idx);
+                  return (
+                    <tr
+                      key={service.id}
+                      onClick={() => openEdit(service)}
+                      className={cn(
+                        'group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-secondary/50',
+                        !service.is_active && 'opacity-60',
                       )}
-                    </td>
-                    <td className="px-2 py-3 text-right">
-                      <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                    </td>
-                  </tr>
-                ))}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                            style={{ backgroundColor: `${color}1A`, color }}
+                          >
+                            <Briefcase className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold">{service.name}</div>
+                            {service.description && (
+                              <div className="truncate text-xs text-muted-foreground">{service.description}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          {service.duration_minutes} min
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green-600 dark:text-vylta-green-400">
+                        {formatCurrency(service.price)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {service.is_active ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/10 px-2 py-0.5 text-xs font-semibold text-vylta-green-700 dark:text-vylta-green-400">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Activo
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                            <Circle className="h-3 w-3" />
+                            Inactivo
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-3 text-right">
+                        <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Formulario crear/editar */}
       <ServiceFormDialog
         open={formOpen}
         onOpenChange={(open) => {
