@@ -11,6 +11,10 @@ import { ConfiguracionShell } from '@/components/settings/configuracion-shell';
 //   • Recordatorios de cumpleaños (Premium/Luxury)
 //   • WhatsApp Business (pantalla informativa)
 //   • Cuenta (cambiar contraseña)
+//
+// IMPORTANTE: usamos select('*') en subscription_plans (igual que la app móvil)
+// para evitar errores de columnas que no existen en BD. La columna
+// 'current_period_end' fue removida del schema y NO debe pedirse explícitamente.
 // ══════════════════════════════════════════════════════════════════════
 
 export default async function ConfiguracionPage() {
@@ -26,7 +30,7 @@ export default async function ConfiguracionPage() {
       .maybeSingle(),
     supabase
       .from('subscription_plans')
-      .select('plan_type, status, price, current_period_end')
+      .select('*')
       .eq('user_id', user.id)
       .maybeSingle(),
     supabase
