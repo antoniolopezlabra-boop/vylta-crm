@@ -13,6 +13,8 @@ import {
   Sparkles,
   Link2,
   Wallet,
+  Zap,
+  TrendingUp,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { getHomeStats, type TodayAppointment } from '@/lib/home-stats';
@@ -20,6 +22,7 @@ import { cn, formatCurrency } from '@/lib/utils';
 import { formatShortDate, MONTHS_ES, DAYS_ES_FULL } from '@/lib/date-utils';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { UnpaidList } from '@/components/dashboard/unpaid-list';
+import { PlanUsageBanner } from '@/components/dashboard/plan-usage-banner';
 
 export default async function DashboardPage() {
   const stats = await getHomeStats();
@@ -45,6 +48,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Saludo */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
@@ -57,6 +61,10 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* Banner Plan Básico (uso de citas mensual) */}
+      {stats.planUsage.isGratuito && <PlanUsageBanner usage={stats.planUsage} />}
+
+      {/* Cobros pendientes */}
       {stats.unpaidAppointments.length > 0 && (
         <div className="overflow-hidden rounded-2xl border-2 border-vylta-amber-500/40 bg-gradient-to-br from-vylta-amber-500/10 via-card to-card shadow-md">
           <div className="flex items-center justify-between p-5">
@@ -80,6 +88,7 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {/* Solicitudes desde link público */}
       {stats.pendingRequests > 0 && (
         <Link href="/citas" className="flex items-center gap-4 rounded-xl border-2 border-blue-500/40 bg-blue-500/5 p-4 transition hover:bg-blue-500/10">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400">
@@ -95,13 +104,35 @@ export default async function DashboardPage() {
         </Link>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <BigKpi label="Citas hoy" value={`${stats.todayCount}`} icon={CalendarCheck} accent="green" sub={stats.todayCount > 0 ? `${stats.todayConfirmed} confirmadas` : 'Día libre'} />
-        <BigKpi label="Pendientes" value={`${stats.todayPending}`} icon={Clock} accent="amber" sub={stats.todayPending > 0 ? 'Por confirmar' : 'Todas listas'} />
-        <BigKpi label="Cobrado hoy" value={formatCurrency(stats.todayRevenue)} icon={DollarSign} accent="green" sub={`${stats.todayPaidCount} ${stats.todayPaidCount === 1 ? 'cita pagada' : 'citas pagadas'}`} />
-        <BigKpi label="Mañana" value={`${stats.tomorrowCount}`} icon={CalendarCheck} accent={stats.tomorrowUnconfirmed > 0 ? 'amber' : 'green'} sub={stats.tomorrowUnconfirmed > 0 ? `${stats.tomorrowUnconfirmed} sin confirmar` : 'Todo en orden'} />
+      {/* KPIs de HOY */}
+      <div>
+        <div className="mb-2 flex items-center gap-2">
+          <Zap className="h-3.5 w-3.5 text-vylta-amber-500" />
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hoy</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <BigKpi label="Citas hoy" value={`${stats.todayCount}`} icon={CalendarCheck} accent="green" sub={stats.todayCount > 0 ? `${stats.todayConfirmed} confirmadas` : 'Día libre'} />
+          <BigKpi label="Pendientes" value={`${stats.todayPending}`} icon={Clock} accent="amber" sub={stats.todayPending > 0 ? 'Por confirmar' : 'Todas listas'} />
+          <BigKpi label="Cobrado hoy" value={formatCurrency(stats.todayRevenue)} icon={DollarSign} accent="green" sub={`${stats.todayPaidCount} ${stats.todayPaidCount === 1 ? 'cita pagada' : 'citas pagadas'}`} />
+          <BigKpi label="Mañana" value={`${stats.tomorrowCount}`} icon={CalendarCheck} accent={stats.tomorrowUnconfirmed > 0 ? 'amber' : 'green'} sub={stats.tomorrowUnconfirmed > 0 ? `${stats.tomorrowUnconfirmed} sin confirmar` : 'Todo en orden'} />
+        </div>
       </div>
 
+      {/* KPIs de ESTA SEMANA */}
+      <div>
+        <div className="mb-2 flex items-center gap-2">
+          <TrendingUp className="h-3.5 w-3.5 text-indigo-500" />
+          <h2 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Esta semana</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <BigKpi label="Citas semana" value={`${stats.weekCount}`} icon={CalendarCheck} accent="indigo" sub={stats.weekCount > 0 ? 'En total' : 'Sin actividad'} />
+          <BigKpi label="Confirmadas" value={`${stats.weekConfirmed}`} icon={CheckCircle2} accent="green" sub="Lock-in" />
+          <BigKpi label="Pendientes" value={`${stats.weekPending}`} icon={Clock} accent="amber" sub={stats.weekPending > 0 ? 'Por gestionar' : 'Todas listas'} />
+          <BigKpi label="Cobrado" value={formatCurrency(stats.weekRevenue)} icon={DollarSign} accent="green" sub="Esta semana" />
+        </div>
+      </div>
+
+      {/* Grid principal */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Section icon={CalendarCheck} title="Agenda de hoy" count={stats.upcomingToday.length} action={
@@ -177,7 +208,7 @@ export default async function DashboardPage() {
                   <UserX className="h-4 w-4 text-vylta-amber-500" />
                   <h3 className="text-sm font-bold">Clientes inactivos</h3>
                 </div>
-                <Link href="/clientes?segment=inactivos" className="text-[10px] font-semibold text-vylta-green-600 hover:underline dark:text-vylta-green-400">Ver todos</Link>
+                <Link href="/clientes/inactivos" className="text-[10px] font-semibold text-vylta-green-600 hover:underline dark:text-vylta-green-400">Ver todos</Link>
               </div>
               <p className="mb-2 text-[11px] text-muted-foreground">Sin visita hace 60+ días. ¡Ideal para reenganchar!</p>
               <ul className="space-y-2">
