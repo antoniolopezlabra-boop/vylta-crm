@@ -39,6 +39,9 @@ import {
 //     'create-portal-session' que devuelve URL del Customer Portal
 //   • Detalles de suscripción: desde/próximo cobro/estado/método
 //
+// IMPORTANTE: la Edge Function 'create-portal-session' espera el body
+// con `user_id` (snake_case), NO `userId`.
+//
 // Schema real de subscription_plans en BD:
 //   plan_type, status, price, features (jsonb), trial_ends_at,
 //   stripe_customer_id, stripe_subscription_id, created_at, updated_at
@@ -116,8 +119,11 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
     setPortalLoading(true);
     try {
       const supabase = createClient();
+      // IMPORTANTE: la Edge Function espera `user_id` (snake_case),
+      // no `userId` (camelCase). Verificado en /supabase/functions/
+      // create-portal-session/index.ts del repo móvil.
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
-        body: { userId },
+        body: { user_id: userId },
       });
       if (error) throw error;
       if (!data?.url) throw new Error('No se recibió URL del portal');
