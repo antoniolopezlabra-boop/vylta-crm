@@ -5,25 +5,22 @@ import {
   CreditCard,
   MessageCircle,
   Link2,
-  LogOut,
-  ArrowRight,
   ExternalLink,
   Mail,
   Phone,
   MapPin,
   Sparkles,
   Shield,
+  ArrowRight,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { cn } from '@/lib/utils';
 
 // ══════════════════════════════════════════════════════════════════════
-// /configuracion — Settings del negocio + plan
-//
-// Server Component que carga el perfil del negocio + plan activo.
-// Por ahora es una vista de SOLO LECTURA: mostramos toda la información
-// pero la edición se hace en la app móvil (deep-link). En siguientes
-// iteraciones podemos agregar formularios editables aquí también.
+// /configuracion — schema alineado con app móvil:
+//   • Tabla 'subscription_plans' (no 'user_plans')
+//   • Columna 'plan_type' (no 'plan_name')
+//   • business_profiles tiene 'business_name', 'phone', 'address'
 // ══════════════════════════════════════════════════════════════════════
 
 export default async function ConfiguracionPage() {
@@ -37,20 +34,18 @@ export default async function ConfiguracionPage() {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  // El plan se identifica por la tabla user_plans (mismo schema que móvil)
   const { data: planData } = await supabase
-    .from('user_plans')
-    .select('plan_name, status, current_period_end')
+    .from('subscription_plans')
+    .select('plan_type, status, price, current_period_end')
     .eq('user_id', user.id)
     .maybeSingle();
 
-  const planLabel = getPlanLabel(planData?.plan_name);
-  const slug = profile?.slug || 'tu-negocio';
+  const planLabel = getPlanLabel(planData?.plan_type);
+  const slug = (profile as any)?.slug || 'tu-negocio';
   const bookingUrl = `https://book.vylta.lat/${slug}`;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Configuración</h1>
         <p className="text-sm text-muted-foreground">
@@ -59,20 +54,18 @@ export default async function ConfiguracionPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Mi negocio */}
         <SettingsCard
           icon={Building2}
           title="Mi negocio"
           description="Datos básicos visibles para tus clientes."
         >
           <DataRow label="Nombre del negocio" value={profile?.business_name || '—'} />
-          <DataRow label="Propietario" value={profile?.owner_name || '—'} />
           <DataRow icon={Mail} label="Email" value={user.email || '—'} />
           {profile?.phone && <DataRow icon={Phone} label="Teléfono" value={profile.phone} />}
           {profile?.address && <DataRow icon={MapPin} label="Dirección" value={profile.address} />}
+          {(profile as any)?.business_type && <DataRow label="Tipo de negocio" value={(profile as any).business_type} />}
         </SettingsCard>
 
-        {/* Plan */}
         <SettingsCard
           icon={Sparkles}
           title="Plan activo"
@@ -104,7 +97,7 @@ export default async function ConfiguracionPage() {
             </div>
           )}
 
-          {(!planData || planData.plan_name === 'Gratuito') && (
+          {(!planData || planData.plan_type?.toLowerCase() === 'gratuito') && (
             <Link
               href="https://vylta.lat#pricing"
               target="_blank"
@@ -116,7 +109,6 @@ export default async function ConfiguracionPage() {
           )}
         </SettingsCard>
 
-        {/* Link público */}
         <SettingsCard
           icon={Link2}
           title="Tu link público de citas"
@@ -135,13 +127,12 @@ export default async function ConfiguracionPage() {
           </Link>
         </SettingsCard>
 
-        {/* WhatsApp Business */}
         <SettingsCard
           icon={MessageCircle}
           title="WhatsApp Business"
           description="Recordatorios automáticos para tus clientes."
         >
-          {planData?.plan_name === 'Basico' || planData?.plan_name === 'Premium' ? (
+          {planData && ['basico', 'premium'].includes((planData.plan_type || '').toLowerCase()) ? (
             <div className="flex items-center gap-2 rounded-lg border border-vylta-green-500/30 bg-vylta-green-500/5 px-3 py-2 text-sm">
               <Shield className="h-4 w-4 text-vylta-green-600 dark:text-vylta-green-400" />
               <span className="font-semibold text-vylta-green-700 dark:text-vylta-green-400">
@@ -158,30 +149,8 @@ export default async function ConfiguracionPage() {
             </div>
           )}
         </SettingsCard>
-
-        {/* Pagos (solo si tiene plan pagado) */}
-        {(planData?.plan_name === 'Basico' || planData?.plan_name === 'Premium') && (
-          <SettingsCard
-            icon={CreditCard}
-            title="Pagos"
-            description="Administra tu método de pago y facturas."
-          >
-            <Link
-              href="https://billing.stripe.com/p/login/test_xxx"
-              target="_blank"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold transition hover:bg-secondary"
-            >
-              Abrir Portal de Pagos
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Cambia tu tarjeta, descarga facturas o cancela tu suscripción.
-            </p>
-          </SettingsCard>
-        )}
       </div>
 
-      {/* Footer con info de cuenta */}
       <div className="mt-8 flex flex-col gap-2 border-t border-border pt-6 text-xs text-muted-foreground">
         <div>
           ID de usuario: <span className="font-mono">{user.id}</span>
@@ -195,8 +164,6 @@ export default async function ConfiguracionPage() {
     </div>
   );
 }
-
-// ── Subcomponentes ──
 
 function SettingsCard({
   icon: Icon,
@@ -225,15 +192,7 @@ function SettingsCard({
   );
 }
 
-function DataRow({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon?: any;
-}) {
+function DataRow({ label, value, icon: Icon }: { label: string; value: string; icon?: any }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border py-2 text-sm last:border-b-0">
       <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -245,10 +204,10 @@ function DataRow({
   );
 }
 
-// ── Helper para mapear el nombre interno del plan a etiquetas amigables ──
-function getPlanLabel(planName?: string | null) {
-  switch (planName) {
-    case 'Basico':
+function getPlanLabel(planType?: string | null) {
+  const t = (planType || '').toLowerCase();
+  switch (t) {
+    case 'basico':
       return {
         name: 'Premium',
         tier: 'PREMIUM',
@@ -256,7 +215,7 @@ function getPlanLabel(planName?: string | null) {
         price: '$399',
         badgeClass: 'bg-vylta-green-500/15 text-vylta-green-700 dark:text-vylta-green-400',
       };
-    case 'Premium':
+    case 'premium':
       return {
         name: 'Luxury',
         tier: 'LUXURY',
@@ -264,7 +223,6 @@ function getPlanLabel(planName?: string | null) {
         price: '$799',
         badgeClass: 'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400',
       };
-    case 'Gratuito':
     default:
       return {
         name: 'Básico',

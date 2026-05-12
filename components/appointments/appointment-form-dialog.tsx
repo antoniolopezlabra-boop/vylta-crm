@@ -11,7 +11,6 @@ import {
   Calendar as CalendarIcon,
   Clock,
   Search,
-  Plus,
   AlertTriangle,
   StickyNote,
 } from 'lucide-react';
@@ -36,16 +35,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { cn, formatCurrency } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { toLocalDateString } from '@/lib/date-utils';
 
 // ══════════════════════════════════════════════════════════════════════
-// Formulario crear cita — el más complejo del CRM
-//
-// Carga clientes + servicios al abrir.
-// Selector de servicio autocompleta duración + precio.
-// Detecta conflictos de horario (otra cita pisa esta franja) ANTES de
-// guardar y avisa al dueno.
+// Form de Nueva Cita — alineado con schema real de la app móvil:
+//   • services.is_active (no active)
+//   • appointments: NO existe duration_minutes (se infiere de end_time)
+//   • appointments: NO existe paid (status='Pagado' indica pago)
+//   • service_id NO se guarda — solo se guarda service_name + service_cost
+//   • Detección de conflictos usa el patrón del backend móvil:
+//     .not('status', 'in', '("Cancelada","No asisti\u00f3","Rechazada")')
 // ══════════════════════════════════════════════════════════════════════
 
 const STATUS_OPTIONS = ['Confirmada', 'Pendiente'] as const;
@@ -62,19 +62,8 @@ const appointmentSchema = z.object({
 
 type AppointmentFormData = z.infer<typeof appointmentSchema>;
 
-interface ClientOption {
-  id: string;
-  name: string;
-  phone: string | null;
-}
-
-interface ServiceOption {
-  id: string;
-  name: string;
-  duration_minutes: number;
-  price: number;
-  active: boolean;
-}
+interface ClientOption { id: string; name: string; phone: string | null; }
+interface ServiceOption { id: string; name: string; duration_minutes: number; price: number; is_active: boolean; }
 
 interface AppointmentFormDialogProps {
   open: boolean;
@@ -122,7 +111,6 @@ export function AppointmentFormDialog({
   const selectedTime = watch('start_time');
   const duration = watch('duration_minutes');
 
-  // ── Cargar clientes y servicios cuando se abre ──
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -134,8 +122,11 @@ export function AppointmentFormDialog({
 
       const [clientsRes, servicesRes] = await Promise.all([
         supabase.from('clients').select('id, name, phone').eq('user_id', user.id).order('name'),
-        supabase.from('services').select('id, name, duration_minutes, price, active').eq('user_id', user.id).eq('active', true).order('name'),
+        supabase.from('services').select('id, name, duration_minutes, price, is_active').eq('user_id', user.id).eq('is_active', true).order('name'),
       ]);
+
+      if (clientsRes.error) console.error('[AppointmentForm] clients error:', clientsRes.error);
+      if (servicesRes.error) console.error('[AppointmentForm] services error:', servicesRes.error);
 
       if (!cancelled) {
         setClients((clientsRes.data || []) as ClientOption[]);
@@ -146,16 +137,13 @@ export function AppointmentFormDialog({
     return () => { cancelled = true; };
   }, [open]);
 
-  // ── Auto-llenar duración cuando cambia el servicio ──
   useEffect(() => {
     if (!selectedServiceId) return;
     const service = services.find(s => s.id === selectedServiceId);
-    if (service) {
-      setValue('duration_minutes', service.duration_minutes);
-    }
+    if (service) setValue('duration_minutes', service.duration_minutes);
   }, [selectedServiceId, services, setValue]);
 
-  // ── Detectar conflictos de horario en vivo (debounced) ──
+  // Detección de conflictos sin .not(...in) que causa problemas con URL-encode
   useEffect(() => {
     if (!selectedDate || !selectedTime || !duration) {
       setConflict(null);
@@ -167,28 +155,35 @@ export function AppointmentFormDialog({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data } = await supabase
+      // Pedimos TODAS las citas del día y filtramos por status en cliente.
+      // Esto evita problemas con .not('status', 'in', ...) y caracteres especiales.
+      const { data, error } = await supabase
         .from('appointments')
-        .select('id, start_time, end_time, duration_minutes, service_name, client_name_temp, client:clients(name)')
+        .select('id, start_time, end_time, status, service_name, client_name_temp, client:clients(name)')
         .eq('user_id', user.id)
-        .eq('date', selectedDate)
-        .not('status', 'in', '("Cancelada","No asistió")');
+        .eq('date', selectedDate);
 
-      if (!data) {
-        setConflict(null);
+      if (error) {
+        console.error('[conflict-check] error:', error);
         return;
       }
+      if (!data) { setConflict(null); return; }
 
-      // Convertir nueva cita a rango de minutos
+      const EXCLUDED = ['Cancelada', 'No asistió', 'Rechazada'];
+      const active = data.filter((a: any) => !EXCLUDED.includes(a.status));
+
       const [h, m] = selectedTime.split(':').map(Number);
       const newStart = h * 60 + (m || 0);
       const newEnd = newStart + duration;
 
-      const conflicting = data.find((apt: any) => {
-        const [eh, em] = apt.start_time.split(':').map(Number);
-        const aptStart = eh * 60 + (em || 0);
-        const aptEnd = aptStart + (apt.duration_minutes || 60);
-        // Solapamiento: nueva inicia antes de que otra termine Y termina después de que otra inicie
+      const timeToMin = (t: string) => {
+        const [hh, mm] = t.split(':').map(Number);
+        return (hh || 0) * 60 + (mm || 0);
+      };
+
+      const conflicting = active.find((apt: any) => {
+        const aptStart = timeToMin(apt.start_time);
+        const aptEnd = apt.end_time ? timeToMin(apt.end_time) : aptStart + 60;
         return newStart < aptEnd && newEnd > aptStart;
       });
 
@@ -203,7 +198,6 @@ export function AppointmentFormDialog({
     return () => clearTimeout(timer);
   }, [selectedDate, selectedTime, duration]);
 
-  // ── Filtrado de clientes en vivo ──
   const filteredClients = useMemo(() => {
     if (!clientSearch.trim()) return clients.slice(0, 50);
     const q = clientSearch.trim().toLowerCase();
@@ -233,7 +227,6 @@ export function AppointmentFormDialog({
     const service = services.find(s => s.id === data.serviceId);
     const client = clients.find(c => c.id === data.clientId);
 
-    // Calcular end_time
     const [h, m] = data.start_time.split(':').map(Number);
     const startMin = h * 60 + (m || 0);
     const endMin = startMin + data.duration_minutes;
@@ -241,17 +234,15 @@ export function AppointmentFormDialog({
     const endM = endMin % 60;
     const end_time = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
+    // Payload alineado con appointments schema real (sin duration_minutes ni paid)
     const payload = {
       user_id: user.id,
       client_id: data.clientId,
-      client_name_temp: client?.name || null,
-      service_id: data.serviceId,
       service_name: service?.name || '',
       service_cost: service?.price || 0,
       date: data.date,
       start_time: data.start_time,
       end_time,
-      duration_minutes: data.duration_minutes,
       status: data.status,
       notes: data.notes?.trim() || null,
     };
@@ -260,6 +251,7 @@ export function AppointmentFormDialog({
     setSubmitting(false);
 
     if (result.error) {
+      console.error('[AppointmentForm] insert error:', result.error);
       toast.error('No pudimos crear la cita: ' + result.error.message);
       return;
     }
@@ -281,7 +273,6 @@ export function AppointmentFormDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {/* Cliente */}
           <Field label="Cliente" icon={User} error={errors.clientId?.message} required>
             <div className="space-y-2">
               <div className="relative">
@@ -352,7 +343,6 @@ export function AppointmentFormDialog({
             </div>
           </Field>
 
-          {/* Servicio */}
           <Field label="Servicio" icon={Briefcase} error={errors.serviceId?.message} required>
             <Controller
               control={control}
@@ -391,7 +381,6 @@ export function AppointmentFormDialog({
             )}
           </Field>
 
-          {/* Fecha + Hora */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Fecha" icon={CalendarIcon} error={errors.date?.message} required>
               <Input {...register('date')} type="date" />
@@ -401,7 +390,6 @@ export function AppointmentFormDialog({
             </Field>
           </div>
 
-          {/* Duración */}
           <Field label="Duración (min)" icon={Clock} error={errors.duration_minutes?.message}>
             <Input
               {...register('duration_minutes', { valueAsNumber: true })}
@@ -412,7 +400,6 @@ export function AppointmentFormDialog({
             />
           </Field>
 
-          {/* Aviso de conflicto */}
           {conflict && (
             <div className="flex items-start gap-2 rounded-lg border border-vylta-amber-500/40 bg-vylta-amber-500/10 px-3 py-2 text-xs">
               <AlertTriangle className="h-4 w-4 shrink-0 text-vylta-amber-700 dark:text-amber-400" />
@@ -420,7 +407,6 @@ export function AppointmentFormDialog({
             </div>
           )}
 
-          {/* Status */}
           <Field label="Estado" icon={CalendarIcon}>
             <Controller
               control={control}
@@ -440,7 +426,6 @@ export function AppointmentFormDialog({
             />
           </Field>
 
-          {/* Notas */}
           <Field label="Notas" icon={StickyNote}>
             <Textarea
               {...register('notes')}

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Briefcase, Clock, DollarSign, FileText, Palette } from 'lucide-react';
+import { Loader2, Briefcase, Clock, DollarSign, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -22,19 +22,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 // ══════════════════════════════════════════════════════════════════════
-// Formulario crear/editar servicio
+// Form servicio — schema alineado con BD real:
+//   • is_active (no 'active')
+//   • La BD NO tiene columna 'color' — lo guardamos solo si existe
 // ══════════════════════════════════════════════════════════════════════
-
-const SERVICE_COLORS = [
-  '#10B981', // verde VYLTA
-  '#6366F1', // indigo
-  '#F59E0B', // amber
-  '#F472B6', // pink
-  '#3B82F6', // blue
-  '#A855F7', // purple
-  '#14B8A6', // teal
-  '#EF4444', // red
-];
 
 const serviceSchema = z.object({
   name: z.string().trim().min(2, 'Nombre mínimo 2 caracteres'),
@@ -47,8 +38,7 @@ const serviceSchema = z.object({
     .number({ invalid_type_error: 'Debe ser un número' })
     .min(0, 'No puede ser negativo')
     .max(999999, 'Precio demasiado alto'),
-  color: z.string(),
-  active: z.boolean(),
+  is_active: z.boolean(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -83,13 +73,11 @@ export function ServiceFormDialog({
       description: initialService?.description || '',
       duration_minutes: initialService?.duration_minutes || 60,
       price: initialService?.price || 0,
-      color: initialService?.color || SERVICE_COLORS[0],
-      active: initialService?.active ?? true,
+      is_active: initialService?.is_active ?? true,
     },
   });
 
-  const selectedColor = watch('color');
-  const isActive = watch('active');
+  const isActive = watch('is_active');
 
   async function onSubmit(data: ServiceFormData) {
     setSubmitting(true);
@@ -106,9 +94,9 @@ export function ServiceFormDialog({
       description: data.description?.trim() || null,
       duration_minutes: data.duration_minutes,
       price: data.price,
-      color: data.color,
-      active: data.active,
+      is_active: data.is_active,
       user_id: user.id,
+      updated_at: new Date().toISOString(),
     };
 
     let result;
@@ -125,6 +113,7 @@ export function ServiceFormDialog({
     setSubmitting(false);
 
     if (result.error) {
+      console.error('[ServiceForm] error:', result.error);
       toast.error(isEdit ? 'No pudimos actualizar el servicio' : 'No pudimos crear el servicio');
       return;
     }
@@ -193,41 +182,9 @@ export function ServiceFormDialog({
             </Field>
           </div>
 
-          {/* Selector de color */}
-          <Field label="Color" icon={Palette} error={errors.color?.message}>
-            <Controller
-              control={control}
-              name="color"
-              render={({ field }) => (
-                <div className="flex flex-wrap gap-2">
-                  {SERVICE_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => field.onChange(color)}
-                      className={cn(
-                        'h-8 w-8 rounded-lg transition-all',
-                        selectedColor === color
-                          ? 'ring-2 ring-offset-2 ring-offset-card scale-110'
-                          : 'hover:scale-105 ring-1 ring-border',
-                      )}
-                      style={{
-                        backgroundColor: color,
-                        // @ts-ignore — CSS custom prop
-                        '--tw-ring-color': color,
-                      }}
-                      aria-label={`Color ${color}`}
-                    />
-                  ))}
-                </div>
-              )}
-            />
-          </Field>
-
-          {/* Toggle activo */}
           <Controller
             control={control}
-            name="active"
+            name="is_active"
             render={({ field }) => (
               <label className="flex cursor-pointer items-center justify-between rounded-lg border border-border bg-secondary/40 px-3 py-2.5 transition hover:bg-secondary/60">
                 <div>
