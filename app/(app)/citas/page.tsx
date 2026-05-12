@@ -24,6 +24,7 @@ import {
 import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
+import { useSupabaseRealtime } from '@/lib/hooks/use-supabase-realtime';
 
 const HOUR_HEIGHT = 60;
 const START_HOUR = 6;
@@ -63,6 +64,13 @@ export default function CitasPage() {
   }
 
   useEffect(() => { reload(); }, [weekStart, weekEnd]);
+
+  // ── Realtime: cuando hay cambios en appointments, recargar la semana ──
+  // Usamos una ref a reload para que el callback siempre llame a la versión
+  // más fresca con weekStart/weekEnd actualizados.
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  useSupabaseRealtime('appointments', () => reloadRef.current());
 
   useEffect(() => {
     if (scrollContainerRef.current && !loading) {
