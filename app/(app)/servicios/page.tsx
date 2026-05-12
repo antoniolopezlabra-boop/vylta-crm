@@ -10,16 +10,15 @@ import {
   Loader2,
   CheckCircle2,
   Circle,
+  Pencil,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ServiceFormDialog } from '@/components/services/service-form-dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// /servicios — Catálogo de servicios del negocio
-//
-// Tabla con: nombre, duración, precio, estado (activo/inactivo).
-// Búsqueda en vivo + botón agregar.
+// /servicios — ahora con formulario funcional de crear/editar
 // ══════════════════════════════════════════════════════════════════════
 
 interface Service {
@@ -38,26 +37,25 @@ export default function ServiciosPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingService, setEditingService] = useState<Service | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
-      const { data } = await supabase
-        .from('services')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('active', { ascending: false })
-        .order('name', { ascending: true });
-      if (!cancelled) {
-        setServices((data || []) as Service[]);
-        setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  async function reload() {
+    setLoading(true);
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data } = await supabase
+      .from('services')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('active', { ascending: false })
+      .order('name', { ascending: true });
+    setServices((data || []) as Service[]);
+    setLoading(false);
+  }
+
+  useEffect(() => { reload(); }, []);
 
   const filtered = useMemo(() => {
     let result = services;
@@ -76,9 +74,18 @@ export default function ServiciosPage() {
   const activeCount = services.filter(s => s.active).length;
   const totalRevenue = services.filter(s => s.active).reduce((sum, s) => sum + (s.price || 0), 0);
 
+  function openCreate() {
+    setEditingService(null);
+    setFormOpen(true);
+  }
+
+  function openEdit(service: Service) {
+    setEditingService(service);
+    setFormOpen(true);
+  }
+
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Servicios</h1>
@@ -86,13 +93,12 @@ export default function ServiciosPage() {
             {loading ? 'Cargando...' : `${activeCount} servicios activos`}
           </p>
         </div>
-        <Button size="sm" className="shrink-0">
+        <Button size="sm" className="shrink-0" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           Nuevo servicio
         </Button>
       </div>
 
-      {/* Stats */}
       {!loading && services.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <SmallStat label="Total servicios" value={`${services.length}`} icon={Briefcase} />
@@ -101,7 +107,6 @@ export default function ServiciosPage() {
         </div>
       )}
 
-      {/* Search + filtros */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -124,14 +129,16 @@ export default function ServiciosPage() {
         </label>
       </div>
 
-      {/* Tabla */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState hasFilter={search.length > 0 || !showInactive} />
+          <EmptyState
+            hasFilter={search.length > 0 || !showInactive}
+            onCreate={openCreate}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -141,12 +148,14 @@ export default function ServiciosPage() {
                   <th className="px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Duración</th>
                   <th className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Precio</th>
                   <th className="px-4 py-2.5 text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">Estado</th>
+                  <th className="w-12" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((service) => (
                   <tr
                     key={service.id}
+                    onClick={() => openEdit(service)}
                     className={cn(
                       'group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-secondary/50',
                       !service.active && 'opacity-60',
@@ -193,6 +202,9 @@ export default function ServiciosPage() {
                         </span>
                       )}
                     </td>
+                    <td className="px-2 py-3 text-right">
+                      <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -200,38 +212,36 @@ export default function ServiciosPage() {
           </div>
         )}
       </div>
+
+      {/* Formulario crear/editar */}
+      <ServiceFormDialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open);
+          if (!open) setEditingService(null);
+        }}
+        initialService={editingService}
+        onSuccess={() => reload()}
+      />
     </div>
   );
 }
 
-function SmallStat({
-  label,
-  value,
-  icon: Icon,
-  accent,
-}: {
-  label: string;
-  value: string;
-  icon: any;
-  accent?: 'green';
-}) {
+function SmallStat({ label, value, icon: Icon, accent }: { label: string; value: string; icon: any; accent?: 'green' }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         <Icon className={cn('h-3.5 w-3.5', accent === 'green' && 'text-vylta-green-600 dark:text-vylta-green-400')} />
         {label}
       </div>
-      <div className={cn(
-        'mt-1 text-xl font-bold tabular-nums',
-        accent === 'green' && 'text-vylta-green-600 dark:text-vylta-green-400',
-      )}>
+      <div className={cn('mt-1 text-xl font-bold tabular-nums', accent === 'green' && 'text-vylta-green-600 dark:text-vylta-green-400')}>
         {value}
       </div>
     </div>
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
+function EmptyState({ hasFilter, onCreate }: { hasFilter: boolean; onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-secondary">
@@ -245,6 +255,12 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
           ? 'Prueba con otra búsqueda o quita los filtros.'
           : 'Agrega los servicios que ofreces para empezar a recibir reservas.'}
       </p>
+      {!hasFilter && (
+        <Button size="sm" className="mt-4" onClick={onCreate}>
+          <Plus className="h-4 w-4" />
+          Crear el primero
+        </Button>
+      )}
     </div>
   );
 }

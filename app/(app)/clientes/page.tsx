@@ -22,16 +22,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ClientDetailPanel } from '@/components/clients/client-detail-panel';
+import { ClientFormDialog } from '@/components/clients/client-form-dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// /clientes — Lista de clientes con tabla densa + ficha lateral
-//
-// Features:
-//   • Header con search en vivo + botón "Nuevo cliente"
-//   • Pills de segmentos (Todos, VIP, Nuevos, Inactivos, Cumple este mes)
-//   • Tabla con ordenamiento por columna
-//   • Click en fila → abre ficha lateral con detalle completo
-//   • KPI bar con total de clientes filtrados
+// /clientes — ahora con formulario funcional de Nuevo cliente
 // ══════════════════════════════════════════════════════════════════════
 
 type Segment = NonNullable<ClientFilters['segment']>;
@@ -61,21 +55,18 @@ export default function ClientesPage() {
   const [sortBy, setSortBy] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
 
-  // Carga inicial — solo una vez
-  useEffect(() => {
-    let cancelled = false;
+  // Helper para recargar la lista después de crear/editar
+  async function reload() {
     setLoading(true);
-    fetchClients({}).then((clients) => {
-      if (!cancelled) {
-        setAllClients(clients);
-        setLoading(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, []);
+    const clients = await fetchClients({});
+    setAllClients(clients);
+    setLoading(false);
+  }
 
-  // Filtrado/ordenamiento en memoria — instantáneo
+  useEffect(() => { reload(); }, []);
+
   const filtered = useMemo(() => {
     return applyFilters(allClients, { search, segment, sortBy, sortDir });
   }, [allClients, search, segment, sortBy, sortDir]);
@@ -92,7 +83,7 @@ export default function ClientesPage() {
             {loading ? 'Cargando...' : `${filtered.length} de ${allClients.length} clientes`}
           </p>
         </div>
-        <Button size="sm" className="shrink-0">
+        <Button size="sm" className="shrink-0" onClick={() => setFormOpen(true)}>
           <UserPlus className="h-4 w-4" />
           Nuevo cliente
         </Button>
@@ -169,7 +160,10 @@ export default function ClientesPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : filtered.length === 0 ? (
-          <EmptyState hasSearch={search.length > 0 || segment !== 'todos'} />
+          <EmptyState
+            hasSearch={search.length > 0 || segment !== 'todos'}
+            onCreate={() => setFormOpen(true)}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -194,7 +188,6 @@ export default function ClientesPage() {
                         selectedClient?.id === client.id && 'bg-vylta-green-500/5',
                       )}
                     >
-                      {/* Cliente */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-vylta-green-500/10 text-xs font-bold text-vylta-green-700 dark:text-vylta-green-400">
@@ -212,8 +205,6 @@ export default function ClientesPage() {
                           </div>
                         </div>
                       </td>
-
-                      {/* Contacto */}
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
                           {client.phone && (
@@ -230,18 +221,12 @@ export default function ClientesPage() {
                           )}
                         </div>
                       </td>
-
-                      {/* Citas */}
                       <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums">
                         {client.total_appointments || 0}
                       </td>
-
-                      {/* Gastado */}
                       <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green-600 dark:text-vylta-green-400">
                         {formatCurrency(client.total_spent || 0)}
                       </td>
-
-                      {/* Última visita */}
                       <td className="px-4 py-3 text-xs text-muted-foreground">
                         {client.last_visit ? formatShortDate(client.last_visit) : '—'}
                       </td>
@@ -254,18 +239,23 @@ export default function ClientesPage() {
         )}
       </div>
 
-      {/* Detail panel (deslizable desde la derecha) */}
+      {/* Panel de detalle */}
       {selectedClient && (
         <ClientDetailPanel
           client={selectedClient}
           onClose={() => setSelectedClient(null)}
         />
       )}
+
+      {/* Formulario crear/editar */}
+      <ClientFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        onSuccess={() => reload()}
+      />
     </div>
   );
 }
-
-// ── Subcomponentes ──
 
 function Th({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
@@ -275,7 +265,7 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
   );
 }
 
-function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+function EmptyState({ hasSearch, onCreate }: { hasSearch: boolean; onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-secondary">
@@ -289,11 +279,16 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
           ? 'Prueba con otra búsqueda o quita los filtros.'
           : 'Agrega tu primer cliente o espera a que agenden desde tu link público.'}
       </p>
+      {!hasSearch && (
+        <Button size="sm" className="mt-4" onClick={onCreate}>
+          <UserPlus className="h-4 w-4" />
+          Agregar el primero
+        </Button>
+      )}
     </div>
   );
 }
 
-// ── Helper local (replica fetchClients pero sobre lista ya cargada) ──
 function applyFilters(clients: Client[], filters: ClientFilters): Client[] {
   let result = clients;
 

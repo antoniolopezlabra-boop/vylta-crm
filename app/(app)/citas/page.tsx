@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  CalendarRange,
   Plus,
   Loader2,
 } from 'lucide-react';
@@ -12,7 +11,6 @@ import {
   fetchAppointmentsInRange,
   getWeekDays,
   getApptStatusStyle,
-  minutesToTime,
   type AppointmentWithMeta,
 } from '@/lib/appointments';
 import {
@@ -22,30 +20,11 @@ import {
 } from '@/lib/date-utils';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
 
-// ══════════════════════════════════════════════════════════════════════
-// /citas — Vista calendario semanal estilo Google Calendar
-//
-// Layout:
-//   ┌──────┬────┬────┬────┬────┬────┬────┬────┐
-//   │ hora │ Lun │ Mar │ Mié │ Jue │ Vie │ Sáb │ Dom│
-//   ├──────┼────┼────┼────┼────┼────┼────┼────┤
-//   │ 8 AM │    │ ██ │    │    │    │ ██ │    │
-//   │ 9 AM │ ██ │ ██ │ ██ │    │ ██ │ ██ │    │
-//   │ 10AM │ ██ │    │ ██ │ ██ │    │    │    │
-//   └──────┴────┴────┴────┴────┴────┴────┴────┘
-//
-// Features:
-//   • Navegación semana anterior/siguiente/hoy
-//   • Auto-scroll al horario laboral (8 AM) al cargar
-//   • Línea "AHORA" en rojo en el día actual
-//   • Bloques de citas con altura proporcional a duración
-//   • Colores por status (Confirmada verde, Pendiente amarillo, etc.)
-// ══════════════════════════════════════════════════════════════════════
-
-const HOUR_HEIGHT = 60; // px por hora — zoom del calendario
-const START_HOUR = 6;   // mostrar desde 6 AM
-const END_HOUR = 22;    // hasta 10 PM
+const HOUR_HEIGHT = 60;
+const START_HOUR = 6;
+const END_HOUR = 22;
 const TOTAL_HOURS = END_HOUR - START_HOUR;
 
 export default function CitasPage() {
@@ -54,8 +33,9 @@ export default function CitasPage() {
   const [loading, setLoading] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(new Date());
+  const [formOpen, setFormOpen] = useState(false);
+  const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
 
-  // Actualizar "ahora" cada minuto para mover la línea roja
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
@@ -65,28 +45,21 @@ export default function CitasPage() {
   const weekStart = toLocalDateString(weekDays[0]);
   const weekEnd = toLocalDateString(weekDays[6]);
 
-  // Cargar citas cuando cambia la semana
-  useEffect(() => {
-    let cancelled = false;
+  async function reload() {
     setLoading(true);
-    fetchAppointmentsInRange(weekStart, weekEnd).then((data) => {
-      if (!cancelled) {
-        setAppointments(data);
-        setLoading(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [weekStart, weekEnd]);
+    const data = await fetchAppointmentsInRange(weekStart, weekEnd);
+    setAppointments(data);
+    setLoading(false);
+  }
 
-  // Auto-scroll al horario laboral al cargar
+  useEffect(() => { reload(); }, [weekStart, weekEnd]);
+
   useEffect(() => {
     if (scrollContainerRef.current && !loading) {
-      // Scroll a las 8 AM (2 horas después del inicio)
       scrollContainerRef.current.scrollTop = (8 - START_HOUR) * HOUR_HEIGHT - 20;
     }
   }, [loading]);
 
-  // ── Agrupar citas por día ──
   const apptsByDay = useMemo(() => {
     const map: Record<string, AppointmentWithMeta[]> = {};
     weekDays.forEach((d) => {
@@ -98,7 +71,6 @@ export default function CitasPage() {
     return map;
   }, [appointments, weekDays]);
 
-  // ── Navegación ──
   function goToPrevWeek() {
     const d = new Date(referenceDate);
     d.setDate(d.getDate() - 7);
@@ -113,7 +85,11 @@ export default function CitasPage() {
     setReferenceDate(new Date());
   }
 
-  // ── Label del rango ──
+  function openNewAppointment(dateStr?: string) {
+    setInitialDate(dateStr);
+    setFormOpen(true);
+  }
+
   const rangeLabel = (() => {
     const m1 = weekDays[0].getMonth();
     const m2 = weekDays[6].getMonth();
@@ -131,7 +107,6 @@ export default function CitasPage() {
 
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col gap-4">
-      {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Citas</h1>
@@ -160,28 +135,28 @@ export default function CitasPage() {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <Button size="sm">
+          <Button size="sm" onClick={() => openNewAppointment()}>
             <Plus className="h-4 w-4" />
             Nueva cita
           </Button>
         </div>
       </div>
 
-      {/* Grid del calendario */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        {/* Header de días */}
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border">
           <div className="border-r border-border" />
           {weekDays.map((day, idx) => {
             const dateStr = toLocalDateString(day);
             const isToday = dateStr === todayStr;
             return (
-              <div
+              <button
                 key={dateStr}
+                onClick={() => openNewAppointment(dateStr)}
                 className={cn(
-                  'flex flex-col items-center gap-0.5 border-r border-border py-2.5 last:border-r-0',
+                  'flex flex-col items-center gap-0.5 border-r border-border py-2.5 last:border-r-0 transition-colors hover:bg-secondary/50',
                   isToday && 'bg-vylta-green-500/5',
                 )}
+                title={`Nueva cita para ${dateStr}`}
               >
                 <span className={cn(
                   'text-[10px] font-semibold uppercase tracking-wider',
@@ -195,12 +170,11 @@ export default function CitasPage() {
                 )}>
                   {day.getDate()}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
 
-        {/* Grid scrolleable de horas + citas */}
         <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto">
           {loading && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-card/60 backdrop-blur-sm">
@@ -212,7 +186,6 @@ export default function CitasPage() {
             className="relative grid grid-cols-[60px_repeat(7,1fr)]"
             style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}
           >
-            {/* Columna de horas */}
             <div className="border-r border-border">
               {Array.from({ length: TOTAL_HOURS }, (_, i) => {
                 const hour = START_HOUR + i;
@@ -230,7 +203,6 @@ export default function CitasPage() {
               })}
             </div>
 
-            {/* 7 columnas de días */}
             {weekDays.map((day) => {
               const dateStr = toLocalDateString(day);
               const dayAppts = apptsByDay[dateStr] || [];
@@ -244,7 +216,6 @@ export default function CitasPage() {
                     isToday && 'bg-vylta-green-500/[0.03]',
                   )}
                 >
-                  {/* Líneas de hora */}
                   {Array.from({ length: TOTAL_HOURS }, (_, i) => (
                     <div
                       key={i}
@@ -253,7 +224,6 @@ export default function CitasPage() {
                     />
                   ))}
 
-                  {/* Línea AHORA en el día actual */}
                   {isToday && showNowLine && (
                     <div
                       className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
@@ -264,7 +234,6 @@ export default function CitasPage() {
                     </div>
                   )}
 
-                  {/* Bloques de citas */}
                   {dayAppts.map((apt) => (
                     <AppointmentBlock key={apt.id} appointment={apt} />
                   ))}
@@ -274,11 +243,17 @@ export default function CitasPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal de nueva cita */}
+      <AppointmentFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        initialDate={initialDate}
+        onSuccess={() => reload()}
+      />
     </div>
   );
 }
-
-// ── Bloque visual de una cita ──
 
 function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta }) {
   const style = getApptStatusStyle(appointment.status);
@@ -288,7 +263,6 @@ function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta })
   const top = (startMinFromVisible / 60) * HOUR_HEIGHT;
   const height = (duration / 60) * HOUR_HEIGHT;
 
-  // Si la cita está fuera del rango visible, no renderizar
   if (startMinFromVisible < 0 || startMinFromVisible >= TOTAL_HOURS * 60) return null;
 
   return (
@@ -318,8 +292,6 @@ function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta })
     </div>
   );
 }
-
-// ── Helpers ──
 
 function formatHour(hour24: number): string {
   if (hour24 === 0) return '12 AM';
