@@ -11,16 +11,21 @@ import {
   CheckCircle2,
   Circle,
   Pencil,
+  XCircle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { ServiceFormDialog } from '@/components/services/service-form-dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// /servicios — alineado con schema real:
-//   • is_active (no 'active')
-//   • NO existe 'color' — lo simulamos en cliente para el avatar
+// /servicios — ajustes:
+//   • "Total servicios" ahora muestra SOLO activos (no inactivos)
+//   • "Activos" se elimina (era redundante con Total)
+//   • Se agrega "Inactivos" como tercera métrica
+//   • Al editar un servicio, se puede togglear is_active sin problema
+//   • Toast notifications para feedback inmediato
 // ══════════════════════════════════════════════════════════════════════
 
 interface Service {
@@ -62,6 +67,9 @@ export default function ServiciosPage() {
 
   useEffect(() => { reload(); }, []);
 
+  const activeServices = useMemo(() => services.filter(s => s.is_active), [services]);
+  const inactiveServices = useMemo(() => services.filter(s => !s.is_active), [services]);
+
   const filtered = useMemo(() => {
     let result = services;
     if (!showInactive) result = result.filter(s => s.is_active);
@@ -75,8 +83,7 @@ export default function ServiciosPage() {
     return result;
   }, [services, search, showInactive]);
 
-  const activeCount = services.filter(s => s.is_active).length;
-  const totalRevenue = services.filter(s => s.is_active).reduce((sum, s) => sum + (s.price || 0), 0);
+  const totalRevenue = activeServices.reduce((sum, s) => sum + (s.price || 0), 0);
 
   function openCreate() {
     setEditingService(null);
@@ -86,6 +93,22 @@ export default function ServiciosPage() {
   function openEdit(service: Service) {
     setEditingService(service);
     setFormOpen(true);
+  }
+
+  async function toggleActive(service: Service, e: React.MouseEvent) {
+    e.stopPropagation();
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('services')
+      .update({ is_active: !service.is_active, updated_at: new Date().toISOString() })
+      .eq('id', service.id);
+    if (error) {
+      console.error('[toggleActive] error:', error);
+      toast.error('No pudimos cambiar el estado');
+      return;
+    }
+    toast.success(service.is_active ? 'Servicio desactivado' : 'Servicio activado');
+    reload();
   }
 
   function colorForService(s: Service, idx: number): string {
@@ -98,7 +121,7 @@ export default function ServiciosPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Servicios</h1>
           <p className="text-sm text-muted-foreground">
-            {loading ? 'Cargando...' : `${activeCount} servicios activos`}
+            {loading ? 'Cargando...' : `${activeServices.length} ${activeServices.length === 1 ? 'servicio activo' : 'servicios activos'}`}
           </p>
         </div>
         <Button size="sm" className="shrink-0" onClick={openCreate}>
@@ -109,9 +132,9 @@ export default function ServiciosPage() {
 
       {!loading && services.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <SmallStat label="Total servicios" value={`${services.length}`} icon={Briefcase} />
-          <SmallStat label="Activos" value={`${activeCount}`} icon={CheckCircle2} accent="green" />
-          <SmallStat label="Valor catálogo" value={formatCurrency(totalRevenue)} icon={DollarSign} accent="green" />
+          <SmallStat label="Servicios activos" value={`${activeServices.length}`} icon={CheckCircle2} accent="green" />
+          <SmallStat label="Inactivos" value={`${inactiveServices.length}`} icon={XCircle} />
+          <SmallStat label="Valor catálogo activo" value={formatCurrency(totalRevenue)} icon={DollarSign} accent="green" />
         </div>
       )}
 
@@ -194,17 +217,29 @@ export default function ServiciosPage() {
                         {formatCurrency(service.price)}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {service.is_active ? (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/10 px-2 py-0.5 text-xs font-semibold text-vylta-green-700 dark:text-vylta-green-400">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Activo
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-                            <Circle className="h-3 w-3" />
-                            Inactivo
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => toggleActive(service, e)}
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition hover:opacity-80',
+                            service.is_active
+                              ? 'bg-vylta-green-500/10 text-vylta-green-700 dark:text-vylta-green-400 hover:bg-vylta-green-500/20'
+                              : 'bg-secondary text-muted-foreground hover:bg-secondary/80',
+                          )}
+                          title={service.is_active ? 'Click para desactivar' : 'Click para activar'}
+                        >
+                          {service.is_active ? (
+                            <>
+                              <CheckCircle2 className="h-3 w-3" />
+                              Activo
+                            </>
+                          ) : (
+                            <>
+                              <Circle className="h-3 w-3" />
+                              Inactivo
+                            </>
+                          )}
+                        </button>
                       </td>
                       <td className="px-2 py-3 text-right">
                         <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />

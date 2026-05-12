@@ -3,11 +3,11 @@ import { createClient } from '@/lib/supabase/client';
 // ══════════════════════════════════════════════════════════════════════
 // Tipos y queries para clientes
 //
-// Schema alineado con la app móvil:
-//   • total_visits (NO total_appointments)
-//   • last_visit
-//   • is_active
-//   • NO tiene tags ni total_spent en la tabla — los calculamos.
+// HALLAZGO: Los campos clients.total_visits y clients.last_visit son
+// mantenidos por la app móvil vía triggers (al cobrar/completar cita).
+// Si esos triggers no corrieron para citas viejas, los campos quedan
+// en 0/null. Para el CRM web los CALCULAMOS desde appointments en vivo,
+// igual que total_spent. Los "computed" son la fuente de verdad.
 // ══════════════════════════════════════════════════════════════════════
 
 export interface Client {
@@ -19,11 +19,10 @@ export interface Client {
   notes: string | null;
   birthday: string | null;
   is_active: boolean;
-  total_visits: number;
-  last_visit: string | null;
+  total_visits: number;  // ← calculado en cliente desde appointments
+  last_visit: string | null;  // ← calculado en cliente desde appointments
   created_at: string;
-  // Calculados en cliente:
-  total_spent?: number;
+  total_spent?: number;  // ← calculado en cliente desde appointments
 }
 
 export interface ClientFilters {
@@ -42,40 +41,65 @@ export interface ClientAppointment {
   service_cost: number | null;
 }
 
+// Status que cuentan como "visita realizada" (paga o no, pero asistió)
+const VISITED_STATUSES = ['Pagado', 'Completada'];
+const PAID_STATUSES = ['Pagado', 'Completada'];
+
 /**
- * Carga clientes + calcula total_spent agregando service_cost de citas
- * con status Pagado/Completada.
+ * Carga clientes y calcula desde appointments:
+ *   • total_visits  = # de citas con status Pagado/Completada
+ *   • last_visit    = fecha más reciente de Pagado/Completada
+ *   • total_spent   = suma de service_cost de Pagado/Completada
  */
 export async function fetchClients(filters: ClientFilters = {}): Promise<Client[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  // Carga en paralelo: clientes + agregación de gastos
+  // Carga en paralelo: clientes + citas (solo las visitadas) para agregar
   const [clientsRes, apptsRes] = await Promise.all([
     supabase.from('clients').select('*').eq('user_id', user.id),
-    supabase.from('appointments').select('client_id, service_cost, status').eq('user_id', user.id).in('status', ['Pagado', 'Completada']),
+    supabase
+      .from('appointments')
+      .select('client_id, service_cost, status, date')
+      .eq('user_id', user.id)
+      .in('status', VISITED_STATUSES),
   ]);
 
   if (clientsRes.error) {
     console.error('[fetchClients] Error:', clientsRes.error);
     return [];
   }
+  if (apptsRes.error) {
+    console.warn('[fetchClients] Appointments query error:', apptsRes.error);
+  }
 
-  // Calcular total_spent por cliente desde las citas pagadas
-  const spentMap = new Map<string, number>();
+  // Acumulador por cliente: { visits, spent, lastVisit }
+  const aggMap = new Map<string, { visits: number; spent: number; lastVisit: string | null }>();
   (apptsRes.data || []).forEach((a: any) => {
-    if (a.client_id) {
-      spentMap.set(a.client_id, (spentMap.get(a.client_id) || 0) + (a.service_cost || 0));
-    }
+    if (!a.client_id) return;
+    const prev = aggMap.get(a.client_id) || { visits: 0, spent: 0, lastVisit: null };
+    const newLast = !prev.lastVisit || (a.date && a.date > prev.lastVisit) ? a.date : prev.lastVisit;
+    aggMap.set(a.client_id, {
+      visits: prev.visits + 1,
+      spent: prev.spent + (PAID_STATUSES.includes(a.status) ? (a.service_cost || 0) : 0),
+      lastVisit: newLast,
+    });
   });
 
-  let clients: Client[] = (clientsRes.data || []).map((c: any) => ({
-    ...c,
-    total_visits: c.total_visits || 0,
-    is_active: c.is_active !== false,
-    total_spent: spentMap.get(c.id) || 0,
-  }));
+  let clients: Client[] = (clientsRes.data || []).map((c: any) => {
+    const agg = aggMap.get(c.id);
+    return {
+      ...c,
+      // Preferir el cálculo del CRM sobre el campo de BD si difieren.
+      // Si el campo de BD tiene un valor más alto (porque el trigger funcionó
+      // alguna vez y no se reflejó aquí), nos quedamos con el máximo.
+      total_visits: Math.max(agg?.visits || 0, c.total_visits || 0),
+      last_visit: agg?.lastVisit || c.last_visit || null,
+      total_spent: agg?.spent || 0,
+      is_active: c.is_active !== false,
+    };
+  });
 
   // Filtros
   if (filters.search?.trim()) {
