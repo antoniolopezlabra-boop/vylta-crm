@@ -5,14 +5,10 @@ import Link from 'next/link';
 import {
   Building2,
   CreditCard,
-  Link2,
-  Cake,
   MessageCircle,
-  Shield,
-  Bell,
-  ExternalLink,
+  Link2,
   Sparkles,
-  ArrowRight,
+  Shield,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { BusinessTab } from './tabs/business-tab';
@@ -21,7 +17,7 @@ import { BookingLinkTab } from './tabs/booking-link-tab';
 import { OverlapsTab } from './tabs/overlaps-tab';
 import { WhatsAppTab } from './tabs/whatsapp-tab';
 import { AccountTab } from './tabs/account-tab';
-import { cn } from '@/lib/utils';
+import { hasPremiumAccess, hasLuxuryAccess, getPlanTier } from '@/lib/plan-labels';
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -31,9 +27,10 @@ interface ConfigShellProps {
 }
 
 export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigShellProps) {
-  const planTier = (plan?.plan_type || 'gratuito').toLowerCase();
-  const isPremium = planTier === 'basico' || planTier === 'premium';
-  const isLuxury = planTier === 'premium';
+  // Mapping correcto: BD 'Basico' → UI "Premium", BD 'Premium' → UI "Luxury"
+  const planTier = getPlanTier(plan?.plan_type);              // 'basico' | 'premium' | 'luxury'
+  const isPremiumOrAbove = hasPremiumAccess(plan?.plan_type); // true para Premium o Luxury (BD: Basico o Premium)
+  const isLuxury = hasLuxuryAccess(plan?.plan_type);          // true solo para Luxury (BD: Premium)
 
   return (
     <div className="space-y-6">
@@ -79,7 +76,7 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
           <PlanTab plan={plan} />
         </TabsContent>
         <TabsContent value="link">
-          <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremium} />
+          <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />
         </TabsContent>
         <TabsContent value="overlaps">
           <OverlapsTab userId={user.id} profile={profile} isLuxury={isLuxury} />

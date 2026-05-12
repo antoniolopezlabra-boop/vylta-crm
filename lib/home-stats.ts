@@ -9,6 +9,7 @@ import {
   getTodayString,
   toLocalDateString,
 } from '@/lib/date-utils';
+import { getPlanTier, isFreeTier } from '@/lib/plan-labels';
 
 export interface TodayAppointment {
   id: string;
@@ -47,11 +48,9 @@ export interface InactiveClientHint {
   phone: string | null;
 }
 
-export type PlanTier = 'gratuito' | 'basico' | 'premium';
-
 export interface PlanUsage {
-  /** Tier real de BD: gratuito ("Básico"), basico ("Premium"), premium ("Luxury") */
-  tier: PlanTier;
+  tier: 'basico' | 'premium' | 'luxury';
+  /** True solo si el plan es "Plan Básico" (BD: gratuito) que tiene límite de 10/mes. */
   isGratuito: boolean;
   used: number;
   limit: number;
@@ -298,10 +297,10 @@ export async function getHomeStats(): Promise<HomeStats> {
     .filter((a: any) => PAID_STATUSES.includes(a.status))
     .reduce((s: number, a: any) => s + (a.service_cost || 0), 0);
 
-  // — Plan + uso (para banner de plan Básico) —
-  // BD tier 'gratuito' = label UI "Plan Básico" con límite de 10 citas/mes
-  const tier = ((planData.data?.plan_type as string) || 'gratuito').toLowerCase() as PlanTier;
-  const isGratuito = tier === 'gratuito';
+  // — Plan + uso (usando el mapping unificado de plan-labels.ts) —
+  const rawPlanType = planData.data?.plan_type;
+  const tier = getPlanTier(rawPlanType); // 'basico' | 'premium' | 'luxury'
+  const isGratuito = isFreeTier(rawPlanType); // True solo si en BD es 'Gratuito'
   const used = monthActive.length;
   const limit = GRATUITO_MONTHLY_LIMIT;
   const remaining = Math.max(0, limit - used);
