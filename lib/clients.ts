@@ -3,8 +3,11 @@ import { createClient } from '@/lib/supabase/client';
 // ══════════════════════════════════════════════════════════════════════
 // Tipos y queries para clientes
 //
-// Lógica replicada de la app móvil para que ambas plataformas vean
-// exactamente los mismos datos.
+// Schema alineado con la app móvil:
+//   • total_visits (NO total_appointments)
+//   • last_visit
+//   • is_active
+//   • NO tiene tags ni total_spent en la tabla — los calculamos.
 // ══════════════════════════════════════════════════════════════════════
 
 export interface Client {
@@ -15,11 +18,12 @@ export interface Client {
   email: string | null;
   notes: string | null;
   birthday: string | null;
-  total_appointments: number;
-  total_spent: number;
+  is_active: boolean;
+  total_visits: number;
   last_visit: string | null;
   created_at: string;
-  tags: string[] | null;
+  // Calculados en cliente:
+  total_spent?: number;
 }
 
 export interface ClientFilters {
@@ -36,28 +40,44 @@ export interface ClientAppointment {
   service_name: string;
   status: string;
   service_cost: number | null;
-  paid: boolean | null;
 }
 
 /**
- * Carga la lista de clientes del usuario con filtros aplicados.
- * Hace una sola query y filtra/ordena en memoria (ok para <10K clientes).
+ * Carga clientes + calcula total_spent agregando service_cost de citas
+ * con status Pagado/Completada.
  */
 export async function fetchClients(filters: ClientFilters = {}): Promise<Client[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data, error } = await supabase
-    .from('clients')
-    .select('*')
-    .eq('user_id', user.id);
+  // Carga en paralelo: clientes + agregación de gastos
+  const [clientsRes, apptsRes] = await Promise.all([
+    supabase.from('clients').select('*').eq('user_id', user.id),
+    supabase.from('appointments').select('client_id, service_cost, status').eq('user_id', user.id).in('status', ['Pagado', 'Completada']),
+  ]);
 
-  if (error || !data) return [];
+  if (clientsRes.error) {
+    console.error('[fetchClients] Error:', clientsRes.error);
+    return [];
+  }
 
-  let clients = data as Client[];
+  // Calcular total_spent por cliente desde las citas pagadas
+  const spentMap = new Map<string, number>();
+  (apptsRes.data || []).forEach((a: any) => {
+    if (a.client_id) {
+      spentMap.set(a.client_id, (spentMap.get(a.client_id) || 0) + (a.service_cost || 0));
+    }
+  });
 
-  // ── Filtro: búsqueda por nombre, teléfono o email ──
+  let clients: Client[] = (clientsRes.data || []).map((c: any) => ({
+    ...c,
+    total_visits: c.total_visits || 0,
+    is_active: c.is_active !== false,
+    total_spent: spentMap.get(c.id) || 0,
+  }));
+
+  // Filtros
   if (filters.search?.trim()) {
     const q = filters.search.trim().toLowerCase();
     clients = clients.filter(c =>
@@ -67,7 +87,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     );
   }
 
-  // ── Filtro: segmento ──
   if (filters.segment && filters.segment !== 'todos') {
     const now = Date.now();
     const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
@@ -77,17 +96,13 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     clients = clients.filter(c => {
       switch (filters.segment) {
         case 'vip':
-          // VIP: 5+ citas o $5,000+ gastados
-          return (c.total_appointments || 0) >= 5 || (c.total_spent || 0) >= 5000;
+          return (c.total_visits || 0) >= 5 || (c.total_spent || 0) >= 5000;
         case 'nuevos':
-          // Nuevos: creados en últimos 30 días
           return new Date(c.created_at).getTime() >= thirtyDaysAgo;
         case 'inactivos':
-          // Inactivos: sin venir 60+ días
           if (!c.last_visit) return false;
           return new Date(c.last_visit).getTime() < sixtyDaysAgo;
         case 'cumple-mes':
-          // Cumpleañeros: cumpleñaos en el mes actual
           if (!c.birthday) return false;
           return new Date(c.birthday + 'T12:00:00').getMonth() === currentMonth;
         default:
@@ -96,7 +111,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     });
   }
 
-  // ── Ordenamiento ──
   const sortBy = filters.sortBy || 'name';
   const dir = filters.sortDir === 'desc' ? -1 : 1;
   clients.sort((a, b) => {
@@ -112,9 +126,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
   return clients;
 }
 
-/**
- * Carga el historial de citas de un cliente específico.
- */
 export async function fetchClientAppointments(clientId: string): Promise<ClientAppointment[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -122,7 +133,7 @@ export async function fetchClientAppointments(clientId: string): Promise<ClientA
 
   const { data } = await supabase
     .from('appointments')
-    .select('id, date, start_time, service_name, status, service_cost, paid')
+    .select('id, date, start_time, service_name, status, service_cost')
     .eq('user_id', user.id)
     .eq('client_id', clientId)
     .order('date', { ascending: false })
@@ -132,12 +143,11 @@ export async function fetchClientAppointments(clientId: string): Promise<ClientA
   return (data || []) as ClientAppointment[];
 }
 
-/** Determina el segmento principal de un cliente para mostrar badge. */
 export function getClientBadge(client: Client): { label: string; color: string } | null {
-  const totalApts = client.total_appointments || 0;
+  const totalVisits = client.total_visits || 0;
   const totalSpent = client.total_spent || 0;
 
-  if (totalApts >= 5 || totalSpent >= 5000) {
+  if (totalVisits >= 5 || totalSpent >= 5000) {
     return { label: 'VIP', color: 'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400' };
   }
 
