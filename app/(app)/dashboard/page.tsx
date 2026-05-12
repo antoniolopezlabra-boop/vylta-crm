@@ -23,6 +23,7 @@ import { formatShortDate, MONTHS_ES, DAYS_ES_FULL } from '@/lib/date-utils';
 import { QuickActions } from '@/components/dashboard/quick-actions';
 import { UnpaidList } from '@/components/dashboard/unpaid-list';
 import { PlanUsageBanner } from '@/components/dashboard/plan-usage-banner';
+import { RealtimeListener } from '@/components/realtime-listener';
 
 export default async function DashboardPage() {
   const stats = await getHomeStats();
@@ -48,6 +49,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Realtime: dashboard depende de appointments y clients */}
+      <RealtimeListener tables={['appointments', 'clients']} />
+
       {/* Saludo */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
