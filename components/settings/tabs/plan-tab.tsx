@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CreditCard, ArrowRight, Check, X, Sparkles } from 'lucide-react';
+import { CreditCard, ArrowRight, Check, X, Sparkles, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SettingsCard } from '../configuracion-shell';
 import {
@@ -11,8 +11,24 @@ import {
   getPlanTier,
 } from '@/lib/plan-labels';
 
+// ══════════════════════════════════════════════════════════════════════
+// Schema real de subscription_plans en BD (mayo 2026):
+//   plan_type, status, price, features (jsonb), trial_ends_at,
+//   stripe_customer_id, stripe_subscription_id, created_at, updated_at
+//
+// IMPORTANTE: NO existe la columna `current_period_end`. Para fecha de
+// vencimiento usamos `trial_ends_at` (en producción Stripe pondrá la
+// fecha real ahí cuando facturemos via webhook).
+// ══════════════════════════════════════════════════════════════════════
+
 interface PlanTabProps {
-  plan: { plan_type?: string | null; status?: string | null; price?: number | null; current_period_end?: string | null } | null;
+  plan: {
+    plan_type?: string | null;
+    status?: string | null;
+    price?: string | number | null;
+    trial_ends_at?: string | null;
+    stripe_subscription_id?: string | null;
+  } | null;
 }
 
 const PLAN_FEATURES = [
@@ -37,6 +53,12 @@ export function PlanTab({ plan }: PlanTabProps) {
   const planPrice = getPlanPrice(rawPlanType);
   const planDescription = getPlanDescription(rawPlanType);
   const planBadgeClass = getPlanBadgeClass(rawPlanType);
+  const isActive = (plan?.status || '').toLowerCase() === 'active';
+
+  // Fecha de renovación: usa trial_ends_at (la única columna de fechas que existe en BD).
+  // En producción, cuando integremos Stripe billing webhook, esta columna se
+  // actualizará con la próxima fecha de facturación.
+  const renewalDate = plan?.trial_ends_at;
 
   return (
     <div className="space-y-4">
@@ -46,11 +68,17 @@ export function PlanTab({ plan }: PlanTabProps) {
             <div className="flex items-center gap-2">
               <span className="text-lg font-bold">Plan {planName}</span>
               <span className={cn('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase', planBadgeClass)}>{planBadge}</span>
+              {isActive && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/15 px-2 py-0.5 text-[10px] font-bold text-vylta-green-700 dark:text-vylta-green-400">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  ACTIVO
+                </span>
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{planDescription}</p>
-            {plan?.current_period_end && (
+            {renewalDate && (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Renovación: {new Date(plan.current_period_end).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
+                Renovación: {new Date(renewalDate).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
             )}
           </div>
