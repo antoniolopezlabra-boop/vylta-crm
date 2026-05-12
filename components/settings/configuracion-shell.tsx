@@ -22,7 +22,7 @@ import { hasPremiumAccess, hasLuxuryAccess, getPlanTier } from '@/lib/plan-label
 interface ConfigShellProps {
   user: { id: string; email: string };
   profile: any | null;
-  plan: { plan_type?: string | null; status?: string | null; price?: number | null; current_period_end?: string | null } | null;
+  plan: any | null;
   bookingLink: { is_active?: boolean | null; slug?: string | null } | null;
 }
 
@@ -73,7 +73,7 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
           <BusinessTab userId={user.id} profile={profile} />
         </TabsContent>
         <TabsContent value="plan">
-          <PlanTab plan={plan} />
+          <PlanTab userId={user.id} plan={plan} />
         </TabsContent>
         <TabsContent value="link">
           <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />
