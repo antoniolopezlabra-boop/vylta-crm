@@ -24,10 +24,6 @@ import {
 import { ClientDetailPanel } from '@/components/clients/client-detail-panel';
 import { ClientFormDialog } from '@/components/clients/client-form-dialog';
 
-// ══════════════════════════════════════════════════════════════════════
-// /clientes — ahora con formulario funcional de Nuevo cliente
-// ══════════════════════════════════════════════════════════════════════
-
 type Segment = NonNullable<ClientFilters['segment']>;
 
 const SEGMENTS: { value: Segment; label: string }[] = [
@@ -57,7 +53,6 @@ export default function ClientesPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [formOpen, setFormOpen] = useState(false);
 
-  // Helper para recargar la lista después de crear/editar
   async function reload() {
     setLoading(true);
     const clients = await fetchClients({});
@@ -75,7 +70,6 @@ export default function ClientesPage() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Clientes</h1>
@@ -89,7 +83,6 @@ export default function ClientesPage() {
         </Button>
       </div>
 
-      {/* Search + ordenamiento */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -135,7 +128,6 @@ export default function ClientesPage() {
         </DropdownMenu>
       </div>
 
-      {/* Segmento pills */}
       <div className="flex flex-wrap gap-1.5">
         {SEGMENTS.map((seg) => (
           <button
@@ -153,7 +145,6 @@ export default function ClientesPage() {
         ))}
       </div>
 
-      {/* Tabla */}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -222,7 +213,7 @@ export default function ClientesPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums">
-                        {client.total_appointments || 0}
+                        {client.total_visits || 0}
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green-600 dark:text-vylta-green-400">
                         {formatCurrency(client.total_spent || 0)}
@@ -239,7 +230,6 @@ export default function ClientesPage() {
         )}
       </div>
 
-      {/* Panel de detalle */}
       {selectedClient && (
         <ClientDetailPanel
           client={selectedClient}
@@ -247,7 +237,6 @@ export default function ClientesPage() {
         />
       )}
 
-      {/* Formulario crear/editar */}
       <ClientFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -310,7 +299,7 @@ function applyFilters(clients: Client[], filters: ClientFilters): Client[] {
     result = result.filter(c => {
       switch (filters.segment) {
         case 'vip':
-          return (c.total_appointments || 0) >= 5 || (c.total_spent || 0) >= 5000;
+          return (c.total_visits || 0) >= 5 || (c.total_spent || 0) >= 5000;
         case 'nuevos':
           return new Date(c.created_at).getTime() >= thirtyDaysAgo;
         case 'inactivos':

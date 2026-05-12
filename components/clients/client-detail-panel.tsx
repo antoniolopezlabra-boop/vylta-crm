@@ -10,7 +10,6 @@ import {
   Gift,
   Clock,
   Loader2,
-  Tag,
   StickyNote,
 } from 'lucide-react';
 import { fetchClientAppointments, getClientBadge, type Client, type ClientAppointment } from '@/lib/clients';
@@ -19,14 +18,10 @@ import { formatShortDate, MONTHS_ES } from '@/lib/date-utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 // ══════════════════════════════════════════════════════════════════════
-// Panel lateral de detalle de cliente (deslizable desde la derecha)
-//
-// Muestra:
-//   • Header con avatar grande + nombre + badge de segmento
-//   • Stats: total citas, total gastado, última visita
-//   • Datos de contacto: tel, email, cumpleaños
-//   • Notas privadas
-//   • Historial de citas (últimas 50)
+// Panel lateral — alineado con schema real:
+//   • total_visits (no total_appointments)
+//   • NO usar tags (no existe)
+//   • total_spent viene calculado de fetchClients
 // ══════════════════════════════════════════════════════════════════════
 
 interface ClientDetailPanelProps {
@@ -39,8 +34,12 @@ const STATUS_STYLES: Record<string, string> = {
   Pendiente:  'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400',
   Completada: 'bg-vylta-indigo-500/15 text-indigo-600 dark:text-indigo-400',
   Pagado:     'bg-vylta-green-500/15 text-vylta-green-600 dark:text-vylta-green-400',
+  Reagendada: 'bg-vylta-indigo-500/15 text-indigo-600 dark:text-indigo-400',
+  'En espera': 'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400',
+  Solicitud:  'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400',
   Cancelada:  'bg-secondary text-muted-foreground',
   'No asistió': 'bg-vylta-rose-500/15 text-rose-600 dark:text-rose-400',
+  Rechazada:  'bg-vylta-rose-500/15 text-rose-600 dark:text-rose-400',
 };
 
 export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
@@ -61,7 +60,6 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
 
   const badge = getClientBadge(client);
 
-  // Formato de cumpleaños ("15 de mayo")
   let birthdayLabel: string | null = null;
   if (client.birthday) {
     const d = new Date(client.birthday + 'T12:00:00');
@@ -70,15 +68,12 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
 
   return (
     <>
-      {/* Backdrop */}
       <div
         onClick={onClose}
         className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm animate-fade-in"
       />
 
-      {/* Panel */}
       <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right">
-        {/* Header */}
         <div className="flex items-start justify-between border-b border-border p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-vylta-green-500 to-vylta-green-700 text-base font-bold text-white shadow-md shadow-vylta-green-500/20">
@@ -109,12 +104,11 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
 
         <ScrollArea className="flex-1">
           <div className="space-y-5 p-5">
-            {/* Stats grid */}
             <div className="grid grid-cols-3 gap-2">
               <StatBox
                 icon={Calendar}
                 label="Citas"
-                value={`${client.total_appointments || 0}`}
+                value={`${client.total_visits || 0}`}
               />
               <StatBox
                 icon={DollarSign}
@@ -128,31 +122,12 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
               />
             </div>
 
-            {/* Contacto */}
             <Section title="Contacto">
               <InfoRow icon={Phone} value={client.phone || 'Sin teléfono'} muted={!client.phone} />
               <InfoRow icon={Mail}  value={client.email || 'Sin email'} muted={!client.email} />
               {birthdayLabel && <InfoRow icon={Gift} value={`Cumple el ${birthdayLabel}`} />}
             </Section>
 
-            {/* Tags */}
-            {client.tags && client.tags.length > 0 && (
-              <Section title="Etiquetas">
-                <div className="flex flex-wrap gap-1.5">
-                  {client.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/10 px-2 py-1 text-xs font-semibold text-vylta-green-700 dark:text-vylta-green-400"
-                    >
-                      <Tag className="h-3 w-3" />
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* Notas */}
             {client.notes && (
               <Section title="Notas" icon={StickyNote}>
                 <div className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-foreground/90 whitespace-pre-wrap">
@@ -161,7 +136,6 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
               </Section>
             )}
 
-            {/* Historial */}
             <Section title={`Historial de citas (${appointments.length})`}>
               {loading ? (
                 <div className="flex justify-center py-4">
@@ -205,8 +179,6 @@ export function ClientDetailPanel({ client, onClose }: ClientDetailPanelProps) {
     </>
   );
 }
-
-// ── Subcomponentes ──
 
 function Section({
   title,
