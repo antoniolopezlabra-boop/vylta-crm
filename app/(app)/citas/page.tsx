@@ -1,16 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
   Loader2,
+  Users,
 } from 'lucide-react';
 import {
   fetchAppointmentsInRange,
   getWeekDays,
   getApptStatusStyle,
+  fetchActiveStaff,
   type AppointmentWithMeta,
 } from '@/lib/appointments';
 import {
@@ -18,7 +21,7 @@ import {
   DAYS_ES_SHORT,
   MONTHS_ES,
 } from '@/lib/date-utils';
-import { cn, formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
 
@@ -28,8 +31,11 @@ const END_HOUR = 22;
 const TOTAL_HOURS = END_HOUR - START_HOUR;
 
 export default function CitasPage() {
+  const router = useRouter();
   const [referenceDate, setReferenceDate] = useState(new Date());
   const [appointments, setAppointments] = useState<AppointmentWithMeta[]>([]);
+  const [staffList, setStaffList] = useState<Array<{ id: string; name: string; color: string; role: string | null }>>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(new Date());
@@ -37,7 +43,7 @@ export default function CitasPage() {
   const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
+    const id = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(id);
   }, []);
 
@@ -47,8 +53,12 @@ export default function CitasPage() {
 
   async function reload() {
     setLoading(true);
-    const data = await fetchAppointmentsInRange(weekStart, weekEnd);
+    const [data, staff] = await Promise.all([
+      fetchAppointmentsInRange(weekStart, weekEnd),
+      fetchActiveStaff(),
+    ]);
     setAppointments(data);
+    setStaffList(staff);
     setLoading(false);
   }
 
@@ -60,16 +70,33 @@ export default function CitasPage() {
     }
   }, [loading]);
 
+  const filteredAppts = useMemo(() => {
+    if (!selectedStaffId) return appointments;
+    if (selectedStaffId === '__unassigned__') return appointments.filter(a => !a.staff_id);
+    return appointments.filter(a => a.staff_id === selectedStaffId);
+  }, [appointments, selectedStaffId]);
+
   const apptsByDay = useMemo(() => {
     const map: Record<string, AppointmentWithMeta[]> = {};
     weekDays.forEach((d) => {
       map[toLocalDateString(d)] = [];
     });
-    appointments.forEach((apt) => {
+    filteredAppts.forEach((apt) => {
       if (map[apt.date]) map[apt.date].push(apt);
     });
     return map;
-  }, [appointments, weekDays]);
+  }, [filteredAppts, weekDays]);
+
+  const countByStaff = useMemo(() => {
+    const map: Record<string, number> = { __unassigned__: 0 };
+    appointments.forEach(a => {
+      if (a.staff_id) map[a.staff_id] = (map[a.staff_id] || 0) + 1;
+      else map.__unassigned__++;
+    });
+    return map;
+  }, [appointments]);
+
+  const hasStaff = staffList.length > 0;
 
   function goToPrevWeek() {
     const d = new Date(referenceDate);
@@ -94,9 +121,7 @@ export default function CitasPage() {
     const m1 = weekDays[0].getMonth();
     const m2 = weekDays[6].getMonth();
     const y = weekDays[0].getFullYear();
-    if (m1 === m2) {
-      return `${weekDays[0].getDate()} - ${weekDays[6].getDate()} ${MONTHS_ES[m1]} ${y}`;
-    }
+    if (m1 === m2) return `${weekDays[0].getDate()} - ${weekDays[6].getDate()} ${MONTHS_ES[m1]} ${y}`;
     return `${weekDays[0].getDate()} ${MONTHS_ES[m1].slice(0, 3)} - ${weekDays[6].getDate()} ${MONTHS_ES[m2].slice(0, 3)} ${y}`;
   })();
 
@@ -114,24 +139,11 @@ export default function CitasPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center rounded-lg border border-border bg-card">
-            <button
-              onClick={goToPrevWeek}
-              className="flex h-9 w-9 items-center justify-center rounded-l-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-              aria-label="Semana anterior"
-            >
+            <button onClick={goToPrevWeek} className="flex h-9 w-9 items-center justify-center rounded-l-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label="Semana anterior">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button
-              onClick={goToToday}
-              className="border-x border-border px-3 text-xs font-semibold transition hover:bg-secondary"
-            >
-              Hoy
-            </button>
-            <button
-              onClick={goToNextWeek}
-              className="flex h-9 w-9 items-center justify-center rounded-r-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-              aria-label="Semana siguiente"
-            >
+            <button onClick={goToToday} className="border-x border-border px-3 text-xs font-semibold transition hover:bg-secondary">Hoy</button>
+            <button onClick={goToNextWeek} className="flex h-9 w-9 items-center justify-center rounded-r-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground" aria-label="Semana siguiente">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -141,6 +153,69 @@ export default function CitasPage() {
           </Button>
         </div>
       </div>
+
+      {hasStaff && (
+        <div className="flex items-center gap-2 overflow-x-auto rounded-lg border border-border bg-card p-2 shadow-sm">
+          <button
+            onClick={() => setSelectedStaffId(null)}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition',
+              !selectedStaffId
+                ? 'border-vylta-green-500 bg-vylta-green-500/10 text-vylta-green-700 dark:text-vylta-green-400'
+                : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground',
+            )}
+          >
+            <Users className="h-3 w-3" />
+            Todos
+            <span className="ml-0.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-bold">{appointments.length}</span>
+          </button>
+          {staffList.map(m => {
+            const isActive = selectedStaffId === m.id;
+            const count = countByStaff[m.id] || 0;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setSelectedStaffId(isActive ? null : m.id)}
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition',
+                  isActive ? '' : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground',
+                )}
+                style={isActive ? { borderColor: m.color, backgroundColor: `${m.color}14`, color: m.color } : undefined}
+              >
+                <div
+                  className="flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold"
+                  style={{ backgroundColor: `${m.color}33`, color: m.color }}
+                >
+                  {getInitials(m.name)}
+                </div>
+                {m.name.split(' ')[0]}
+                {count > 0 && (
+                  <span
+                    className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                    style={{ backgroundColor: isActive ? `${m.color}33` : 'rgb(241 245 249)', color: isActive ? m.color : 'inherit' }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          {countByStaff.__unassigned__ > 0 && (
+            <button
+              onClick={() => setSelectedStaffId(selectedStaffId === '__unassigned__' ? null : '__unassigned__')}
+              className={cn(
+                'inline-flex shrink-0 items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition',
+                selectedStaffId === '__unassigned__'
+                  ? 'border-slate-500 bg-slate-500/10 text-slate-700 dark:text-slate-400'
+                  : 'border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground',
+              )}
+            >
+              Sin asignar
+              <span className="ml-0.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-bold">{countByStaff.__unassigned__}</span>
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border">
@@ -158,16 +233,10 @@ export default function CitasPage() {
                 )}
                 title={`Nueva cita para ${dateStr}`}
               >
-                <span className={cn(
-                  'text-[10px] font-semibold uppercase tracking-wider',
-                  isToday ? 'text-vylta-green-600 dark:text-vylta-green-400' : 'text-muted-foreground',
-                )}>
+                <span className={cn('text-[10px] font-semibold uppercase tracking-wider', isToday ? 'text-vylta-green-600 dark:text-vylta-green-400' : 'text-muted-foreground')}>
                   {DAYS_ES_SHORT[idx]}
                 </span>
-                <span className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold tabular-nums',
-                  isToday ? 'bg-vylta-green-500 text-white' : 'text-foreground',
-                )}>
+                <span className={cn('flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold tabular-nums', isToday ? 'bg-vylta-green-500 text-white' : 'text-foreground')}>
                   {day.getDate()}
                 </span>
               </button>
@@ -182,22 +251,13 @@ export default function CitasPage() {
             </div>
           )}
 
-          <div
-            className="relative grid grid-cols-[60px_repeat(7,1fr)]"
-            style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}
-          >
+          <div className="relative grid grid-cols-[60px_repeat(7,1fr)]" style={{ height: `${TOTAL_HOURS * HOUR_HEIGHT}px` }}>
             <div className="border-r border-border">
               {Array.from({ length: TOTAL_HOURS }, (_, i) => {
                 const hour = START_HOUR + i;
                 return (
-                  <div
-                    key={hour}
-                    className="relative border-b border-border"
-                    style={{ height: `${HOUR_HEIGHT}px` }}
-                  >
-                    <span className="absolute -top-2 right-2 text-[10px] font-semibold uppercase text-muted-foreground">
-                      {formatHour(hour)}
-                    </span>
+                  <div key={hour} className="relative border-b border-border" style={{ height: `${HOUR_HEIGHT}px` }}>
+                    <span className="absolute -top-2 right-2 text-[10px] font-semibold uppercase text-muted-foreground">{formatHour(hour)}</span>
                   </div>
                 );
               })}
@@ -207,35 +267,19 @@ export default function CitasPage() {
               const dateStr = toLocalDateString(day);
               const dayAppts = apptsByDay[dateStr] || [];
               const isToday = dateStr === todayStr;
-
               return (
-                <div
-                  key={dateStr}
-                  className={cn(
-                    'relative border-r border-border last:border-r-0',
-                    isToday && 'bg-vylta-green-500/[0.03]',
-                  )}
-                >
+                <div key={dateStr} className={cn('relative border-r border-border last:border-r-0', isToday && 'bg-vylta-green-500/[0.03]')}>
                   {Array.from({ length: TOTAL_HOURS }, (_, i) => (
-                    <div
-                      key={i}
-                      className="border-b border-border"
-                      style={{ height: `${HOUR_HEIGHT}px` }}
-                    />
+                    <div key={i} className="border-b border-border" style={{ height: `${HOUR_HEIGHT}px` }} />
                   ))}
-
                   {isToday && showNowLine && (
-                    <div
-                      className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
-                      style={{ top: `${nowPercent}%` }}
-                    >
+                    <div className="pointer-events-none absolute left-0 right-0 z-20 flex items-center" style={{ top: `${nowPercent}%` }}>
                       <span className="-ml-1.5 h-3 w-3 rounded-full bg-rose-500 shadow-md shadow-rose-500/50" />
                       <div className="h-px flex-1 bg-rose-500" />
                     </div>
                   )}
-
                   {dayAppts.map((apt) => (
-                    <AppointmentBlock key={apt.id} appointment={apt} />
+                    <AppointmentBlock key={apt.id} appointment={apt} onClick={() => router.push(`/citas/${apt.id}`)} />
                   ))}
                 </div>
               );
@@ -244,7 +288,6 @@ export default function CitasPage() {
         </div>
       </div>
 
-      {/* Modal de nueva cita */}
       <AppointmentFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
@@ -255,7 +298,13 @@ export default function CitasPage() {
   );
 }
 
-function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta }) {
+function AppointmentBlock({
+  appointment,
+  onClick,
+}: {
+  appointment: AppointmentWithMeta;
+  onClick: () => void;
+}) {
   const style = getApptStatusStyle(appointment.status);
   const startMinFromVisible = appointment.startMinutes - START_HOUR * 60;
   const duration = Math.max(15, appointment.endMinutes - appointment.startMinutes);
@@ -265,21 +314,30 @@ function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta })
 
   if (startMinFromVisible < 0 || startMinFromVisible >= TOTAL_HOURS * 60) return null;
 
+  const borderColor = appointment.staff?.color || style.barColor;
+
   return (
-    <div
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={cn(
-        'group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md border-l-2 px-1.5 py-1 text-[10px] shadow-sm transition-all hover:z-10 hover:shadow-md',
+        'group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md border-l-2 px-1.5 py-1 text-left text-[10px] shadow-sm transition-all hover:z-10 hover:shadow-md hover:scale-[1.02]',
         style.bg,
         style.text,
       )}
       style={{
         top: `${top}px`,
         height: `${Math.max(20, height - 1)}px`,
-        borderLeftColor: style.barColor,
+        borderLeftColor: borderColor,
       }}
       title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}`}
     >
-      <div className="truncate font-semibold leading-tight">{appointment.displayClientName}</div>
+      <div className="flex items-center gap-1">
+        {appointment.staff && (
+          <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: appointment.staff.color }} />
+        )}
+        <div className="truncate font-semibold leading-tight">{appointment.displayClientName}</div>
+      </div>
       {height >= 30 && (
         <div className="truncate text-[9px] opacity-80">{appointment.service_name}</div>
       )}
@@ -289,7 +347,7 @@ function AppointmentBlock({ appointment }: { appointment: AppointmentWithMeta })
           {appointment.service_cost && <span className="tabular-nums font-bold">{formatCurrency(appointment.service_cost)}</span>}
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
