@@ -32,6 +32,11 @@ import { Textarea } from '@/components/ui/textarea';
 // /clientes/inactivos — Lista de clientes sin visita reciente con plantillas
 // pre-armadas de WhatsApp para reengancharlos.
 //
+// FIX (12 may 2026): la columna clients.total_spent NO existe en BD. Lo
+// calculamos desde appointments con status Pagado/Completada, igual que en
+// lib/clients.ts. Antes el SELECT tronaba con error 400 y la pantalla
+// quedaba vacía.
+//
 // Buckets:
 //   • 30-60 días (en riesgo)
 //   • 60-90 días (inactivos)
@@ -51,6 +56,8 @@ interface InactiveClient {
   days: number;
   bucket: Bucket;
 }
+
+const PAID_STATUSES = ['Pagado', 'Completada'];
 
 const BUCKET_META: Record<Bucket, { label: string; subtitle: string; icon: any; bg: string; text: string; border: string; bar: string }> = {
   risk:     { label: 'En riesgo',   subtitle: '30-60 días sin visita',  icon: Clock,       bg: 'bg-vylta-amber-500/10', text: 'text-vylta-amber-700 dark:text-amber-400', border: 'border-vylta-amber-500/40', bar: 'bg-vylta-amber-500' },
@@ -117,22 +124,51 @@ export default function ClientesInactivosPage() {
       return t.toISOString().split('T')[0];
     })();
 
-    const { data, error } = await supabase
+    // ── 1. Traer clientes con última visita > 30 días ──
+    // IMPORTANTE: NO incluir total_spent en el SELECT — esa columna NO
+    // existe en la tabla clients. Se calcula a partir de appointments.
+    const { data: clientsData, error: clientsError } = await supabase
       .from('clients')
-      .select('id, name, phone, email, last_visit, total_visits, total_spent')
+      .select('id, name, phone, email, last_visit, total_visits')
       .eq('user_id', user.id)
       .not('last_visit', 'is', null)
       .lt('last_visit', thirtyDaysAgo)
       .order('last_visit', { ascending: false });
 
-    if (error) {
+    if (clientsError) {
+      console.error('[clientes/inactivos] Error clientes:', clientsError);
       toast.error('No pudimos cargar los clientes inactivos');
       setLoading(false);
       return;
     }
 
+    const clientIds = (clientsData || []).map((c: any) => c.id);
+
+    // ── 2. Traer appointments cobrados/completados para calcular total_spent ──
+    // Solo de los clientes que ya filtramos, para no traer datos innecesarios.
+    let spentByClient = new Map<string, number>();
+    if (clientIds.length > 0) {
+      const { data: apptsData, error: apptsError } = await supabase
+        .from('appointments')
+        .select('client_id, service_cost, status')
+        .eq('user_id', user.id)
+        .in('client_id', clientIds)
+        .in('status', PAID_STATUSES);
+
+      if (apptsError) {
+        console.warn('[clientes/inactivos] Appointments query error:', apptsError);
+      }
+
+      (apptsData || []).forEach((a: any) => {
+        if (!a.client_id) return;
+        const prev = spentByClient.get(a.client_id) || 0;
+        spentByClient.set(a.client_id, prev + (a.service_cost || 0));
+      });
+    }
+
+    // ── 3. Decorar con días + bucket + total_spent ──
     const now = Date.now();
-    const list: InactiveClient[] = (data || []).map((c: any) => {
+    const list: InactiveClient[] = (clientsData || []).map((c: any) => {
       const days = Math.floor((now - new Date(c.last_visit + 'T12:00:00').getTime()) / 86400000);
       let b: Bucket = 'risk';
       if (days >= 90) b = 'lost';
@@ -144,7 +180,7 @@ export default function ClientesInactivosPage() {
         email: c.email,
         last_visit: c.last_visit,
         total_visits: c.total_visits || 0,
-        total_spent: c.total_spent || 0,
+        total_spent: spentByClient.get(c.id) || 0,
         days,
         bucket: b,
       };
