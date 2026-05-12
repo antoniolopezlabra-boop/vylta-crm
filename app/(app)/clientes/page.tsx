@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Search,
   Users,
@@ -10,6 +11,8 @@ import {
   Phone,
   Mail,
   UserPlus,
+  Upload,
+  UserX,
 } from 'lucide-react';
 import { fetchClients, getClientBadge, type Client, type ClientFilters } from '@/lib/clients';
 import { cn, formatCurrency, getInitials } from '@/lib/utils';
@@ -77,10 +80,24 @@ export default function ClientesPage() {
             {loading ? 'Cargando...' : `${filtered.length} de ${allClients.length} clientes`}
           </p>
         </div>
-        <Button size="sm" className="shrink-0" onClick={() => setFormOpen(true)}>
-          <UserPlus className="h-4 w-4" />
-          Nuevo cliente
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link href="/clientes/inactivos">
+            <Button size="sm" variant="outline">
+              <UserX className="h-4 w-4" />
+              <span className="hidden sm:inline">Inactivos</span>
+            </Button>
+          </Link>
+          <Link href="/clientes/import">
+            <Button size="sm" variant="outline">
+              <Upload className="h-4 w-4" />
+              <span className="hidden sm:inline">Importar CSV</span>
+            </Button>
+          </Link>
+          <Button size="sm" onClick={() => setFormOpen(true)}>
+            <UserPlus className="h-4 w-4" />
+            Nuevo cliente
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -266,13 +283,21 @@ function EmptyState({ hasSearch, onCreate }: { hasSearch: boolean; onCreate: () 
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
         {hasSearch
           ? 'Prueba con otra búsqueda o quita los filtros.'
-          : 'Agrega tu primer cliente o espera a que agenden desde tu link público.'}
+          : 'Agrega tu primer cliente, importa desde CSV o espera a que agenden desde tu link público.'}
       </p>
       {!hasSearch && (
-        <Button size="sm" className="mt-4" onClick={onCreate}>
-          <UserPlus className="h-4 w-4" />
-          Agregar el primero
-        </Button>
+        <div className="mt-4 flex gap-2">
+          <Button size="sm" onClick={onCreate}>
+            <UserPlus className="h-4 w-4" />
+            Agregar el primero
+          </Button>
+          <Link href="/clientes/import">
+            <Button size="sm" variant="outline">
+              <Upload className="h-4 w-4" />
+              Importar CSV
+            </Button>
+          </Link>
+        </div>
       )}
     </div>
   );
