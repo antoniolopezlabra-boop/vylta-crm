@@ -26,16 +26,16 @@ import {
   UserX,
   Users,
   CalendarDays,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  fetchAppointmentById,
   updateAppointmentStatus,
   assignStaffToAppointment,
-  deleteAppointment,
+  softDeleteAppointment,
+  restoreAppointment,
   fetchActiveStaff,
   getStaffAvailability,
-  type Appointment,
   getApptStatusStyle,
 } from '@/lib/appointments';
 import { createClient } from '@/lib/supabase/client';
@@ -54,10 +54,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
+import { useAppointment, useInvalidateAppointment } from '@/lib/queries/use-appointment';
+import { useInvalidateAppointments } from '@/lib/queries/use-appointments';
 import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
+import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// Detail de cita — Brand Kit dark + RescheduleDialog + bloqueos en staff
+// Detail de cita — Sprint 2:
+//   • useAppointment (React Query + Realtime) — datos siempre frescos
+//   • Botón "Editar" — abre AppointmentFormDialog en modo edición
+//   • Soft delete con toast undo (5s) — recuperable
+//   • Status badge dinámico con barColor real
 // ══════════════════════════════════════════════════════════════════════
 
 export default function AppointmentDetailPage() {
@@ -65,44 +72,44 @@ export default function AppointmentDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
 
-  const [loading, setLoading] = useState(true);
+  const { data: appointment, isLoading } = useAppointment(id);
+  const invalidateAppointment = useInvalidateAppointment(id);
+  const invalidateAppointments = useInvalidateAppointments();
+  const { data: timeBlocks = [] } = useTimeBlocks();
+
   const [actionLoading, setActionLoading] = useState(false);
-  const [appointment, setAppointment] = useState<Appointment | null>(null);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; color: string; role: string | null; busy?: boolean }>>([]);
   const [assignOpen, setAssignOpen] = useState(false);
   const [saveClientOpen, setSaveClientOpen] = useState(false);
   const [savingClient, setSavingClient] = useState(false);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
-  const { data: timeBlocks = [] } = useTimeBlocks();
+  // Refresca lista de citas en /citas (Realtime ya invalida pero forzamos por seguridad)
+  function refreshAll() {
+    invalidateAppointment();
+    invalidateAppointments();
+  }
 
-  async function reload() {
-    if (!id) return;
-    setLoading(true);
-    const [apt, staff] = await Promise.all([
-      fetchAppointmentById(id),
-      fetchActiveStaff(),
-    ]);
-    if (!apt) {
-      toast.error('Cita no encontrada');
-      router.push('/citas');
-      return;
-    }
-    setAppointment(apt);
-    setStaffList(staff.map(s => ({ ...s, busy: false })));
-    if (apt.source === 'public_link' && !apt.client) {
+  // Cargar staff al montar (una sola vez)
+  useEffect(() => {
+    fetchActiveStaff().then(staff => {
+      setStaffList(staff.map(s => ({ ...s, busy: false })));
+    });
+  }, []);
+
+  // Cuando la cita carga y es de link público sin cliente, prellenar form
+  useEffect(() => {
+    if (appointment?.source === 'public_link' && !appointment.client) {
       setClientForm({
-        name: apt.client_name_temp || '',
-        phone: apt.client_phone_temp || '',
+        name: appointment.client_name_temp || '',
+        phone: appointment.client_phone_temp || '',
         email: '',
         notes: '',
       });
     }
-    setLoading(false);
-  }
-
-  useEffect(() => { reload(); }, [id]);
+  }, [appointment?.id, appointment?.source, appointment?.client, appointment?.client_name_temp, appointment?.client_phone_temp]);
 
   async function loadStaffAvailability() {
     if (!appointment) return;
@@ -127,7 +134,7 @@ export default function AppointmentDetailPage() {
       return;
     }
     toast.success(`Cita marcada como ${newStatus}`);
-    reload();
+    refreshAll();
   }
 
   async function handleAssignStaff(staffId: string | null) {
@@ -146,21 +153,43 @@ export default function AppointmentDetailPage() {
     }
     toast.success(staffId ? 'Colaborador asignado' : 'Asignación removida');
     setAssignOpen(false);
-    reload();
+    refreshAll();
   }
 
-  async function handleDelete() {
+  // ── SOFT DELETE con UNDO ──
+  // En lugar de DELETE permanente, pone status='Cancelada'.
+  // Muestra toast con botón "Deshacer" durante 8s que restaura el status original.
+  async function handleSoftDelete() {
     if (!appointment) return;
-    if (!confirm('¿Eliminar esta cita? Esta acción no se puede deshacer.')) return;
+    if (!confirm('¿Cancelar esta cita? Podrás restaurarla durante 8 segundos.')) return;
+    const previousStatus = appointment.status;
     setActionLoading(true);
-    const ok = await deleteAppointment(appointment.id);
+    const result = await softDeleteAppointment(appointment.id, previousStatus);
     setActionLoading(false);
-    if (!ok) {
-      toast.error('No pudimos eliminar la cita');
+
+    if ('error' in result) {
+      toast.error(result.error);
       return;
     }
-    toast.success('Cita eliminada');
-    router.push('/citas');
+
+    refreshAll();
+
+    // Toast con undo
+    toast.success('Cita cancelada', {
+      duration: 8000,
+      action: {
+        label: 'Deshacer',
+        onClick: async () => {
+          const restore = await restoreAppointment(appointment.id, previousStatus);
+          if ('error' in restore) {
+            toast.error('No se pudo restaurar la cita');
+            return;
+          }
+          toast.success('Cita restaurada');
+          refreshAll();
+        },
+      },
+    });
   }
 
   async function handleSaveAsClient() {
@@ -210,10 +239,10 @@ export default function AppointmentDetailPage() {
     }
     toast.success(`${clientForm.name.trim()} guardado como cliente`);
     setSaveClientOpen(false);
-    reload();
+    refreshAll();
   }
 
-  if (loading || !appointment) {
+  if (isLoading || !appointment) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-vylta-green" />
@@ -232,10 +261,15 @@ export default function AppointmentDetailPage() {
   const dayIdx = dateObj.getDay() === 0 ? 6 : dateObj.getDay() - 1;
   const formattedDate = `${DAYS_ES_FULL[dayIdx]} ${dateObj.getDate()} de ${MONTHS_ES[dateObj.getMonth()].toLowerCase()} ${dateObj.getFullYear()}`;
 
+  // Estados cerrados (no editables)
+  const isClosedStatus = ['Cancelada', 'Rechazada'].includes(appointment.status);
+  // En estados "terminales" como Pagado, edición es riesgosa pero permitida (warning)
+  const isFinalStatus = appointment.status === 'Pagado';
+
   return (
     <div className="mx-auto max-w-3xl space-y-5 animate-fade-in">
       {/* HEADER */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <button
           onClick={() => router.push('/citas')}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-vylta-muted transition hover:text-vylta-bone"
@@ -243,19 +277,33 @@ export default function AppointmentDetailPage() {
           <ArrowLeft className="h-4 w-4" />
           Volver a citas
         </button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleDelete}
-          disabled={actionLoading}
-          className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          Eliminar
-        </Button>
+        <div className="flex items-center gap-2">
+          {!isClosedStatus && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditOpen(true)}
+              disabled={actionLoading}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Editar
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSoftDelete}
+            disabled={actionLoading || isClosedStatus}
+            className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive disabled:opacity-50"
+            title={isClosedStatus ? 'Esta cita ya está cancelada' : 'Cancelar cita'}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Cancelar
+          </Button>
+        </div>
       </div>
 
-      {/* STATUS BADGE — usa el barColor del status, no border tonto */}
+      {/* STATUS BADGE */}
       <div className="relative overflow-hidden rounded-2xl border border-border bg-vylta-surface p-6 shadow-card">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.06]"
@@ -272,6 +320,12 @@ export default function AppointmentDetailPage() {
             <span className="inline-flex items-center gap-1.5 rounded-full bg-vylta-luxury/15 px-3 py-1 text-xs font-bold text-vylta-luxury border border-vylta-luxury/25">
               <Link2 className="h-3 w-3" />
               Desde link público
+            </span>
+          )}
+          {isFinalStatus && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-vylta-amber/15 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-vylta-amber border border-vylta-amber/25">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Cita cobrada — editar con cuidado
             </span>
           )}
         </div>
@@ -310,6 +364,7 @@ export default function AppointmentDetailPage() {
               size="sm"
               variant="outline"
               onClick={() => { setAssignOpen(true); loadStaffAvailability(); }}
+              disabled={isClosedStatus}
             >
               <Users className="h-3.5 w-3.5" />
               {assignedStaff ? 'Cambiar' : 'Asignar'}
@@ -523,12 +578,20 @@ export default function AppointmentDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* RESCHEDULE DIALOG — nuevo componente con grid visual + 4 capas */}
+      {/* RESCHEDULE DIALOG */}
       <RescheduleDialog
         open={rescheduleOpen}
         onOpenChange={setRescheduleOpen}
         appointment={appointment}
-        onSuccess={reload}
+        onSuccess={refreshAll}
+      />
+
+      {/* EDIT DIALOG — usa el AppointmentFormDialog en modo edición */}
+      <AppointmentFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        initialAppointment={appointment}
+        onSuccess={refreshAll}
       />
 
       {actionLoading && (
@@ -539,10 +602,6 @@ export default function AppointmentDetailPage() {
     </div>
   );
 }
-
-// ══════════════════════════════════════════════════════════════════════
-// Componentes internos
-// ══════════════════════════════════════════════════════════════════════
 
 function InfoRow({
   icon: Icon,
@@ -628,14 +687,9 @@ function StatusActions({
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={onReschedule}>
           <CalendarPlus className="h-4 w-4" /> Reagendar
         </Button>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" className="border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
-            <UserX className="h-3.5 w-3.5" /> No asistió
-          </Button>
-          <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={actionLoading} onClick={() => onChange('Cancelada', '¿Cancelar esta cita?')}>
-            <XCircle className="h-3.5 w-3.5" /> Cancelar
-          </Button>
-        </div>
+        <Button variant="outline" className="w-full border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
+          <UserX className="h-3.5 w-3.5" /> No asistió
+        </Button>
       </div>
     );
   }
@@ -649,14 +703,9 @@ function StatusActions({
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={onReschedule}>
           <CalendarPlus className="h-4 w-4" /> Reagendar
         </Button>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" className="border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
-            <UserX className="h-3.5 w-3.5" /> No asistió
-          </Button>
-          <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={actionLoading} onClick={() => onChange('Cancelada', '¿Cancelar esta cita confirmada?')}>
-            <XCircle className="h-3.5 w-3.5" /> Cancelar
-          </Button>
-        </div>
+        <Button variant="outline" className="w-full border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
+          <UserX className="h-3.5 w-3.5" /> No asistió
+        </Button>
       </div>
     );
   }
