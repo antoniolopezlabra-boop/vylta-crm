@@ -9,6 +9,7 @@ import {
   Loader2,
   Users,
   CalendarDays,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   getWeekDays,
@@ -26,14 +27,15 @@ import { AppointmentFormDialog } from '@/components/appointments/appointment-for
 import { useAppointments, useActiveStaff } from '@/lib/queries/use-appointments';
 
 // ══════════════════════════════════════════════════════════════════════
-// Citas v3 — con React Query (cache + realtime auto-invalidación)
+// Citas v4 — incluye fix #10 (warning si staff_id apunta a staff inactivo)
 //
-// Cambios vs v2:
-//   • fetchAppointmentsInRange ya no se llama directamente
-//   • useAppointments(weekStart, weekEnd) cachea cada semana por separado
-//   • Navegar entre semanas: instantáneo si ya las visitaste
-//   • Realtime auto-invalida el cache cuando hay cambios en BD
-//   • Background refetch al volver al tab
+// Bug #10: Si una colaboradora fue desactivada en /configuracion → staff_members,
+// sus citas históricas siguen referenciando el id. Esto NO rompe el calendario
+// (los datos vienen del JOIN de Supabase), pero es bueno mostrar un warning
+// para que el dueño note la inconsistencia.
+//
+// Detección: si appointment.staff_id existe pero ningún staffList activo
+// matchea → mostrar dot ámbar + tooltip "Colaborador desactivado"
 // ══════════════════════════════════════════════════════════════════════
 
 const HOUR_HEIGHT = 60;
@@ -59,9 +61,14 @@ export default function CitasPage() {
   const weekStart = toLocalDateString(weekDays[0]);
   const weekEnd = toLocalDateString(weekDays[6]);
 
-  // ── React Query: datos cacheados, auto-refresh, realtime ──
   const { data: appointments = [], isLoading: loadingAppts, isFetching } = useAppointments(weekStart, weekEnd);
   const { data: staffList = [] } = useActiveStaff();
+
+  // Set de IDs de staff activos para detección rápida
+  const activeStaffIds = useMemo(
+    () => new Set(staffList.map(s => s.id)),
+    [staffList],
+  );
 
   useEffect(() => {
     if (scrollContainerRef.current && !loadingAppts) {
@@ -72,8 +79,11 @@ export default function CitasPage() {
   const filteredAppts = useMemo(() => {
     if (!selectedStaffId) return appointments;
     if (selectedStaffId === '__unassigned__') return appointments.filter(a => !a.staff_id);
+    if (selectedStaffId === '__inactive__') {
+      return appointments.filter(a => a.staff_id && !activeStaffIds.has(a.staff_id));
+    }
     return appointments.filter(a => a.staff_id === selectedStaffId);
-  }, [appointments, selectedStaffId]);
+  }, [appointments, selectedStaffId, activeStaffIds]);
 
   const apptsByDay = useMemo(() => {
     const map: Record<string, AppointmentWithMeta[]> = {};
@@ -83,15 +93,21 @@ export default function CitasPage() {
   }, [filteredAppts, weekDays]);
 
   const countByStaff = useMemo(() => {
-    const map: Record<string, number> = { __unassigned__: 0 };
+    const map: Record<string, number> = { __unassigned__: 0, __inactive__: 0 };
     appointments.forEach(a => {
-      if (a.staff_id) map[a.staff_id] = (map[a.staff_id] || 0) + 1;
-      else map.__unassigned__++;
+      if (!a.staff_id) {
+        map.__unassigned__++;
+      } else if (!activeStaffIds.has(a.staff_id)) {
+        map.__inactive__++;
+      } else {
+        map[a.staff_id] = (map[a.staff_id] || 0) + 1;
+      }
     });
     return map;
-  }, [appointments]);
+  }, [appointments, activeStaffIds]);
 
   const hasStaff = staffList.length > 0;
+  const hasInactiveAssignments = countByStaff.__inactive__ > 0;
 
   function goToPrevWeek() {
     const d = new Date(referenceDate);
@@ -112,6 +128,12 @@ export default function CitasPage() {
     setFormOpen(true);
   }
 
+  // Reset initialDate al cerrar el dialog (evita herencia entre aperturas)
+  function handleFormOpenChange(open: boolean) {
+    setFormOpen(open);
+    if (!open) setInitialDate(undefined);
+  }
+
   const rangeLabel = (() => {
     const m1 = weekDays[0].getMonth();
     const m2 = weekDays[6].getMonth();
@@ -125,8 +147,6 @@ export default function CitasPage() {
   const nowPercent = ((nowMinutes - START_HOUR * 60) / (TOTAL_HOURS * 60)) * 100;
   const showNowLine = nowPercent >= 0 && nowPercent <= 100;
 
-  // isLoading = primera vez sin datos en cache
-  // isFetching = re-fetch silencioso en background (datos viejos siguen visibles)
   const showFullLoader = loadingAppts && appointments.length === 0;
 
   return (
@@ -141,7 +161,6 @@ export default function CitasPage() {
             <h1 className="text-2xl font-bold tracking-tightest text-vylta-bone">Citas</h1>
             <p className="text-sm text-vylta-muted">{rangeLabel}</p>
           </div>
-          {/* Indicador sutil de background refetch (no bloquea) */}
           {isFetching && !showFullLoader && (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-vylta-green/60" />
           )}
@@ -186,6 +205,25 @@ export default function CitasPage() {
             <button onClick={() => setSelectedStaffId(selectedStaffId === '__unassigned__' ? null : '__unassigned__')} className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition', selectedStaffId === '__unassigned__' ? 'border-vylta-subtle/40 bg-vylta-subtle/10 text-vylta-bone' : 'border-border bg-transparent text-vylta-muted hover:bg-vylta-card hover:text-vylta-bone')}>
               Sin asignar
               <span className="ml-0.5 rounded-full bg-vylta-card px-1.5 py-0.5 text-[10px] font-bold tabular-nums">{countByStaff.__unassigned__}</span>
+            </button>
+          )}
+          {/* Filtro nuevo: citas con staff desactivado */}
+          {hasInactiveAssignments && (
+            <button
+              onClick={() => setSelectedStaffId(selectedStaffId === '__inactive__' ? null : '__inactive__')}
+              className={cn(
+                'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition',
+                selectedStaffId === '__inactive__'
+                  ? 'border-vylta-amber/40 bg-vylta-amber/10 text-vylta-amber'
+                  : 'border-vylta-amber/20 bg-vylta-amber/5 text-vylta-amber/80 hover:bg-vylta-amber/10',
+              )}
+              title="Citas con colaborador que ya no está activo"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Inactivos
+              <span className="ml-0.5 rounded-full bg-vylta-amber/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+                {countByStaff.__inactive__}
+              </span>
             </button>
           )}
         </div>
@@ -244,9 +282,17 @@ export default function CitasPage() {
                       <div className="h-px flex-1 bg-vylta-green/70" />
                     </div>
                   )}
-                  {dayAppts.map((apt) => (
-                    <AppointmentBlock key={apt.id} appointment={apt} onClick={() => router.push(`/citas/${apt.id}`)} />
-                  ))}
+                  {dayAppts.map((apt) => {
+                    const isInactiveStaff = !!apt.staff_id && !activeStaffIds.has(apt.staff_id);
+                    return (
+                      <AppointmentBlock
+                        key={apt.id}
+                        appointment={apt}
+                        isInactiveStaff={isInactiveStaff}
+                        onClick={() => router.push(`/citas/${apt.id}`)}
+                      />
+                    );
+                  })}
                 </div>
               );
             })}
@@ -256,15 +302,22 @@ export default function CitasPage() {
 
       <AppointmentFormDialog
         open={formOpen}
-        onOpenChange={setFormOpen}
+        onOpenChange={handleFormOpenChange}
         initialDate={initialDate}
-        // El onSuccess ya no necesita llamar reload — Realtime + invalidate se encargan
       />
     </div>
   );
 }
 
-function AppointmentBlock({ appointment, onClick }: { appointment: AppointmentWithMeta; onClick: () => void; }) {
+function AppointmentBlock({
+  appointment,
+  isInactiveStaff,
+  onClick,
+}: {
+  appointment: AppointmentWithMeta;
+  isInactiveStaff: boolean;
+  onClick: () => void;
+}) {
   const style = getApptStatusStyle(appointment.status);
   const startMinFromVisible = appointment.startMinutes - START_HOUR * 60;
   const duration = Math.max(15, appointment.endMinutes - appointment.startMinutes);
@@ -277,18 +330,25 @@ function AppointmentBlock({ appointment, onClick }: { appointment: AppointmentWi
     ? appointment.displayClientName.slice(0, maxNameChars - 1) + '…'
     : appointment.displayClientName;
 
+  const inactiveStaffTitle = isInactiveStaff
+    ? `${appointment.staff?.name || 'Colaborador'} ya no está activo`
+    : '';
+
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={cn('group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md text-left transition-all hover:z-10 hover:scale-[1.02] hover:shadow-card-lg hover:brightness-110', style.bg)}
       style={{ top: `${top}px`, height: `${Math.max(20, height - 1)}px`, borderLeft: `3px solid ${style.barColor}` }}
-      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}${appointment.staff ? ' · ' + appointment.staff.name : ''}`}
+      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}${appointment.staff ? ' · ' + appointment.staff.name : ''}${inactiveStaffTitle ? ' · ⚠️ ' + inactiveStaffTitle : ''}`}
     >
       <div className="flex h-full flex-col px-2 py-1.5">
         <div className="flex items-center justify-between gap-1.5">
           <div className="truncate text-[11px] font-semibold leading-none text-vylta-bone">{truncatedName}</div>
-          {appointment.staff && height >= 40 && (
+          {isInactiveStaff && (
+            <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-vylta-amber" />
+          )}
+          {!isInactiveStaff && appointment.staff && height >= 40 && (
             <div className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold leading-none" style={{ backgroundColor: `${appointment.staff.color}25`, color: appointment.staff.color }}>{getInitials(appointment.staff.name)}</div>
           )}
         </div>
