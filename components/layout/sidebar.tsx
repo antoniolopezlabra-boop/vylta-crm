@@ -20,16 +20,16 @@ import {
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { VyltaLogo } from './vylta-logo';
+import { usePrefetchClients } from '@/lib/queries/use-clients';
+import { usePrefetchServices } from '@/lib/queries/use-services';
 
 // ══════════════════════════════════════════════════════════════════════
-// Sidebar premium — Brand Kit VYLTA v1.0 + Optimistic UI
+// Sidebar premium + Optimistic UI + Prefetching predictivo
 //
-// MEJORAS DE VELOCIDAD (Opción A):
-//   • useTransition: marca el item activo INMEDIATAMENTE al click
-//   • Item con spinner sutil mientras la nueva ruta está cargando
-//   • Indicador verde se mueve al instante (optimistic), antes de que
-//     Next termine de renderizar la nueva pantalla
-//   • prefetch={true} explícito en cada Link para que Next pre-cargue JS
+// NUEVO EN OPCIÓN 3:
+//   • onMouseEnter en items → precarga los datos antes del click
+//     Esto significa que para cuando el usuario hace click, los datos
+//     ya están en cache y la navegación se siente instantánea.
 // ══════════════════════════════════════════════════════════════════════
 
 type BadgeKind = 'luxury' | 'premium';
@@ -39,13 +39,15 @@ type NavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   badge?: BadgeKind;
+  /** Si está definido, se llama al hacer hover para precargar datos. */
+  prefetchKey?: 'clients' | 'services';
 };
 
 const NAV_PRIMARY: NavItem[] = [
   { href: '/dashboard',  label: 'Inicio',      icon: LayoutDashboard },
   { href: '/citas',      label: 'Citas',       icon: Calendar },
-  { href: '/clientes',   label: 'Clientes',    icon: Users },
-  { href: '/servicios',  label: 'Servicios',   icon: Briefcase },
+  { href: '/clientes',   label: 'Clientes',    icon: Users,     prefetchKey: 'clients' },
+  { href: '/servicios',  label: 'Servicios',   icon: Briefcase, prefetchKey: 'services' },
   { href: '/reportes',   label: 'Reportes',    icon: BarChart3 },
 ];
 
@@ -63,29 +65,30 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-
-  // useTransition: nos permite marcar un item como 'pending' instantáneamente
-  // mientras Next.js carga la nueva ruta en background. La UI responde en
-  // < 16ms aunque la página tarde más en aparecer.
   const [isPending, startTransition] = useTransition();
-
-  // Optimistic: cuál es el item que el usuario acaba de clickear (puede ser
-  // distinto al pathname actual mientras dura la navegación)
   const [optimisticHref, setOptimisticHref] = useState<string | null>(null);
 
-  // Cuando la navegación termina (pathname cambia), limpiamos el optimistic
-  // Esto se hace via prop derivada en lugar de useEffect para evitar flash
+  // Prefetch helpers (aún no se invocan hasta el hover)
+  const prefetchClients = usePrefetchClients();
+  const prefetchServices = usePrefetchServices();
+
   if (optimisticHref && pathname.startsWith(optimisticHref) && !isPending) {
-    // Está sincronizado, podemos resetear (se hará en el próximo render)
     queueMicrotask(() => setOptimisticHref(null));
   }
 
   function handleNavigate(href: string) {
-    if (pathname.startsWith(href)) return; // mismo sitio, no hacer nada
-    setOptimisticHref(href); // marcar como activo INMEDIATAMENTE
+    if (pathname.startsWith(href)) return;
+    setOptimisticHref(href);
     startTransition(() => {
       router.push(href);
     });
+  }
+
+  /** Se llama al hacer hover sobre un item: precarga datos en background. */
+  function handlePrefetch(item: NavItem) {
+    if (item.prefetchKey === 'clients') prefetchClients();
+    else if (item.prefetchKey === 'services') prefetchServices();
+    // Para futuras: reports, etc.
   }
 
   return (
@@ -96,7 +99,6 @@ export function Sidebar() {
           collapsed ? 'w-[72px]' : 'w-64',
         )}
       >
-        {/* Logo + marca */}
         <div className="flex h-16 items-center px-4">
           <Link
             href="/dashboard"
@@ -124,7 +126,6 @@ export function Sidebar() {
 
         <div className="mx-4 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
 
-        {/* Navegación */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           {!collapsed && <SectionLabel>Operaciones</SectionLabel>}
           <ul className="space-y-0.5">
@@ -136,6 +137,7 @@ export function Sidebar() {
                 active={isActiveItem(pathname, item.href, optimisticHref)}
                 pending={optimisticHref === item.href && isPending}
                 onNavigate={handleNavigate}
+                onPrefetch={handlePrefetch}
               />
             ))}
           </ul>
@@ -151,13 +153,13 @@ export function Sidebar() {
                   active={isActiveItem(pathname, item.href, optimisticHref)}
                   pending={optimisticHref === item.href && isPending}
                   onNavigate={handleNavigate}
+                  onPrefetch={handlePrefetch}
                 />
               ))}
             </ul>
           </div>
         </nav>
 
-        {/* Footer */}
         <div className="border-t border-border">
           <ul className="space-y-0.5 p-3">
             {NAV_BOTTOM.map((item) => (
@@ -168,6 +170,7 @@ export function Sidebar() {
                 active={isActiveItem(pathname, item.href, optimisticHref)}
                 pending={optimisticHref === item.href && isPending}
                 onNavigate={handleNavigate}
+                onPrefetch={handlePrefetch}
               />
             ))}
           </ul>
@@ -202,16 +205,9 @@ export function Sidebar() {
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────
-
-/** Active si el pathname coincide O si el usuario acaba de clickear el item (optimistic). */
 function isActiveItem(pathname: string, href: string, optimisticHref: string | null): boolean {
-  // Optimistic: si el usuario acaba de clickear este item, marcarlo activo INMEDIATAMENTE
   if (optimisticHref === href) return true;
-  // Si hay un optimistic activo en otro item, NO marcar este como activo aunque el pathname coincida
   if (optimisticHref && optimisticHref !== href) return false;
-
-  // Comportamiento normal: dashboard requiere match exacto, otros aceptan rutas hijas
   if (href === '/dashboard') return pathname === '/dashboard';
   return pathname === href || pathname.startsWith(href + '/');
 }
@@ -260,12 +256,14 @@ function SidebarItem({
   active,
   pending,
   onNavigate,
+  onPrefetch,
 }: {
   item: NavItem;
   collapsed: boolean;
   active: boolean;
   pending: boolean;
   onNavigate: (href: string) => void;
+  onPrefetch: (item: NavItem) => void;
 }) {
   const Icon = item.icon;
 
@@ -277,6 +275,8 @@ function SidebarItem({
         e.preventDefault();
         onNavigate(item.href);
       }}
+      onMouseEnter={() => onPrefetch(item)}
+      onFocus={() => onPrefetch(item)}
       className={cn(
         'group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-150',
         active
@@ -284,19 +284,16 @@ function SidebarItem({
           : 'text-vylta-muted hover:bg-vylta-card hover:text-vylta-bone',
       )}
     >
-      {/* Barra vertical verde a la izquierda cuando activo */}
       {active && (
         <span
           className={cn(
             'absolute -left-3 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-vylta-green',
             'shadow-[0_0_8px_hsl(160_84%_39%/0.6)]',
-            // Pulse sutil si está pending (cargando)
             pending && 'animate-pulse',
           )}
         />
       )}
 
-      {/* Icono — cambia a spinner si está pending */}
       {pending ? (
         <Loader2
           className="h-[18px] w-[18px] shrink-0 animate-spin text-vylta-green"
