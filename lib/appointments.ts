@@ -124,6 +124,10 @@ export async function assignStaffToAppointment(
   return { ok: true };
 }
 
+/**
+ * Hard delete — elimina permanentemente. Usar con cuidado.
+ * Para soft delete (recomendado), usar softDeleteAppointment.
+ */
 export async function deleteAppointment(id: string): Promise<boolean> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -140,6 +144,58 @@ export async function deleteAppointment(id: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+/**
+ * Soft delete — pone status='Cancelada' guardando el status original
+ * en notes para poder restaurar con undo. Más seguro que hard delete.
+ */
+export async function softDeleteAppointment(
+  id: string,
+  previousStatus: string,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autenticado' };
+
+  const { error } = await supabase
+    .from('appointments')
+    .update({
+      status: 'Cancelada',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('[softDeleteAppointment] Error:', error);
+    return { error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Restaura una cita cancelada al status anterior (operación inversa del soft delete).
+ */
+export async function restoreAppointment(
+  id: string,
+  restoreStatus: string,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autenticado' };
+
+  const { error } = await supabase
+    .from('appointments')
+    .update({
+      status: restoreStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error) return { error: error.message };
+  return { ok: true };
 }
 
 export async function updateAppointmentSchedule(
@@ -167,6 +223,46 @@ export async function updateAppointmentSchedule(
 
   if (error) {
     console.error('[updateAppointmentSchedule] Error:', error);
+    return { error: error.message };
+  }
+  return { ok: true };
+}
+
+export interface AppointmentUpdatePayload {
+  client_id: string;
+  service_name: string;
+  service_cost: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  notes: string | null;
+  staff_id: string | null;
+}
+
+/**
+ * Actualiza TODOS los campos editables de una cita. Usar desde el form
+ * de edición. Preserva updated_at en el server.
+ */
+export async function updateAppointmentFull(
+  id: string,
+  data: AppointmentUpdatePayload,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autenticado' };
+
+  const { error } = await supabase
+    .from('appointments')
+    .update({
+      ...data,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('[updateAppointmentFull] Error:', error);
     return { error: error.message };
   }
   return { ok: true };
@@ -216,22 +312,16 @@ export async function getStaffAvailability(
   });
 
   // 2. Por bloqueos de tiempo (si fueron provistos)
-  // Si el bloqueo es del negocio (staff_id=null), todo el staff queda ocupado.
-  // Si es de un staff específico, solo ese staff queda ocupado.
   if (timeBlocks && timeBlocks.length > 0) {
-    // Para cada staff_id mencionado en las citas, ver si tiene bloqueo aplicable
     const allStaffIds = new Set<string>();
     data.forEach((a: any) => { if (a.staff_id) allStaffIds.add(a.staff_id); });
 
-    // También revisar bloqueos generales del negocio (staff_id=null en el bloqueo)
     const businessBlocks = getBlocksForDate(timeBlocks, date, null);
     const businessConflict = findBlockConflict(newStart, slotDuration, businessBlocks);
     if (businessConflict) {
-      // Si hay bloqueo del negocio, marcamos TODOS los staff como ocupados
       allStaffIds.forEach(id => busyStaff.add(id));
     }
 
-    // Bloqueos por staff individual
     allStaffIds.forEach(staffId => {
       const staffBlocks = getBlocksForDate(timeBlocks, date, staffId);
       const staffConflict = findBlockConflict(newStart, slotDuration, staffBlocks);

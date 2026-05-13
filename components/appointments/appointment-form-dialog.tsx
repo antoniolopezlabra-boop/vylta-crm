@@ -20,6 +20,7 @@ import {
   Ban,
   Coffee,
   History,
+  Pencil,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -48,26 +49,26 @@ import { useClients } from '@/lib/queries/use-clients';
 import { useServices } from '@/lib/queries/use-services';
 import { useActiveStaff } from '@/lib/queries/use-appointments';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
-import { getBlocksForDate, findBlockConflict, type TimeBlock } from '@/lib/time-blocks';
+import { getBlocksForDate, findBlockConflict } from '@/lib/time-blocks';
+import { updateAppointmentFull, type Appointment } from '@/lib/appointments';
 
 // ══════════════════════════════════════════════════════════════════════
-// Form de Nueva Cita — validación completa de slots (Mayo 13, 2026)
+// Form de Cita — ahora soporta CREAR y EDITAR
 //
-// 5 CAPAS DE VALIDACIÓN DE SLOTS:
-//   1. Slots pasados (si la fecha es hoy y el slot < ahora+5min)
-//   2. (Pendiente) Horario del negocio (weekly_schedule)
-//   3. Bloqueos de tiempo (comidas, vacaciones, eventos)
-//   4. Citas existentes
-//   5. Solapamiento con duración del servicio (un slot "vacío" puede no caber)
+// Modo CREAR (default): se llama sin initialAppointment
+// Modo EDITAR: se pasa initialAppointment con la cita a editar.
+//   En edición NO se permite cambiar el cliente (campo bloqueado) porque
+//   eso implicaría renombrar el WhatsApp ya enviado etc.
+//   Lo demás sí: servicio, fecha, horario, colaborador, status, notas.
 // ══════════════════════════════════════════════════════════════════════
 
-const STATUS_OPTIONS = ['Confirmada', 'Pendiente'] as const;
+const STATUS_OPTIONS_CREATE = ['Confirmada', 'Pendiente'] as const;
+const STATUS_OPTIONS_EDIT = ['Confirmada', 'Pendiente', 'Completada', 'Pagado', 'En espera', 'Reagendada'] as const;
 const UNASSIGNED_KEY = '__unassigned__';
 
 const SLOT_START_HOUR = 8;
 const SLOT_END_HOUR = 21;
 const SLOT_INTERVAL_MIN = 15;
-/** Buffer de minutos antes de "ahora" para considerar un slot como pasado. */
 const PAST_SLOT_BUFFER_MIN = 5;
 
 const appointmentSchema = z.object({
@@ -76,7 +77,7 @@ const appointmentSchema = z.object({
   staffId: z.string(),
   date: z.string().min(1, 'Selecciona una fecha'),
   start_time: z.string().regex(/^\d{2}:\d{2}$/, 'Selecciona un horario'),
-  status: z.enum(STATUS_OPTIONS),
+  status: z.string(),
   notes: z.string().optional(),
 });
 
@@ -86,17 +87,19 @@ interface AppointmentFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialDate?: string;
+  /** Si está presente, el form entra en modo EDICIÓN */
+  initialAppointment?: Appointment | null;
   onSuccess?: () => void;
 }
 
 interface BookedSlot {
+  id: string;
   start: number;
   end: number;
   clientName: string;
   staffId: string | null;
 }
 
-/** Razones por las que un slot puede estar bloqueado, en orden de prioridad. */
 type BlockReason =
   | { kind: 'past' }
   | { kind: 'block'; label: string }
@@ -107,13 +110,14 @@ export function AppointmentFormDialog({
   open,
   onOpenChange,
   initialDate,
+  initialAppointment,
   onSuccess,
 }: AppointmentFormDialogProps) {
+  const isEditMode = !!initialAppointment;
   const [submitting, setSubmitting] = useState(false);
   const [bookedSlots, setBookedSlots] = useState<BookedSlot[]>([]);
   const [creatingClient, setCreatingClient] = useState(false);
 
-  // Reloj que se actualiza cada minuto para que los slots pasados se actualicen en vivo
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!open) return;
@@ -137,7 +141,7 @@ export function AppointmentFormDialog({
     watch,
     setValue,
     reset,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<AppointmentFormData>({
     resolver: zodResolver(appointmentSchema),
     defaultValues: {
@@ -157,8 +161,25 @@ export function AppointmentFormDialog({
   const selectedDate      = watch('date');
   const selectedTime      = watch('start_time');
 
+  // Cuando se abre el dialog, prellenar form (modo edit) o resetear (modo crear)
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (isEditMode && initialAppointment) {
+      // Buscar el serviceId que matchea el service_name (porque appointments
+      // guarda service_name, no service_id)
+      const matchingService = allServices.find(
+        s => s.name === initialAppointment.service_name,
+      );
+      reset({
+        clientId: initialAppointment.client_id || '',
+        serviceId: matchingService?.id || '',
+        staffId: initialAppointment.staff_id || UNASSIGNED_KEY,
+        date: initialAppointment.date,
+        start_time: initialAppointment.start_time?.slice(0, 5) || '',
+        status: initialAppointment.status,
+        notes: initialAppointment.notes || '',
+      });
+    } else {
       reset({
         clientId: '',
         serviceId: '',
@@ -169,7 +190,8 @@ export function AppointmentFormDialog({
         notes: '',
       });
     }
-  }, [open, initialDate, reset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEditMode, initialAppointment?.id, allServices.length]);
 
   const selectedService = services.find(s => s.id === selectedServiceId);
   const duration = selectedService?.duration_minutes || 0;
@@ -183,7 +205,6 @@ export function AppointmentFormDialog({
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }, [selectedTime, duration]);
 
-  // Fetch citas del día
   useEffect(() => {
     if (!open || !selectedDate) return;
     let cancelled = false;
@@ -193,17 +214,20 @@ export function AppointmentFormDialog({
       if (!user || cancelled) return;
       const { data } = await supabase
         .from('appointments')
-        .select('start_time, end_time, status, client_name_temp, staff_id, client:clients(name)')
+        .select('id, start_time, end_time, status, client_name_temp, staff_id, client:clients(name)')
         .eq('user_id', user.id)
         .eq('date', selectedDate);
       if (!data || cancelled) return;
       const EXCLUDED = ['Cancelada', 'No asistió', 'Rechazada'];
       const active = data
         .filter((a: any) => !EXCLUDED.includes(a.status))
+        // En modo edición excluir la cita propia para no auto-conflictarse
+        .filter((a: any) => !isEditMode || a.id !== initialAppointment?.id)
         .map((a: any) => {
           const startMin = timeToMinutes(a.start_time);
           const endMin   = a.end_time ? timeToMinutes(a.end_time) : startMin + 60;
           return {
+            id: a.id,
             start: startMin,
             end: endMin,
             clientName: a.client?.name || a.client_name_temp || 'Cita',
@@ -213,11 +237,8 @@ export function AppointmentFormDialog({
       setBookedSlots(active);
     })();
     return () => { cancelled = true; };
-  }, [open, selectedDate]);
+  }, [open, selectedDate, isEditMode, initialAppointment?.id]);
 
-  // ══════════════════════════════════════════════════════════════════════
-  // CÁLCULO DE SLOTS — con las 5 capas de validación
-  // ══════════════════════════════════════════════════════════════════════
   const slots = useMemo(() => {
     const result: Array<{
       time: string;
@@ -230,8 +251,6 @@ export function AppointmentFormDialog({
     const todayStr = toLocalDateString(new Date());
     const isToday = selectedDate === todayStr;
     const nowMinutes = now.getHours() * 60 + now.getMinutes() + PAST_SLOT_BUFFER_MIN;
-
-    // Pre-filtrar bloqueos aplicables a la fecha+staff (más eficiente que filtrar por slot)
     const blocksForDate = getBlocksForDate(timeBlocks, selectedDate, staffIdForCheck);
 
     for (let h = SLOT_START_HOUR; h <= SLOT_END_HOUR; h++) {
@@ -240,8 +259,6 @@ export function AppointmentFormDialog({
         const minutes = h * 60 + m;
         const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-        // Si no hay servicio seleccionado aún, no podemos calcular validaciones
-        // (porque no sabemos la duración). Mostramos todos como neutros.
         if (!duration) {
           result.push({ time, minutes, blocked: false, reason: null });
           continue;
@@ -249,15 +266,20 @@ export function AppointmentFormDialog({
 
         const slotEnd = minutes + duration;
 
-        // ── CAPA 1: Slot pasado (solo si la fecha es hoy) ──
-        if (isToday && minutes < nowMinutes) {
+        // En modo edición, NO marcar como pasado el horario actual de la cita
+        // (para que el usuario pueda mantener el mismo horario al editar otra cosa)
+        const isCurrentSlot =
+          isEditMode &&
+          initialAppointment?.date === selectedDate &&
+          initialAppointment?.start_time?.slice(0, 5) === time;
+
+        if (isToday && minutes < nowMinutes && !isCurrentSlot) {
           result.push({ time, minutes, blocked: true, reason: { kind: 'past' } });
           continue;
         }
 
-        // ── CAPA 3: Bloqueos de tiempo ──
         const blockConflict = findBlockConflict(minutes, duration, blocksForDate);
-        if (blockConflict) {
+        if (blockConflict && !isCurrentSlot) {
           result.push({
             time,
             minutes,
@@ -267,7 +289,6 @@ export function AppointmentFormDialog({
           continue;
         }
 
-        // ── CAPA 4: Citas existentes ──
         const bookingConflict = bookedSlots.find(b => {
           if (staffIdForCheck && b.staffId && b.staffId !== staffIdForCheck) return false;
           if (!staffIdForCheck && b.staffId) return false;
@@ -283,7 +304,6 @@ export function AppointmentFormDialog({
           continue;
         }
 
-        // ── CAPA 5: Si el servicio no cabe completo (overflow del rango operativo)
         if (slotEnd > SLOT_END_HOUR * 60) {
           result.push({ time, minutes, blocked: true, reason: { kind: 'no-fit' } });
           continue;
@@ -294,9 +314,8 @@ export function AppointmentFormDialog({
     }
 
     return result;
-  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now]);
+  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now, isEditMode, initialAppointment]);
 
-  // Si el slot seleccionado se vuelve bloqueado (al cambiar de servicio/staff/fecha), deseleccionar
   useEffect(() => {
     if (!selectedTime) return;
     const slot = slots.find(s => s.time === selectedTime);
@@ -307,7 +326,6 @@ export function AppointmentFormDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration, selectedStaffId, selectedDate]);
 
-  // Contar slots disponibles para mostrar empty state
   const availableCount = slots.filter(s => !s.blocked).length;
 
   const staffConflict = useMemo(() => {
@@ -374,6 +392,31 @@ export function AppointmentFormDialog({
     const end_time = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
     const staffIdToSave = data.staffId === UNASSIGNED_KEY ? null : data.staffId;
 
+    // ── Modo EDITAR ──
+    if (isEditMode && initialAppointment) {
+      const result = await updateAppointmentFull(initialAppointment.id, {
+        client_id: data.clientId,
+        service_name: service.name,
+        service_cost: service.price || 0,
+        date: data.date,
+        start_time: data.start_time,
+        end_time,
+        status: data.status,
+        notes: data.notes?.trim() || null,
+        staff_id: staffIdToSave,
+      });
+      setSubmitting(false);
+      if ('error' in result) {
+        toast.error('No pudimos guardar los cambios: ' + result.error);
+        return;
+      }
+      toast.success('Cita actualizada');
+      onOpenChange(false);
+      onSuccess?.();
+      return;
+    }
+
+    // ── Modo CREAR ──
     const payload = {
       user_id: user.id,
       client_id: data.clientId,
@@ -407,33 +450,59 @@ export function AppointmentFormDialog({
     ? staffMembers.find(s => s.id === selectedStaffId)
     : null;
 
+  const statusOptions = isEditMode ? STATUS_OPTIONS_EDIT : STATUS_OPTIONS_CREATE;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-vylta-bone">Nueva cita</DialogTitle>
+          <DialogTitle className="flex items-center gap-2 text-vylta-bone">
+            {isEditMode && <Pencil className="h-4 w-4 text-vylta-green" />}
+            {isEditMode ? 'Editar cita' : 'Nueva cita'}
+          </DialogTitle>
           <DialogDescription className="text-vylta-muted">
-            Completa los datos y elige un horario disponible.
+            {isEditMode
+              ? 'Modifica los datos de la cita. Los cambios afectan a recordatorios futuros.'
+              : 'Completa los datos y elige un horario disponible.'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-          {/* CLIENTE */}
+          {/* CLIENTE — read-only en modo edición */}
           <Field label="Cliente" icon={User} error={errors.clientId?.message} required>
-            <Controller
-              control={control}
-              name="clientId"
-              render={({ field }) => (
-                <ClientCombobox
-                  clients={clients}
-                  value={field.value}
-                  onChange={field.onChange}
-                  selectedClient={selectedClient}
-                  onCreateInline={createClientInline}
-                  creating={creatingClient}
-                />
-              )}
-            />
+            {isEditMode && selectedClient ? (
+              <div className="flex items-center gap-2.5 rounded-lg border border-border bg-vylta-card/40 px-3 py-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-vylta-green/15 text-[10px] font-bold text-vylta-green ring-1 ring-vylta-green/30">
+                  {getInitials(selectedClient.name)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-vylta-bone truncate">
+                    {selectedClient.name}
+                  </div>
+                  {selectedClient.phone && (
+                    <div className="text-xs text-vylta-muted truncate">{selectedClient.phone}</div>
+                  )}
+                </div>
+                <span className="shrink-0 rounded bg-vylta-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-vylta-muted">
+                  No editable
+                </span>
+              </div>
+            ) : (
+              <Controller
+                control={control}
+                name="clientId"
+                render={({ field }) => (
+                  <ClientCombobox
+                    clients={clients}
+                    value={field.value}
+                    onChange={field.onChange}
+                    selectedClient={selectedClient}
+                    onCreateInline={createClientInline}
+                    creating={creatingClient}
+                  />
+                )}
+              />
+            )}
           </Field>
 
           {/* SERVICIO */}
@@ -542,11 +611,11 @@ export function AppointmentFormDialog({
             <Input
               {...register('date')}
               type="date"
-              min={toLocalDateString(new Date())}
+              min={isEditMode ? undefined : toLocalDateString(new Date())}
             />
           </Field>
 
-          {/* HORARIO — Grid visual */}
+          {/* HORARIO */}
           <Field label="Horario" icon={Clock} error={errors.start_time?.message} required>
             {!selectedServiceId ? (
               <div className="rounded-lg border border-dashed border-border bg-vylta-card/40 px-4 py-6 text-center">
@@ -569,7 +638,7 @@ export function AppointmentFormDialog({
               <SlotGrid
                 slots={slots}
                 selectedTime={selectedTime}
-                onSelect={(time) => setValue('start_time', time, { shouldValidate: true })}
+                onSelect={(time) => setValue('start_time', time, { shouldValidate: true, shouldDirty: true })}
                 duration={duration}
               />
             )}
@@ -598,7 +667,7 @@ export function AppointmentFormDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {STATUS_OPTIONS.map((s) => (
+                    {statusOptions.map((s) => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
                   </SelectContent>
@@ -625,14 +694,14 @@ export function AppointmentFormDialog({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || (isEditMode && !isDirty)}>
               {submitting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creando...
+                  {isEditMode ? 'Guardando...' : 'Creando...'}
                 </>
               ) : (
-                'Crear cita'
+                isEditMode ? 'Guardar cambios' : 'Crear cita'
               )}
             </Button>
           </DialogFooter>
@@ -804,7 +873,7 @@ function ClientCombobox({
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// SlotGrid — ahora soporta razones de bloqueo diferenciadas
+// SlotGrid — sin cambios
 // ══════════════════════════════════════════════════════════════════════
 
 interface Slot {
@@ -837,7 +906,6 @@ function SlotGrid({
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-vylta-card/30 p-3">
-      {/* Leyenda */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-vylta-muted">
         <LegendDot color="bg-vylta-green" label="Disponible" />
         <LegendDot color="bg-vylta-card ring-1 ring-border" label="Ocupado" />
@@ -893,10 +961,9 @@ function SlotButton({
 }) {
   const { time, blocked, reason } = slot;
 
-  // Diferentes estilos según la razón del bloqueo
   let className: string;
   let title: string | undefined;
-  let Icon: typeof Ban | null = null;
+  let Icon: any = null;
 
   if (isSelected) {
     className = 'border-vylta-green bg-vylta-green text-white shadow-[0_0_12px_hsl(160_84%_39%/0.4)]';
@@ -941,10 +1008,6 @@ function SlotButton({
     </button>
   );
 }
-
-// ══════════════════════════════════════════════════════════════════════
-// Helpers
-// ══════════════════════════════════════════════════════════════════════
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
