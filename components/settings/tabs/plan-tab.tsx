@@ -25,33 +25,22 @@ import {
   getPlanBadgeLabel,
   getPlanPrice,
   getPlanDescription,
-  getPlanBadgeClass,
   getPlanTier,
 } from '@/lib/plan-labels';
 
 // ══════════════════════════════════════════════════════════════════════
-// PlanTab — Plan actual + activación de plan via Stripe + gestionar
-// suscripción via Customer Portal.
+// PlanTab — Plan actual + activación via Stripe + Customer Portal.
+// Brand Kit VYLTA v1.0: morado #A78BFA para Luxury (NO indigo).
 //
-// Patrón espejo de app/settings/subscription.tsx en móvil:
-//   • Botones de activar plan abren los Payment Links de Stripe live
-//   • Botón "Gestionar suscripción" llama Edge Function
-//     'create-portal-session' que devuelve URL del Customer Portal
-//   • Detalles de suscripción: desde/próximo cobro/estado/método
-//
-// IMPORTANTE: la Edge Function 'create-portal-session' espera el body
-// con `user_id` (snake_case), NO `userId`.
-//
-// Schema real de subscription_plans en BD:
-//   plan_type, status, price, features (jsonb), trial_ends_at,
-//   stripe_customer_id, stripe_subscription_id, created_at, updated_at
-// NO existe `current_period_end`.
+// Mismo flow que app móvil:
+//   • Payment Links live para activar Premium / Luxury
+//   • Edge Function 'create-portal-session' (body: user_id snake_case)
+//   • Detalles desde subscription_plans (created_at, updated_at, status)
 // ══════════════════════════════════════════════════════════════════════
 
-// Payment Links (LIVE) — los mismos que usa la app móvil
 const STRIPE_LINKS = {
-  premium: 'https://buy.stripe.com/7sY5kF5Ym9hm7mw5g938400',  // Plan Premium $399 MXN
-  luxury:  'https://buy.stripe.com/8x228t72q65a9uE23X38402',  // Plan Luxury $799 MXN
+  premium: 'https://buy.stripe.com/7sY5kF5Ym9hm7mw5g938400',
+  luxury:  'https://buy.stripe.com/8x228t72q65a9uE23X38402',
 };
 
 interface PlanTabProps {
@@ -94,6 +83,42 @@ function formatDate(dateStr: string | null | undefined): string {
   }
 }
 
+// ── Mapping de plan tier a estética visual ──
+function getTierVisual(tier: 'basico' | 'premium' | 'luxury') {
+  switch (tier) {
+    case 'luxury':
+      return {
+        text: 'text-vylta-luxury',
+        bg: 'bg-vylta-luxury/10',
+        ring: 'ring-vylta-luxury/20',
+        border: 'border-vylta-luxury/30',
+        badge: 'bg-vylta-luxury/15 text-vylta-luxury border-vylta-luxury/20',
+        cellBg: 'bg-vylta-luxury/5',
+        headerBg: 'bg-vylta-luxury/10 text-vylta-luxury',
+      };
+    case 'premium':
+      return {
+        text: 'text-vylta-green',
+        bg: 'bg-vylta-green/10',
+        ring: 'ring-vylta-green/20',
+        border: 'border-vylta-green/30',
+        badge: 'bg-vylta-green/15 text-vylta-green border-vylta-green/20',
+        cellBg: 'bg-vylta-green/5',
+        headerBg: 'bg-vylta-green/10 text-vylta-green',
+      };
+    default:
+      return {
+        text: 'text-vylta-muted',
+        bg: 'bg-vylta-card',
+        ring: 'ring-border',
+        border: 'border-border',
+        badge: 'bg-vylta-card text-vylta-muted border-border',
+        cellBg: 'bg-vylta-card/40',
+        headerBg: 'bg-vylta-card/60 text-vylta-bone',
+      };
+  }
+}
+
 export function PlanTab({ userId, plan }: PlanTabProps) {
   const [portalLoading, setPortalLoading] = useState(false);
 
@@ -103,12 +128,10 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
   const planBadge = getPlanBadgeLabel(rawPlanType);
   const planPrice = getPlanPrice(rawPlanType);
   const planDescription = getPlanDescription(rawPlanType);
-  const planBadgeClass = getPlanBadgeClass(rawPlanType);
   const isActive = (plan?.status || '').toLowerCase() === 'active';
   const hasPaidPlan = tier === 'premium' || tier === 'luxury';
+  const visual = getTierVisual(tier);
 
-  // Pasarle el user_id a Stripe via client_reference_id permite que el webhook
-  // sepa qué cuenta actualizar cuando el pago se complete.
   function buildPaymentUrl(target: 'premium' | 'luxury'): string {
     const baseUrl = STRIPE_LINKS[target];
     const separator = baseUrl.includes('?') ? '&' : '?';
@@ -119,26 +142,20 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
     setPortalLoading(true);
     try {
       const supabase = createClient();
-      // IMPORTANTE: la Edge Function espera `user_id` (snake_case),
-      // no `userId` (camelCase). Verificado en /supabase/functions/
-      // create-portal-session/index.ts del repo móvil.
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
         body: { user_id: userId },
       });
       if (error) throw error;
       if (!data?.url) throw new Error('No se recibió URL del portal');
-
-      // Abrir Stripe Customer Portal en pestaña nueva
       window.open(data.url, '_blank', 'noopener,noreferrer');
     } catch (err: any) {
       console.error('[PlanTab] Error abriendo portal:', err);
-      toast.error('No pudimos abrir el portal de suscripción: ' + (err.message || 'Error desconocido'));
+      toast.error('No pudimos abrir el portal: ' + (err.message || 'Error desconocido'));
     } finally {
       setPortalLoading(false);
     }
   }
 
-  // Próxima fecha de cobro estimada (updated_at + 30 días) — patrón móvil
   const nextBilling = (() => {
     if (!plan?.updated_at) return null;
     const d = new Date(plan.updated_at);
@@ -149,46 +166,79 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* ── Plan actual ── */}
-      <SettingsCard icon={CreditCard} title="Tu plan actual" description="Administra tu suscripción de VYLTA.">
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-secondary/30 p-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-lg font-bold">Plan {planName}</span>
-              <span className={cn('rounded-md px-2 py-0.5 text-[10px] font-bold uppercase', planBadgeClass)}>{planBadge}</span>
-              {isActive && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green-500/15 px-2 py-0.5 text-[10px] font-bold text-vylta-green-700 dark:text-vylta-green-400">
-                  <CheckCircle2 className="h-2.5 w-2.5" />
-                  ACTIVO
+      {/* ══════════ PLAN ACTUAL ══════════ */}
+      <SettingsCard
+        icon={CreditCard}
+        title="Tu plan actual"
+        description="Administra tu suscripción de VYLTA."
+      >
+        {/* Card del plan con halo del tier */}
+        <div className={cn(
+          'relative overflow-hidden rounded-xl border p-5',
+          visual.border,
+          tier === 'luxury' ? 'bg-vylta-luxury/[0.04]' : tier === 'premium' ? 'bg-vylta-green/[0.04]' : 'bg-vylta-card/40',
+        )}>
+          {/* Halo decorativo del color del tier */}
+          {tier !== 'basico' && (
+            <div
+              className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full blur-3xl opacity-30"
+              style={{ background: tier === 'luxury' ? '#A78BFA' : '#10B981' }}
+            />
+          )}
+
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-lg font-bold text-vylta-bone">Plan {planName}</span>
+                <span className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                  visual.badge,
+                )}>
+                  {tier === 'luxury' && <Sparkles className="h-2.5 w-2.5" />}
+                  {planBadge}
                 </span>
-              )}
+                {isActive && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-vylta-green">
+                    <CheckCircle2 className="h-2.5 w-2.5" />
+                    Activo
+                  </span>
+                )}
+              </div>
+              <p className="mt-1.5 text-xs text-vylta-muted">{planDescription}</p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{planDescription}</p>
-          </div>
-          <div className="shrink-0 text-right">
-            <div className="text-2xl font-bold tabular-nums text-vylta-green-600 dark:text-vylta-green-400">{planPrice}</div>
+            <div className="shrink-0 text-right">
+              <div className={cn('text-3xl font-bold tabular-nums tracking-tightest', visual.text)}>
+                {planPrice}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Detalles de suscripción — solo si tiene plan de pago */}
+        {/* Detalles de suscripción */}
         {hasPaidPlan && (
-          <div className="mt-4 space-y-3 rounded-lg border border-border bg-card p-4">
+          <div className="mt-4 space-y-3 rounded-xl border border-border bg-vylta-card/40 p-4">
             <DetailRow
               icon={Calendar}
               label="Suscrito desde"
-              value={formatDate(plan?.created_at)}
-              iconColor="text-blue-500"
+              value={<span className="text-vylta-bone">{formatDate(plan?.created_at)}</span>}
+              iconClass="text-vylta-sky bg-vylta-sky/10 ring-vylta-sky/20"
             />
             <DetailRow
               icon={Zap}
               label="Próximo cobro"
               value={
-                <span className={cn(isNextBillingSoon && 'text-vylta-amber-700 dark:text-amber-400 font-bold')}>
+                <span className={cn(
+                  isNextBillingSoon ? 'text-vylta-amber font-bold' : 'text-vylta-bone',
+                )}>
                   {nextBilling ? formatDate(nextBilling.toISOString()) : '—'}
                   {isNextBillingSoon && ' · pronto'}
                 </span>
               }
-              iconColor={isNextBillingSoon ? 'text-vylta-amber-500' : 'text-vylta-green-500'}
+              iconClass={
+                isNextBillingSoon
+                  ? 'text-vylta-amber bg-vylta-amber/10 ring-vylta-amber/20'
+                  : 'text-vylta-green bg-vylta-green/10 ring-vylta-green/20'
+              }
             />
             <DetailRow
               icon={Shield}
@@ -197,32 +247,35 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
                 <span className={cn(
                   'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold',
                   isActive
-                    ? 'bg-vylta-green-500/15 text-vylta-green-700 dark:text-vylta-green-400'
-                    : 'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400',
+                    ? 'bg-vylta-green/15 text-vylta-green'
+                    : 'bg-vylta-amber/15 text-vylta-amber',
                 )}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', isActive ? 'bg-vylta-green-500' : 'bg-vylta-amber-500')} />
+                  <span className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    isActive ? 'bg-vylta-green' : 'bg-vylta-amber',
+                  )} />
                   {isActive ? 'Activa' : (plan?.status || 'Desconocido')}
                 </span>
               }
-              iconColor="text-vylta-green-500"
+              iconClass="text-vylta-green bg-vylta-green/10 ring-vylta-green/20"
             />
             <DetailRow
               icon={CreditCard}
               label="Método de pago"
-              value="Administrado por Stripe"
-              iconColor="text-indigo-500"
+              value={<span className="text-vylta-bone">Administrado por Stripe</span>}
+              iconClass="text-vylta-luxury bg-vylta-luxury/10 ring-vylta-luxury/20"
             />
           </div>
         )}
 
-        {/* Botón: Gestionar suscripción (Stripe Customer Portal) */}
+        {/* Botón Customer Portal */}
         {hasPaidPlan && (
           <div className="mt-4 space-y-2">
             <Button
               onClick={openCustomerPortal}
               disabled={portalLoading}
               variant="outline"
-              className="w-full border-indigo-500/30 bg-indigo-500/5 text-indigo-600 hover:bg-indigo-500/10 hover:text-indigo-700 dark:text-indigo-400"
+              className="w-full h-10 border-vylta-luxury/30 bg-vylta-luxury/5 text-vylta-luxury hover:bg-vylta-luxury/10 hover:text-vylta-luxury-light hover:border-vylta-luxury/50"
             >
               {portalLoading ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Abriendo portal...</>
@@ -234,44 +287,42 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
                 </>
               )}
             </Button>
-            <p className="text-center text-[11px] text-muted-foreground">
+            <p className="text-center text-[11px] text-vylta-muted">
               Cambiar método de pago, ver facturas o cancelar tu suscripción
             </p>
           </div>
         )}
 
-        {/* Banner upgrade — Plan Básico */}
+        {/* Banner upgrade — Básico */}
         {tier === 'basico' && (
-          <div className="mt-4 rounded-lg border border-vylta-green-500/30 bg-vylta-green-500/5 p-3">
-            <p className="text-xs leading-relaxed text-vylta-green-700 dark:text-vylta-green-400">
-              💡 <strong>Tu Plan Básico permite hasta 10 citas al mes</strong> (app + link público combinadas).
+          <div className="mt-4 rounded-xl border border-vylta-green/30 bg-vylta-green/5 p-3.5">
+            <p className="text-xs leading-relaxed text-vylta-green-light">
+              💡 <strong className="text-vylta-green">Tu Plan Básico permite hasta 10 citas al mes</strong> (app + link público combinadas).
               Actualiza al Plan Premium para citas ilimitadas, recordatorios WhatsApp y reportes.
             </p>
           </div>
         )}
 
-        {/* Banner upgrade — Plan Premium */}
+        {/* Banner upgrade — Premium */}
         {tier === 'premium' && (
-          <div className="mt-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3">
-            <p className="text-xs leading-relaxed text-indigo-700 dark:text-indigo-400">
-              ⭐ Mejora al <strong>Plan Luxury</strong> para activar tu equipo de hasta 5 colaboradores,
+          <div className="mt-4 rounded-xl border border-vylta-luxury/30 bg-vylta-luxury/5 p-3.5">
+            <p className="text-xs leading-relaxed text-vylta-luxury-light">
+              ⭐ Mejora al <strong className="text-vylta-luxury">Plan Luxury</strong> para activar tu equipo de hasta 5 colaboradores,
               email marketing, citas simultáneas y reportes avanzados.
             </p>
           </div>
         )}
       </SettingsCard>
 
-      {/* ── Activar plan: tarjetas de upgrade ── */}
+      {/* ══════════ TARJETAS DE UPGRADE ══════════ */}
       {tier !== 'luxury' && (
         <div className="space-y-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">
             Activar un plan
           </h3>
 
-          {/* Plan Premium */}
           {tier === 'basico' && (
             <PlanUpgradeCard
-              tier="premium"
               emoji="🚀"
               name="Premium"
               price="$399"
@@ -285,13 +336,11 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
                 'Chat IA de soporte',
               ]}
               ctaUrl={buildPaymentUrl('premium')}
-              ctaColor="bg-vylta-green-500 hover:bg-vylta-green-600"
+              accent="green"
             />
           )}
 
-          {/* Plan Luxury */}
           <PlanUpgradeCard
-            tier="luxury"
             emoji="⭐"
             name="Luxury"
             price="$799"
@@ -307,84 +356,101 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
               'Soporte prioritario',
             ]}
             ctaUrl={buildPaymentUrl('luxury')}
-            ctaColor="bg-indigo-500 hover:bg-indigo-600"
+            accent="luxury"
             recommended
           />
 
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3">
-            <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground mt-0.5" />
-            <p className="text-[11px] text-muted-foreground">
-              Pago seguro procesado por <strong>Stripe</strong>. Puedes cancelar en cualquier momento desde
+          <div className="flex items-start gap-2 rounded-xl border border-border bg-vylta-card/40 p-3.5">
+            <Lock className="h-3.5 w-3.5 shrink-0 text-vylta-muted mt-0.5" />
+            <p className="text-[11px] text-vylta-muted leading-relaxed">
+              Pago seguro procesado por <strong className="text-vylta-bone">Stripe</strong>. Puedes cancelar en cualquier momento desde
               "Gestionar suscripción". Sin contratos ni penalidades.
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Tabla comparativa ── */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border bg-secondary/30 px-4 py-2.5">
-          <h3 className="text-sm font-bold">Compara los planes</h3>
+      {/* ══════════ TABLA COMPARATIVA ══════════ */}
+      <div className="overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
+        <div className="border-b border-border bg-vylta-card/40 px-5 py-3">
+          <h3 className="text-sm font-bold text-vylta-bone">Compara los planes</h3>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-secondary/20 text-[10px] uppercase tracking-wider text-muted-foreground">
-              <th className="px-4 py-2 text-left font-bold">Función</th>
-              <th className={cn('px-2 py-2 text-center font-bold', tier === 'basico' && 'bg-vylta-green-500/10 text-vylta-green-700 dark:text-vylta-green-400')}>Básico</th>
-              <th className={cn('px-2 py-2 text-center font-bold', tier === 'premium' && 'bg-vylta-green-500/10 text-vylta-green-700 dark:text-vylta-green-400')}>Premium</th>
-              <th className={cn('px-2 py-2 text-center font-bold', tier === 'luxury' && 'bg-vylta-amber-500/10 text-vylta-amber-700 dark:text-amber-400')}>Luxury</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PLAN_FEATURES.map((row, i) => (
-              <tr key={i} className="border-b border-border last:border-b-0">
-                <td className="px-4 py-2.5 text-xs">{row.feature}</td>
-                <td className={cn('px-2 py-2.5 text-center', tier === 'basico' && 'bg-vylta-green-500/5')}>
-                  {row.basico ? <Check className="mx-auto h-4 w-4 text-vylta-green-600 dark:text-vylta-green-400" /> : <X className="mx-auto h-3.5 w-3.5 text-muted-foreground/50" />}
-                </td>
-                <td className={cn('px-2 py-2.5 text-center', tier === 'premium' && 'bg-vylta-green-500/5')}>
-                  {row.premium ? <Check className="mx-auto h-4 w-4 text-vylta-green-600 dark:text-vylta-green-400" /> : <X className="mx-auto h-3.5 w-3.5 text-muted-foreground/50" />}
-                </td>
-                <td className={cn('px-2 py-2.5 text-center', tier === 'luxury' && 'bg-vylta-amber-500/5')}>
-                  {row.luxury ? <Check className="mx-auto h-4 w-4 text-vylta-green-600 dark:text-vylta-green-400" /> : <X className="mx-auto h-3.5 w-3.5 text-muted-foreground/50" />}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-vylta-card/30 text-[10px] uppercase tracking-[0.15em] text-vylta-muted">
+                <th className="px-4 py-2.5 text-left font-bold">Función</th>
+                <th className={cn('px-3 py-2.5 text-center font-bold', tier === 'basico' && getTierVisual('basico').headerBg)}>
+                  Básico
+                </th>
+                <th className={cn('px-3 py-2.5 text-center font-bold', tier === 'premium' && getTierVisual('premium').headerBg)}>
+                  Premium
+                </th>
+                <th className={cn('px-3 py-2.5 text-center font-bold', tier === 'luxury' && getTierVisual('luxury').headerBg)}>
+                  Luxury
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {PLAN_FEATURES.map((row, i) => (
+                <tr key={i} className="border-b border-border last:border-b-0 hover:bg-vylta-card/20">
+                  <td className="px-4 py-2.5 text-xs text-vylta-bone">{row.feature}</td>
+                  <td className={cn('px-3 py-2.5 text-center', tier === 'basico' && getTierVisual('basico').cellBg)}>
+                    {row.basico
+                      ? <Check className="mx-auto h-4 w-4 text-vylta-green" strokeWidth={2.5} />
+                      : <X className="mx-auto h-3.5 w-3.5 text-vylta-subtle/50" />}
+                  </td>
+                  <td className={cn('px-3 py-2.5 text-center', tier === 'premium' && getTierVisual('premium').cellBg)}>
+                    {row.premium
+                      ? <Check className="mx-auto h-4 w-4 text-vylta-green" strokeWidth={2.5} />
+                      : <X className="mx-auto h-3.5 w-3.5 text-vylta-subtle/50" />}
+                  </td>
+                  <td className={cn('px-3 py-2.5 text-center', tier === 'luxury' && getTierVisual('luxury').cellBg)}>
+                    {row.luxury
+                      ? <Check className="mx-auto h-4 w-4 text-vylta-luxury" strokeWidth={2.5} />
+                      : <X className="mx-auto h-3.5 w-3.5 text-vylta-subtle/50" />}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Componentes internos
+// ══════════════════════════════════════════════════════════════════════
 
 function DetailRow({
   icon: Icon,
   label,
   value,
-  iconColor,
+  iconClass,
 }: {
   icon: any;
   label: string;
   value: React.ReactNode;
-  iconColor: string;
+  iconClass: string;
 }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary/60">
-        <Icon className={cn('h-3.5 w-3.5', iconColor)} />
+      <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1', iconClass)}>
+        <Icon className="h-4 w-4" strokeWidth={2} />
       </div>
       <div className="flex-1">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className="text-sm font-semibold">{value}</div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle">
+          {label}
+        </div>
+        <div className="mt-0.5 text-sm font-semibold">{value}</div>
       </div>
     </div>
   );
 }
 
 function PlanUpgradeCard({
-  tier,
   emoji,
   name,
   price,
@@ -392,10 +458,9 @@ function PlanUpgradeCard({
   tagline,
   features,
   ctaUrl,
-  ctaColor,
+  accent,
   recommended,
 }: {
-  tier: string;
   emoji: string;
   name: string;
   price: string;
@@ -403,37 +468,67 @@ function PlanUpgradeCard({
   tagline: string;
   features: string[];
   ctaUrl: string;
-  ctaColor: string;
+  accent: 'green' | 'luxury';
   recommended?: boolean;
 }) {
+  const accentMap = {
+    green: {
+      border: 'border-vylta-green/30',
+      borderHover: 'hover:border-vylta-green/50',
+      text: 'text-vylta-green',
+      check: 'text-vylta-green',
+      cta: 'bg-vylta-green hover:bg-vylta-green-light',
+      haloHex: '#10B981',
+      glow: 'glow-primary',
+    },
+    luxury: {
+      border: 'border-vylta-luxury/40',
+      borderHover: 'hover:border-vylta-luxury/60',
+      text: 'text-vylta-luxury',
+      check: 'text-vylta-luxury',
+      cta: 'bg-vylta-luxury hover:bg-vylta-luxury-light',
+      haloHex: '#A78BFA',
+      glow: 'glow-luxury',
+    },
+  }[accent];
+
   return (
     <div className={cn(
-      'relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm',
-      recommended ? 'border-indigo-500/40' : 'border-border',
+      'group relative overflow-hidden rounded-xl border bg-vylta-surface p-5 shadow-card transition-all hover:-translate-y-0.5',
+      accentMap.border,
+      accentMap.borderHover,
+      recommended && accentMap.glow,
     )}>
+      {/* Halo decorativo del accent */}
+      <div
+        className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full blur-3xl opacity-20 transition-opacity group-hover:opacity-40"
+        style={{ background: accentMap.haloHex }}
+      />
+
       {recommended && (
-        <div className="absolute right-0 top-0 rounded-bl-lg bg-indigo-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+        <div className="absolute right-0 top-0 rounded-bl-lg bg-vylta-luxury px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-white">
           ⭐ Recomendado
         </div>
       )}
-      <div className="flex items-start gap-3">
-        <div className="text-3xl">{emoji}</div>
-        <div className="flex-1">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-xl font-bold">{name}</h3>
-          </div>
-          <p className="text-xs text-muted-foreground">{tagline}</p>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-3xl font-bold tabular-nums">{price}</span>
-            <span className="text-xs text-muted-foreground">{period}</span>
+
+      <div className="relative flex items-start gap-3">
+        <div className="text-3xl leading-none mt-1">{emoji}</div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-xl font-bold tracking-tightest text-vylta-bone">{name}</h3>
+          <p className="mt-0.5 text-xs text-vylta-muted">{tagline}</p>
+          <div className="mt-3 flex items-baseline gap-1.5">
+            <span className={cn('text-3xl font-bold tabular-nums tracking-tightest', accentMap.text)}>
+              {price}
+            </span>
+            <span className="text-xs text-vylta-muted">{period}</span>
           </div>
         </div>
       </div>
 
-      <ul className="mt-4 space-y-1.5">
+      <ul className="relative mt-4 space-y-1.5">
         {features.map((f, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs">
-            <Check className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', recommended ? 'text-indigo-500' : 'text-vylta-green-500')} />
+          <li key={i} className="flex items-start gap-2 text-xs text-vylta-bone">
+            <Check className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', accentMap.check)} strokeWidth={2.5} />
             <span>{f}</span>
           </li>
         ))}
@@ -444,8 +539,8 @@ function PlanUpgradeCard({
         target="_blank"
         rel="noopener noreferrer"
         className={cn(
-          'mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-md transition hover:shadow-lg',
-          ctaColor,
+          'relative mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold text-white shadow-card transition hover:shadow-card-lg',
+          accentMap.cta,
         )}
       >
         <Sparkles className="h-4 w-4" />
