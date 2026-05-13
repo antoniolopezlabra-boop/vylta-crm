@@ -25,6 +25,7 @@ import {
   CheckCheck,
   UserX,
   Users,
+  CalendarDays,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -52,6 +53,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
+import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
+
+// ══════════════════════════════════════════════════════════════════════
+// Detail de cita — Brand Kit dark + RescheduleDialog + bloqueos en staff
+// ══════════════════════════════════════════════════════════════════════
 
 export default function AppointmentDetailPage() {
   const router = useRouter();
@@ -67,9 +74,8 @@ export default function AppointmentDetailPage() {
   const [savingClient, setSavingClient] = useState(false);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleTime, setRescheduleTime] = useState('');
-  const [rescheduling, setRescheduling] = useState(false);
+
+  const { data: timeBlocks = [] } = useTimeBlocks();
 
   async function reload() {
     if (!id) return;
@@ -93,8 +99,6 @@ export default function AppointmentDetailPage() {
         notes: '',
       });
     }
-    setRescheduleDate(apt.date);
-    setRescheduleTime(apt.start_time?.slice(0, 5) || '09:00');
     setLoading(false);
   }
 
@@ -107,6 +111,7 @@ export default function AppointmentDetailPage() {
       appointment.start_time,
       appointment.end_time || appointment.start_time,
       appointment.id,
+      timeBlocks,
     );
     setStaffList(prev => prev.map(s => ({ ...s, busy: busySet.has(s.id) })));
   }
@@ -129,7 +134,7 @@ export default function AppointmentDetailPage() {
     if (!appointment) return;
     const member = staffId ? staffList.find(s => s.id === staffId) : null;
     if (member?.busy) {
-      toast.error(`${member.name} ya tiene una cita en este horario`);
+      toast.error(`${member.name} ya tiene una cita o bloqueo en este horario`);
       return;
     }
     setActionLoading(true);
@@ -208,57 +213,10 @@ export default function AppointmentDetailPage() {
     reload();
   }
 
-  async function handleReschedule() {
-    if (!appointment) return;
-    if (!rescheduleDate || !rescheduleTime) {
-      toast.error('Fecha y hora son obligatorias');
-      return;
-    }
-    setRescheduling(true);
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setRescheduling(false); return; }
-
-    const timeToMin = (t: string) => {
-      const [h, m] = t.split(':').map(Number);
-      return (h || 0) * 60 + (m || 0);
-    };
-    const minToTime = (m: number) => {
-      const h = Math.floor(m / 60);
-      const mm = m % 60;
-      return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    };
-    const origStart = timeToMin(appointment.start_time);
-    const origEnd = appointment.end_time ? timeToMin(appointment.end_time) : origStart + 30;
-    const duration = origEnd - origStart;
-    const newStartMin = timeToMin(rescheduleTime);
-    const newEnd = minToTime(newStartMin + duration);
-
-    const { error } = await supabase
-      .from('appointments')
-      .update({
-        date: rescheduleDate,
-        start_time: rescheduleTime,
-        end_time: newEnd,
-        status: 'Reagendada',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', appointment.id);
-
-    setRescheduling(false);
-    if (error) {
-      toast.error('No se pudo reagendar: ' + error.message);
-      return;
-    }
-    toast.success('Cita reagendada');
-    setRescheduleOpen(false);
-    reload();
-  }
-
   if (loading || !appointment) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Loader2 className="h-6 w-6 animate-spin text-vylta-green" />
       </div>
     );
   }
@@ -275,11 +233,12 @@ export default function AppointmentDetailPage() {
   const formattedDate = `${DAYS_ES_FULL[dayIdx]} ${dateObj.getDate()} de ${MONTHS_ES[dateObj.getMonth()].toLowerCase()} ${dateObj.getFullYear()}`;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    <div className="mx-auto max-w-3xl space-y-5 animate-fade-in">
+      {/* HEADER */}
       <div className="flex items-center justify-between">
         <button
           onClick={() => router.push('/citas')}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition hover:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-vylta-muted transition hover:text-vylta-bone"
         >
           <ArrowLeft className="h-4 w-4" />
           Volver a citas
@@ -296,23 +255,34 @@ export default function AppointmentDetailPage() {
         </Button>
       </div>
 
-      <div className={cn('flex flex-col items-center gap-3 rounded-2xl border-2 p-5', style.border)}>
+      {/* STATUS BADGE — usa el barColor del status, no border tonto */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-vylta-surface p-6 shadow-card">
         <div
-          className="rounded-full px-5 py-2 text-base font-bold text-white shadow-md"
-          style={{ backgroundColor: style.barColor }}
-        >
-          {appointment.status}
+          className="pointer-events-none absolute inset-0 opacity-[0.06]"
+          style={{ background: `radial-gradient(ellipse at top right, ${style.barColor}, transparent 60%)` }}
+        />
+        <div className="relative flex flex-col items-center gap-3">
+          <div
+            className="rounded-full px-5 py-2 text-base font-bold text-white shadow-cta"
+            style={{ backgroundColor: style.barColor }}
+          >
+            {appointment.status}
+          </div>
+          {isPublicLink && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-vylta-luxury/15 px-3 py-1 text-xs font-bold text-vylta-luxury border border-vylta-luxury/25">
+              <Link2 className="h-3 w-3" />
+              Desde link público
+            </span>
+          )}
         </div>
-        {isPublicLink && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-700 dark:text-blue-400">
-            <Link2 className="h-3 w-3" />
-            Desde link público
-          </span>
-        )}
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Información de la cita</h3>
+      {/* INFORMACIÓN DE LA CITA */}
+      <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
+        <div className="mb-4 flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-vylta-green" />
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">Información de la cita</h3>
+        </div>
         <div className="space-y-3">
           <InfoRow icon={Calendar} label="Fecha" value={formattedDate} />
           <InfoRow icon={Clock} label="Hora" value={`${appointment.start_time?.slice(0, 5)}${appointment.end_time ? ' \u2014 ' + appointment.end_time.slice(0, 5) : ''}`} />
@@ -321,17 +291,21 @@ export default function AppointmentDetailPage() {
             <InfoRow
               icon={DollarSign}
               label="Precio"
-              value={<span className="font-bold text-vylta-green-600 dark:text-vylta-green-400">{formatCurrency(appointment.service_cost)}</span>}
+              value={<span className="font-bold text-vylta-green">{formatCurrency(appointment.service_cost)}</span>}
             />
           ) : null}
           {appointment.notes && <InfoRow icon={StickyNote} label="Notas" value={appointment.notes} />}
         </div>
       </div>
 
+      {/* COLABORADOR */}
       {staffList.length > 0 && (
-        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Colaborador</h3>
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-vylta-green" />
+              <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">Colaborador</h3>
+            </div>
             <Button
               size="sm"
               variant="outline"
@@ -343,7 +317,7 @@ export default function AppointmentDetailPage() {
           </div>
           {assignedStaff ? (
             <div
-              className="flex items-center gap-3 rounded-lg border-2 p-3"
+              className="flex items-center gap-3 rounded-lg border p-3"
               style={{ borderColor: `${assignedStaff.color}66`, backgroundColor: `${assignedStaff.color}0D` }}
             >
               <div
@@ -353,27 +327,31 @@ export default function AppointmentDetailPage() {
                 {getInitials(assignedStaff.name)}
               </div>
               <div className="flex-1">
-                <div className="text-sm font-bold">{assignedStaff.name}</div>
-                {assignedStaff.role && <div className="text-xs text-muted-foreground">{assignedStaff.role}</div>}
+                <div className="text-sm font-bold text-vylta-bone">{assignedStaff.name}</div>
+                {assignedStaff.role && <div className="text-xs text-vylta-muted">{assignedStaff.role}</div>}
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-3 rounded-lg border-2 border-dashed border-border bg-secondary/30 p-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
+            <div className="flex items-center gap-3 rounded-lg border border-dashed border-border bg-vylta-card/40 p-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-vylta-card text-vylta-subtle">
                 <User className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                <div className="text-sm font-semibold text-muted-foreground">Sin colaborador asignado</div>
-                <div className="text-[11px] text-muted-foreground">Toca “Asignar” para escoger uno</div>
+                <div className="text-sm font-semibold text-vylta-muted">Sin colaborador asignado</div>
+                <div className="text-[11px] text-vylta-subtle">Toca "Asignar" para escoger uno</div>
               </div>
             </div>
           )}
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      {/* CLIENTE */}
+      <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Cliente</h3>
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-vylta-green" />
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">Cliente</h3>
+          </div>
           {isPublicLink && !hasRealClient && (
             <Button size="sm" onClick={() => setSaveClientOpen(true)}>
               <UserPlus className="h-3.5 w-3.5" />
@@ -381,37 +359,39 @@ export default function AppointmentDetailPage() {
             </Button>
           )}
         </div>
-        <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/30 p-3">
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-vylta-card/40 p-3">
           <div className={cn(
-            'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold text-white',
-            isPublicLink && !hasRealClient ? 'bg-blue-500' : 'bg-vylta-green-500',
+            'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold text-white ring-1',
+            isPublicLink && !hasRealClient
+              ? 'bg-vylta-luxury ring-vylta-luxury/30'
+              : 'bg-vylta-green ring-vylta-green/30',
           )}>
             {getInitials(clientName)}
           </div>
           <div className="flex-1 space-y-1">
             {hasRealClient && appointment.client?.id ? (
-              <Link href={`/clientes?highlight=${appointment.client.id}`} className="text-base font-bold hover:underline">
+              <Link href={`/clientes?highlight=${appointment.client.id}`} className="text-base font-bold text-vylta-bone hover:underline">
                 {clientName}
               </Link>
             ) : (
-              <div className="text-base font-bold">{clientName}</div>
+              <div className="text-base font-bold text-vylta-bone">{clientName}</div>
             )}
             {clientPhone && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-xs text-vylta-muted">
                 <Phone className="h-3 w-3" />
-                <a href={`https://wa.me/${clientPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="hover:text-vylta-green-600 dark:hover:text-vylta-green-400">
+                <a href={`https://wa.me/${clientPhone.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="hover:text-vylta-whatsapp">
                   {clientPhone}
                 </a>
               </div>
             )}
             {clientEmail && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-xs text-vylta-muted">
                 <Mail className="h-3 w-3" />
                 {clientEmail}
               </div>
             )}
             {isPublicLink && !hasRealClient && (
-              <div className="mt-1 inline-block rounded bg-vylta-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-vylta-amber-700 dark:text-amber-400">
+              <div className="mt-1 inline-block rounded bg-vylta-amber/15 px-2 py-0.5 text-[10px] font-semibold text-vylta-amber border border-vylta-amber/25">
                 No registrado como cliente aún
               </div>
             )}
@@ -419,8 +399,12 @@ export default function AppointmentDetailPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Acciones</h3>
+      {/* ACCIONES */}
+      <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
+        <div className="mb-4 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-vylta-green" />
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">Acciones</h3>
+        </div>
         <StatusActions
           status={appointment.status}
           actionLoading={actionLoading}
@@ -430,11 +414,14 @@ export default function AppointmentDetailPage() {
         />
       </div>
 
+      {/* DIALOG ASIGNAR STAFF */}
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Asignar colaborador</DialogTitle>
-            <DialogDescription>Selecciona quién atenderá esta cita.</DialogDescription>
+            <DialogTitle className="text-vylta-bone">Asignar colaborador</DialogTitle>
+            <DialogDescription className="text-vylta-muted">
+              Selecciona quién atenderá esta cita. Los ocupados tienen otra cita o bloqueo en este horario.
+            </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] space-y-2 overflow-y-auto">
             <button
@@ -442,18 +429,18 @@ export default function AppointmentDetailPage() {
               onClick={() => handleAssignStaff(null)}
               disabled={actionLoading}
               className={cn(
-                'flex w-full items-center gap-3 rounded-lg border-2 p-3 text-left transition hover:bg-secondary/50',
-                !appointment.staff_id ? 'border-vylta-green-500 bg-vylta-green-500/5' : 'border-border bg-card',
+                'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition hover:bg-vylta-card/50',
+                !appointment.staff_id ? 'border-vylta-green/40 bg-vylta-green/5' : 'border-border bg-vylta-surface',
               )}
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-vylta-card text-vylta-subtle">
                 <UserX className="h-5 w-5" />
               </div>
               <div className="flex-1">
-                <div className="text-sm font-bold">Sin asignar</div>
-                <div className="text-[11px] text-muted-foreground">Quitar asignación actual</div>
+                <div className="text-sm font-bold text-vylta-bone">Sin asignar</div>
+                <div className="text-[11px] text-vylta-muted">Quitar asignación actual</div>
               </div>
-              {!appointment.staff_id && <CheckCircle2 className="h-5 w-5 text-vylta-green-600 dark:text-vylta-green-400" />}
+              {!appointment.staff_id && <CheckCircle2 className="h-5 w-5 text-vylta-green" />}
             </button>
             {staffList.map(m => {
               const isSelected = appointment.staff_id === m.id;
@@ -465,31 +452,31 @@ export default function AppointmentDetailPage() {
                   onClick={() => handleAssignStaff(m.id)}
                   disabled={actionLoading || isBusy}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-lg border-2 p-3 text-left transition',
+                    'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition',
                     isBusy
-                      ? 'cursor-not-allowed border-vylta-rose-500/40 bg-vylta-rose-500/5 opacity-70'
+                      ? 'cursor-not-allowed border-vylta-rose/40 bg-vylta-rose/5 opacity-70'
                       : isSelected
-                        ? 'bg-vylta-green-500/5'
-                        : 'border-border bg-card hover:bg-secondary/50',
+                        ? ''
+                        : 'border-border bg-vylta-surface hover:bg-vylta-card/50',
                   )}
                   style={isSelected && !isBusy ? { borderColor: m.color, backgroundColor: `${m.color}0D` } : undefined}
                 >
                   <div
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 text-sm font-bold"
                     style={{
-                      borderColor: isBusy ? '#EF4444' : m.color,
-                      backgroundColor: isBusy ? '#FEE2E2' : `${m.color}20`,
-                      color: isBusy ? '#EF4444' : m.color,
+                      borderColor: isBusy ? '#F43F5E' : m.color,
+                      backgroundColor: isBusy ? 'rgba(244,63,94,0.15)' : `${m.color}20`,
+                      color: isBusy ? '#F43F5E' : m.color,
                     }}
                   >
                     {getInitials(m.name)}
                   </div>
                   <div className="flex-1">
-                    <div className={cn('text-sm font-bold', isBusy && 'text-destructive')}>{m.name}</div>
+                    <div className={cn('text-sm font-bold', isBusy ? 'text-vylta-rose' : 'text-vylta-bone')}>{m.name}</div>
                     {isBusy ? (
-                      <div className="text-[11px] font-semibold text-destructive">⛔ Ocupado en este horario</div>
+                      <div className="text-[11px] font-semibold text-vylta-rose">⛔ Ocupado en este horario</div>
                     ) : m.role ? (
-                      <div className="text-[11px] text-muted-foreground">{m.role}</div>
+                      <div className="text-[11px] text-vylta-muted">{m.role}</div>
                     ) : null}
                   </div>
                   {isSelected && !isBusy && <CheckCircle2 className="h-5 w-5" style={{ color: m.color }} />}
@@ -500,27 +487,30 @@ export default function AppointmentDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG GUARDAR COMO CLIENTE */}
       <Dialog open={saveClientOpen} onOpenChange={setSaveClientOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Guardar como cliente</DialogTitle>
-            <DialogDescription>Esta información se guardará en tu base de clientes y quedará vinculada a esta cita.</DialogDescription>
+            <DialogTitle className="text-vylta-bone">Guardar como cliente</DialogTitle>
+            <DialogDescription className="text-vylta-muted">
+              Esta información se guardará en tu base de clientes y quedará vinculada a esta cita.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nombre <span className="text-destructive">*</span></Label>
+              <Label className="text-xs font-semibold text-vylta-muted">Nombre <span className="text-destructive">*</span></Label>
               <Input value={clientForm.name} onChange={e => setClientForm(p => ({ ...p, name: e.target.value }))} placeholder="Nombre completo" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Teléfono / WhatsApp <span className="text-destructive">*</span></Label>
+              <Label className="text-xs font-semibold text-vylta-muted">Teléfono / WhatsApp <span className="text-destructive">*</span></Label>
               <Input value={clientForm.phone} onChange={e => setClientForm(p => ({ ...p, phone: e.target.value }))} placeholder="Ej: 442 123 4567" type="tel" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Email (opcional)</Label>
+              <Label className="text-xs font-semibold text-vylta-muted">Email (opcional)</Label>
               <Input value={clientForm.email} onChange={e => setClientForm(p => ({ ...p, email: e.target.value }))} placeholder="correo@ejemplo.com" type="email" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Notas (opcional)</Label>
+              <Label className="text-xs font-semibold text-vylta-muted">Notas (opcional)</Label>
               <Textarea value={clientForm.notes} onChange={e => setClientForm(p => ({ ...p, notes: e.target.value }))} placeholder="Preferencias, alergias..." rows={2} />
             </div>
           </div>
@@ -533,39 +523,26 @@ export default function AppointmentDetailPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Reagendar cita</DialogTitle>
-            <DialogDescription>Selecciona la nueva fecha y hora. La duración se mantiene igual.</DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nueva fecha</Label>
-              <Input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Nueva hora</Label>
-              <Input type="time" value={rescheduleTime} onChange={e => setRescheduleTime(e.target.value)} step={300} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRescheduleOpen(false)} disabled={rescheduling}>Cancelar</Button>
-            <Button onClick={handleReschedule} disabled={rescheduling}>
-              {rescheduling ? <><Loader2 className="h-4 w-4 animate-spin" /> Reagendando...</> : <><CalendarPlus className="h-4 w-4" /> Reagendar</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* RESCHEDULE DIALOG — nuevo componente con grid visual + 4 capas */}
+      <RescheduleDialog
+        open={rescheduleOpen}
+        onOpenChange={setRescheduleOpen}
+        appointment={appointment}
+        onSuccess={reload}
+      />
 
       {actionLoading && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <Loader2 className="h-8 w-8 animate-spin text-white" />
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <Loader2 className="h-8 w-8 animate-spin text-vylta-green" />
         </div>
       )}
     </div>
   );
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Componentes internos
+// ══════════════════════════════════════════════════════════════════════
 
 function InfoRow({
   icon: Icon,
@@ -578,12 +555,12 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-vylta-green-500/10 text-vylta-green-600 dark:text-vylta-green-400">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-vylta-green/10 text-vylta-green ring-1 ring-vylta-green/20">
         <Icon className="h-4 w-4" />
       </div>
       <div className="flex-1">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className="text-sm font-semibold">{value}</div>
+        <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</div>
+        <div className="text-sm font-semibold text-vylta-bone">{value}</div>
       </div>
     </div>
   );
@@ -605,14 +582,14 @@ function StatusActions({
   if (status === 'Solicitud') {
     return (
       <div className="space-y-3">
-        <div className="flex items-start gap-3 rounded-lg border border-blue-500/40 bg-blue-500/5 p-3">
-          <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+        <div className="flex items-start gap-3 rounded-lg border border-vylta-luxury/30 bg-vylta-luxury/5 p-3">
+          <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-vylta-luxury" />
           <div>
-            <div className="text-sm font-bold text-blue-700 dark:text-blue-400">Solicitud desde link público</div>
-            <div className="text-xs text-muted-foreground">{clientName} pidió esta cita. Acepta o rechaza para responder.</div>
+            <div className="text-sm font-bold text-vylta-luxury">Solicitud desde link público</div>
+            <div className="text-xs text-vylta-muted">{clientName} pidió esta cita. Acepta o rechaza para responder.</div>
           </div>
         </div>
-        <Button className="w-full bg-vylta-green-500 hover:bg-vylta-green-600" disabled={actionLoading} onClick={() => onChange('Confirmada', `¿Confirmas la cita de ${clientName}?`)}>
+        <Button className="w-full" disabled={actionLoading} onClick={() => onChange('Confirmada', `¿Confirmas la cita de ${clientName}?`)}>
           <CheckCircle2 className="h-4 w-4" /> Aceptar solicitud
         </Button>
         <Button variant="outline" className="w-full border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={actionLoading} onClick={() => onChange('Rechazada', '¿Rechazar esta solicitud?')}>
@@ -625,11 +602,11 @@ function StatusActions({
   if (status === 'En espera') {
     return (
       <div className="space-y-3">
-        <div className="flex items-start gap-3 rounded-lg border border-vylta-amber-500/40 bg-vylta-amber-500/5 p-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-vylta-amber-700 dark:text-amber-400" />
-          <div className="text-sm font-bold text-vylta-amber-700 dark:text-amber-400">Cita en espera de confirmación</div>
+        <div className="flex items-start gap-3 rounded-lg border border-vylta-amber/40 bg-vylta-amber/5 p-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-vylta-amber" />
+          <div className="text-sm font-bold text-vylta-amber">Cita en espera de confirmación</div>
         </div>
-        <Button className="w-full bg-vylta-green-500 hover:bg-vylta-green-600" disabled={actionLoading} onClick={() => onChange('Confirmada', '¿Aprobar esta cita?')}>
+        <Button className="w-full" disabled={actionLoading} onClick={() => onChange('Confirmada', '¿Aprobar esta cita?')}>
           <CheckCircle2 className="h-4 w-4" /> Aprobar cita
         </Button>
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={onReschedule}>
@@ -645,14 +622,14 @@ function StatusActions({
   if (status === 'Pendiente' || status === 'Reagendada') {
     return (
       <div className="space-y-3">
-        <Button className="w-full bg-vylta-green-500 hover:bg-vylta-green-600" disabled={actionLoading} onClick={() => onChange('Confirmada', '¿Confirmar esta cita?')}>
+        <Button className="w-full" disabled={actionLoading} onClick={() => onChange('Confirmada', '¿Confirmar esta cita?')}>
           <CheckCircle2 className="h-4 w-4" /> Confirmar cita
         </Button>
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={onReschedule}>
           <CalendarPlus className="h-4 w-4" /> Reagendar
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" className="border-vylta-amber-500/40 text-vylta-amber-700 hover:bg-vylta-amber-500/5 hover:text-vylta-amber-700 dark:text-amber-400" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
+          <Button variant="outline" className="border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
             <UserX className="h-3.5 w-3.5" /> No asistió
           </Button>
           <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={actionLoading} onClick={() => onChange('Cancelada', '¿Cancelar esta cita?')}>
@@ -666,14 +643,14 @@ function StatusActions({
   if (status === 'Confirmada') {
     return (
       <div className="space-y-3">
-        <Button className="w-full bg-vylta-green-500 hover:bg-vylta-green-600" disabled={actionLoading} onClick={() => onChange('Completada', '¿Marcar esta cita como completada?')}>
+        <Button className="w-full" disabled={actionLoading} onClick={() => onChange('Completada', '¿Marcar esta cita como completada?')}>
           <CheckCheck className="h-4 w-4" /> Marcar como completada
         </Button>
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={onReschedule}>
           <CalendarPlus className="h-4 w-4" /> Reagendar
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" className="border-vylta-amber-500/40 text-vylta-amber-700 hover:bg-vylta-amber-500/5 hover:text-vylta-amber-700 dark:text-amber-400" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
+          <Button variant="outline" className="border-vylta-amber/40 text-vylta-amber hover:bg-vylta-amber/5 hover:text-vylta-amber" disabled={actionLoading} onClick={() => onChange('No asistió', '¿El cliente no se presentó?')}>
             <UserX className="h-3.5 w-3.5" /> No asistió
           </Button>
           <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={actionLoading} onClick={() => onChange('Cancelada', '¿Cancelar esta cita confirmada?')}>
@@ -686,7 +663,7 @@ function StatusActions({
 
   if (status === 'Completada') {
     return (
-      <Button className="w-full bg-vylta-green-500 hover:bg-vylta-green-600" disabled={actionLoading} onClick={() => onChange('Pagado', '¿Confirmas que ya se cobró este servicio?')}>
+      <Button className="w-full" disabled={actionLoading} onClick={() => onChange('Pagado', '¿Confirmas que ya se cobró este servicio?')}>
         <DollarSign className="h-4 w-4" /> Marcar como pagado
       </Button>
     );
@@ -694,9 +671,9 @@ function StatusActions({
 
   if (status === 'Pagado') {
     return (
-      <div className="flex items-center justify-center rounded-lg border border-vylta-green-500/30 bg-vylta-green-500/5 p-4 text-center">
-        <CheckCheck className="mr-2 h-5 w-5 text-vylta-green-600 dark:text-vylta-green-400" />
-        <span className="text-sm font-bold text-vylta-green-700 dark:text-vylta-green-400">Cita pagada y cerrada</span>
+      <div className="flex items-center justify-center rounded-lg border border-vylta-green/30 bg-vylta-green/5 p-4 text-center">
+        <CheckCheck className="mr-2 h-5 w-5 text-vylta-green" />
+        <span className="text-sm font-bold text-vylta-green">Cita pagada y cerrada</span>
       </div>
     );
   }
@@ -704,8 +681,8 @@ function StatusActions({
   if (status === 'Cancelada' || status === 'No asistió' || status === 'Rechazada') {
     return (
       <div className="space-y-3">
-        <div className="flex items-center justify-center rounded-lg border border-border bg-secondary/40 p-4 text-center">
-          <span className="text-sm font-semibold text-muted-foreground">Esta cita ya está cerrada como “{status}”</span>
+        <div className="flex items-center justify-center rounded-lg border border-border bg-vylta-card/40 p-4 text-center">
+          <span className="text-sm font-semibold text-vylta-muted">Esta cita ya está cerrada como "{status}"</span>
         </div>
         <Button variant="outline" className="w-full" disabled={actionLoading} onClick={() => onChange('Pendiente', '¿Reactivar esta cita como pendiente?')}>
           <RotateCcw className="h-4 w-4" /> Reactivar como pendiente
