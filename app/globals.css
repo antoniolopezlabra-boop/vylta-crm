@@ -3,76 +3,90 @@
 @tailwind utilities;
 
 /* ══════════════════════════════════════════════════════════════════════
-   VYLTA CRM — Variables de diseño
+   VYLTA CRM — Sistema de diseño oficial (Brand Kit v1.0 · Mayo 2026)
 
-   Sistema de tokens basado en HSL para soportar light/dark sin duplicar.
-   Inspirado en shadcn/ui + identidad VYLTA (verde #10B981).
+   PALETA EXACTA según brand guidelines:
+     • Negro VYLTA  #0A0E1A → background principal
+     • Surface     #0F1424 → cards
+     • Card         #161B2E → cards elevados / popovers
+     • Verde VYLTA  #10B981 → acento principal (CTA, marca, éxito)
+     • Verde claro  #3ECF8E → hover, highlights
+     • Verde WA     #25D366 → SOLO íconos WhatsApp
+     • Morado Luxury#A78BFA → SOLO plan Luxury
+     • Blanco hueso #F1F5F9 → texto principal
+     • Texto muted  #94A3B8 → subtítulos, descripciones
+     • Texto sutil  #64748B → labels, copy secundario
+     • Borde        #1F2937 → bordes sutiles
+
+   Dark mode permanente — la marca VYLTA es dark-first.
    ══════════════════════════════════════════════════════════════════════ */
 
 @layer base {
   :root {
-    /* ── Light mode ── */
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    /* Aunque solo soportemos dark, mantenemos las mismas variables.
+       Esto evita romper componentes que esperan estas keys.            */
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    /* Negro VYLTA #0A0E1A = hsl(225, 44%, 7%)  */
+    --background: 225 44% 7%;
+    /* Blanco hueso #F1F5F9 = hsl(210, 40%, 96%) */
+    --foreground: 210 40% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    /* Card sobre el background (Surface #0F1424 = hsl(226, 41%, 10%)) */
+    --card: 226 41% 10%;
+    --card-foreground: 210 40% 96%;
+
+    /* Popover ligeramente más elevado (#161B2E = hsl(228, 35%, 14%)) */
+    --popover: 228 35% 14%;
+    --popover-foreground: 210 40% 96%;
 
     /* Verde VYLTA #10B981 = hsl(160, 84%, 39%) */
     --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
+    /* Secondary = surface + 1 paso (entre card y border) */
+    --secondary: 226 30% 13%;
+    --secondary-foreground: 210 40% 96%;
 
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 226 30% 13%;
+    /* Texto muted #94A3B8 = hsl(215, 20%, 65%) */
+    --muted-foreground: 215 20% 65%;
 
     --accent: 160 84% 39%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
+    /* Rojo destructive — sobrio sobre dark */
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
+    /* Borde #1F2937 = hsl(217, 19%, 17%) */
+    --border: 217 19% 17%;
+    --input: 217 19% 17%;
     --ring: 160 84% 39%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
   }
 
+  /* .dark hereda los mismos valores — ya somos dark-first */
   .dark {
-    /* ── Dark mode (estilo Linear / Vercel) ── */
-    --background: 0 0% 4%;
-    --foreground: 0 0% 98%;
-
-    --card: 0 0% 7%;
-    --card-foreground: 0 0% 98%;
-
-    --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 98%;
-
-    --primary: 160 84% 45%;
+    --background: 225 44% 7%;
+    --foreground: 210 40% 96%;
+    --card: 226 41% 10%;
+    --card-foreground: 210 40% 96%;
+    --popover: 228 35% 14%;
+    --popover-foreground: 210 40% 96%;
+    --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
-
-    --secondary: 0 0% 13%;
-    --secondary-foreground: 0 0% 98%;
-
-    --muted: 0 0% 13%;
-    --muted-foreground: 0 0% 60%;
-
-    --accent: 160 84% 45%;
+    --secondary: 226 30% 13%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 226 30% 13%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 160 84% 39%;
     --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 70% 55%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 0 0% 15%;
-    --input: 0 0% 15%;
-    --ring: 160 84% 45%;
+    --border: 217 19% 17%;
+    --input: 217 19% 17%;
+    --ring: 160 84% 39%;
   }
 }
 
@@ -84,21 +98,135 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Asegura que el navegador renderice tonalidades coherentes con dark */
+    color-scheme: dark;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
     font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1;
+    background:
+      /* Halo verde sutil arriba a la izquierda (signature VYLTA) */
+      radial-gradient(ellipse 1200px 600px at 0% -10%, hsl(160 84% 39% / 0.08), transparent 60%),
+      /* Halo morado sutil abajo a la derecha (luxury accent) */
+      radial-gradient(ellipse 800px 400px at 100% 110%, hsl(258 90% 76% / 0.05), transparent 60%),
+      hsl(var(--background));
+    background-attachment: fixed;
   }
-  /* Scrollbar custom estilo ejecutivo */
+
+  /* Scrollbar custom estilo Linear/Vercel sobre dark */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 5px; }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+  }
+
+  /* Selección de texto — verde VYLTA */
+  ::selection {
+    background: hsl(160 84% 39% / 0.3);
+    color: hsl(210 40% 96%);
+  }
+
+  /* Inputs con autofill — quitar el amarillo horrible de Chrome sobre dark */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 30px hsl(var(--card)) inset !important;
+    -webkit-text-fill-color: hsl(var(--foreground)) !important;
+    caret-color: hsl(var(--foreground));
+  }
 }
 
 @layer components {
-  /* Glow sutil para elementos primarios destacados (CTA, valores grandes) */
+  /* ── Glow verde para CTAs primarios destacados ── */
   .glow-primary {
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2), 0 8px 32px hsl(var(--primary) / 0.12);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.25),
+      0 8px 32px hsl(var(--primary) / 0.18),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  }
+
+  /* ── Glow morado para badges/cards Luxury ── */
+  .glow-luxury {
+    box-shadow:
+      0 0 0 1px hsl(258 90% 76% / 0.3),
+      0 8px 32px hsl(258 90% 76% / 0.15);
+  }
+
+  /* ── Card elevado con borde sutil verde para hero/featured ── */
+  .card-hero {
+    background:
+      linear-gradient(135deg, hsl(var(--card)) 0%, hsl(226 35% 11%) 100%);
+    border: 1px solid hsl(var(--border));
+    box-shadow:
+      0 1px 0 hsl(0 0% 100% / 0.04) inset,
+      0 24px 48px -16px hsl(0 0% 0% / 0.5);
+  }
+
+  /* ── Card estándar con superficie matizada ── */
+  .card-surface {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    box-shadow:
+      0 1px 0 hsl(0 0% 100% / 0.03) inset,
+      0 1px 2px hsl(0 0% 0% / 0.3);
+  }
+
+  /* ── Grid de líneas sutiles (background decorativo) ── */
+  .bg-grid {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* ── Texto con gradiente verde (uso ocasional en hero) ── */
+  .text-gradient-vylta {
+    background: linear-gradient(135deg, #10B981 0%, #3ECF8E 60%, #34D399 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ── Animación de pulse para puntos "en vivo" / status ── */
+  .pulse-dot {
+    position: relative;
+  }
+  .pulse-dot::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 9999px;
+    background: hsl(160 84% 39% / 0.4);
+    animation: pulse-ring 2s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0%   { transform: scale(0.85); opacity: 0.8; }
+    100% { transform: scale(1.5);  opacity: 0;   }
+  }
+
+  /* ── Shimmer para placeholders (loading states) ── */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--secondary)) 0%,
+      hsl(var(--muted)) 50%,
+      hsl(var(--secondary)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 }
