@@ -9,25 +9,18 @@ import {
   Sparkles,
   Shield,
   Settings as SettingsIcon,
+  Coffee,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { BusinessTab } from './tabs/business-tab';
 import { PlanTab } from './tabs/plan-tab';
 import { BookingLinkTab } from './tabs/booking-link-tab';
 import { OverlapsTab } from './tabs/overlaps-tab';
+import { BlocksTab } from './tabs/blocks-tab';
 import { WhatsAppTab } from './tabs/whatsapp-tab';
 import { AccountTab } from './tabs/account-tab';
 import { hasPremiumAccess, hasLuxuryAccess, getPlanTier } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
-
-// ══════════════════════════════════════════════════════════════════════
-// Configuración shell premium — dark VYLTA
-//
-// Cambios:
-//   • Header tipo hero como dashboard, con icono brand y tagline corto
-//   • Tabs con underline verde animado (estilo Linear / Vercel)
-//   • SettingsCard refinado con halo sutil en el icon
-// ══════════════════════════════════════════════════════════════════════
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -43,7 +36,7 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* ═══ HEADER ═══ */}
+      {/* HEADER */}
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-vylta-green/10 ring-1 ring-vylta-green/20">
           <SettingsIcon className="h-5 w-5 text-vylta-green" strokeWidth={2} />
@@ -58,13 +51,14 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         </div>
       </div>
 
-      {/* ═══ TABS ═══ */}
+      {/* TABS */}
       <Tabs defaultValue="negocio" className="space-y-6">
-        <div className="relative border-b border-border">
+        <div className="relative border-b border-border overflow-x-auto">
           <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0">
             <ConfigTab value="negocio" icon={Building2} label="Negocio" />
             <ConfigTab value="plan" icon={CreditCard} label="Plan" />
             <ConfigTab value="link" icon={Link2} label="Link público" />
+            <ConfigTab value="bloqueos" icon={Coffee} label="Bloqueos" />
             <ConfigTab value="overlaps" icon={Sparkles} label="Avanzado" />
             <ConfigTab value="whatsapp" icon={MessageCircle} label="WhatsApp" />
             <ConfigTab value="cuenta" icon={Shield} label="Cuenta" />
@@ -80,6 +74,9 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         <TabsContent value="link" className="focus-visible:outline-none">
           <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />
         </TabsContent>
+        <TabsContent value="bloqueos" className="focus-visible:outline-none">
+          <BlocksTab userId={user.id} />
+        </TabsContent>
         <TabsContent value="overlaps" className="focus-visible:outline-none">
           <OverlapsTab userId={user.id} profile={profile} isLuxury={isLuxury} />
         </TabsContent>
@@ -94,7 +91,6 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
   );
 }
 
-// ── Tab con underline verde animado al estilo Linear/Vercel ──
 function ConfigTab({
   value,
   icon: Icon,
@@ -108,13 +104,9 @@ function ConfigTab({
     <TabsTrigger
       value={value}
       className={cn(
-        // Reset shadcn defaults
-        'relative h-auto rounded-none border-0 bg-transparent px-3 py-2.5 text-sm font-medium shadow-none',
-        // Idle
+        'relative h-auto rounded-none border-0 bg-transparent px-3 py-2.5 text-sm font-medium shadow-none shrink-0',
         'text-vylta-muted transition-colors hover:text-vylta-bone',
-        // Active state — verde con underline animado
         'data-[state=active]:bg-transparent data-[state=active]:text-vylta-bone data-[state=active]:shadow-none',
-        // Underline animado (pseudo-after)
         'after:absolute after:bottom-[-1px] after:left-2 after:right-2 after:h-[2px] after:rounded-full after:bg-vylta-green',
         'after:scale-x-0 after:opacity-0 after:transition-all after:duration-300',
         'data-[state=active]:after:scale-x-100 data-[state=active]:after:opacity-100',
@@ -127,7 +119,6 @@ function ConfigTab({
   );
 }
 
-// ── SettingsCard premium con icon ring y halo sutil ──
 export function SettingsCard({
   icon: Icon,
   title,
