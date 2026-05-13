@@ -28,15 +28,20 @@ import { AppointmentFormDialog } from '@/components/appointments/appointment-for
 import { useSupabaseRealtime } from '@/lib/hooks/use-supabase-realtime';
 
 // ══════════════════════════════════════════════════════════════════════
-// Citas — Calendario semanal premium dark VYLTA
+// Citas — Calendario semanal premium dark VYLTA (v2)
 //
-// Cambios respecto al anterior:
-//   • Header con icono + jerarquia tipográfica clara
-//   • Nav de semana en botón grupo segmentado premium
-//   • Hora actual con línea verde (no rose agresivo) + dot pulsante
-//   • Filtros staff como pills más elegantes
-//   • Grid sobre vylta-surface, líneas sutiles en border
-//   • Mantiene 100% la lógica: realtime, navegación, drag-create
+// MEJORAS sobre v1:
+//   • Colores por STATUS diferenciados (no todo verde)
+//     - Confirmada → azul sky
+//     - Pagado/Completada → verde (objetivo cumplido)
+//     - Pendiente/En espera → ámbar
+//     - Solicitud → morado luxury
+//   • Border-left siempre del color del STATUS (no del staff,
+//     porque mezclar colores rompe la jerarquía)
+//   • Staff se identifica con dot pequeño + iniciales discretas
+//   • Nombre cliente en text-vylta-bone (máxima legibilidad)
+//   • Servicio en muted del color del status (sutil)
+//   • Precio destacado en accent del status (anchor visual)
 // ══════════════════════════════════════════════════════════════════════
 
 const HOUR_HEIGHT = 60;
@@ -150,7 +155,7 @@ export default function CitasPage() {
 
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 animate-fade-in">
-      {/* ═══ HEADER ═══ */}
+      {/* HEADER */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-vylta-green/10 ring-1 ring-vylta-green/20">
@@ -163,24 +168,13 @@ export default function CitasPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center rounded-xl border border-border bg-vylta-surface overflow-hidden">
-            <button
-              onClick={goToPrevWeek}
-              className="flex h-9 w-9 items-center justify-center text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
-              aria-label="Semana anterior"
-            >
+            <button onClick={goToPrevWeek} className="flex h-9 w-9 items-center justify-center text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone" aria-label="Semana anterior">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button
-              onClick={goToToday}
-              className="border-x border-border px-3.5 text-xs font-semibold text-vylta-bone transition hover:bg-vylta-card"
-            >
+            <button onClick={goToToday} className="border-x border-border px-3.5 text-xs font-semibold text-vylta-bone transition hover:bg-vylta-card">
               Hoy
             </button>
-            <button
-              onClick={goToNextWeek}
-              className="flex h-9 w-9 items-center justify-center text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
-              aria-label="Semana siguiente"
-            >
+            <button onClick={goToNextWeek} className="flex h-9 w-9 items-center justify-center text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone" aria-label="Semana siguiente">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -191,7 +185,7 @@ export default function CitasPage() {
         </div>
       </div>
 
-      {/* ═══ FILTROS DE STAFF ═══ */}
+      {/* FILTROS DE STAFF */}
       {hasStaff && (
         <div className="flex items-center gap-2 overflow-x-auto rounded-xl border border-border bg-vylta-surface px-2 py-2 shadow-card-sm">
           <button
@@ -222,18 +216,12 @@ export default function CitasPage() {
                 )}
                 style={isActive ? { borderColor: `${m.color}66`, backgroundColor: `${m.color}1a`, color: m.color } : undefined}
               >
-                <div
-                  className="flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold"
-                  style={{ backgroundColor: `${m.color}33`, color: m.color }}
-                >
+                <div className="flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold" style={{ backgroundColor: `${m.color}33`, color: m.color }}>
                   {getInitials(m.name)}
                 </div>
                 {m.name.split(' ')[0]}
                 {count > 0 && (
-                  <span
-                    className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
-                    style={{ backgroundColor: isActive ? `${m.color}33` : 'rgba(255,255,255,0.05)', color: isActive ? m.color : '#94A3B8' }}
-                  >
+                  <span className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums" style={{ backgroundColor: isActive ? `${m.color}33` : 'rgba(255,255,255,0.05)', color: isActive ? m.color : '#94A3B8' }}>
                     {count}
                   </span>
                 )}
@@ -257,7 +245,7 @@ export default function CitasPage() {
         </div>
       )}
 
-      {/* ═══ CALENDARIO ═══ */}
+      {/* CALENDARIO */}
       <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
         {/* Header de días */}
         <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border bg-vylta-card/30">
@@ -334,7 +322,6 @@ export default function CitasPage() {
                     <div key={i} className="border-b border-border/50" style={{ height: `${HOUR_HEIGHT}px` }} />
                   ))}
 
-                  {/* Línea de hora actual — verde VYLTA con dot pulsante */}
                   {isToday && showNowLine && (
                     <div className="pointer-events-none absolute left-0 right-0 z-20 flex items-center" style={{ top: `${nowPercent}%` }}>
                       <span className="relative -ml-2 flex h-3 w-3">
@@ -369,6 +356,17 @@ export default function CitasPage() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// AppointmentBlock — diseño ejecutivo con jerarquía visual clara
+//
+// Composición:
+//   ┌──────────────────────────────┐  bar 3px color status
+//   │ ● María Lopez       AB │  cliente bone + staff initials
+//   │ Polygel              │  servicio muted
+//   │ 09:00          $400  │  hora subtle + precio accent
+//   └──────────────────────────────┘
+// ══════════════════════════════════════════════════════════════════════
+
 function AppointmentBlock({
   appointment,
   onClick,
@@ -385,44 +383,85 @@ function AppointmentBlock({
 
   if (startMinFromVisible < 0 || startMinFromVisible >= TOTAL_HOURS * 60) return null;
 
-  const borderColor = appointment.staff?.color || style.barColor;
+  // Truncamos nombre según altura disponible (más alto = más caracteres)
+  const maxNameChars = height >= 60 ? 22 : height >= 40 ? 18 : 14;
+  const truncatedName = appointment.displayClientName.length > maxNameChars
+    ? appointment.displayClientName.slice(0, maxNameChars - 1) + '…'
+    : appointment.displayClientName;
 
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={cn(
-        'group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md border-l-[3px] px-1.5 py-1 text-left text-[10px] shadow-sm transition-all hover:z-10 hover:shadow-md hover:scale-[1.02] hover:brightness-110',
+        'group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md text-left transition-all',
+        'hover:z-10 hover:scale-[1.02] hover:shadow-card-lg hover:brightness-110',
         style.bg,
-        style.text,
       )}
       style={{
         top: `${top}px`,
         height: `${Math.max(20, height - 1)}px`,
-        borderLeftColor: borderColor,
+        // Border-left siempre del color del status — esto define la identidad visual
+        borderLeft: `3px solid ${style.barColor}`,
       }}
-      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}`}
+      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}${appointment.staff ? ' · ' + appointment.staff.name : ''}`}
     >
-      <div className="flex items-center gap-1">
-        {appointment.staff && (
-          <span
-            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: appointment.staff.color }}
-          />
-        )}
-        <div className="truncate font-semibold leading-tight">{appointment.displayClientName}</div>
-      </div>
-      {height >= 30 && (
-        <div className="truncate text-[9px] opacity-80">{appointment.service_name}</div>
-      )}
-      {height >= 50 && (
-        <div className="mt-0.5 flex items-center justify-between text-[9px] opacity-70">
-          <span className="tabular-nums">{appointment.start_time.slice(0, 5)}</span>
-          {appointment.service_cost && (
-            <span className="tabular-nums font-bold">{formatCurrency(appointment.service_cost)}</span>
+      <div className="flex h-full flex-col px-2 py-1.5">
+        {/* Línea 1: nombre cliente + indicador de staff (si existe) */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className={cn('truncate text-[11px] font-semibold leading-none text-vylta-bone')}>
+            {truncatedName}
+          </div>
+          {/* Staff indicator: dot pequeño + iniciales discretas (solo si hay altura) */}
+          {appointment.staff && height >= 40 && (
+            <div
+              className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[8px] font-bold leading-none"
+              style={{
+                backgroundColor: `${appointment.staff.color}25`,
+                color: appointment.staff.color,
+              }}
+            >
+              {getInitials(appointment.staff.name)}
+            </div>
           )}
         </div>
-      )}
+
+        {/* Línea 2: servicio (solo si hay altura suficiente) */}
+        {height >= 35 && (
+          <div className={cn('mt-1 truncate text-[10px] leading-none', style.textMuted)}>
+            {appointment.service_name}
+          </div>
+        )}
+
+        {/* Línea 3 (footer): hora + precio */}
+        {height >= 55 && (
+          <div className="mt-auto flex items-center justify-between gap-1">
+            <span className="text-[9px] font-medium tabular-nums leading-none text-vylta-subtle">
+              {appointment.start_time.slice(0, 5)}
+            </span>
+            {appointment.service_cost ? (
+              <span
+                className="text-[10px] font-bold tabular-nums leading-none"
+                style={{ color: style.accent }}
+              >
+                {formatCurrency(appointment.service_cost)}
+              </span>
+            ) : null}
+          </div>
+        )}
+
+        {/* Para bloques muy pequeños: solo precio inline al final */}
+        {height < 55 && height >= 30 && appointment.service_cost && (
+          <div className="mt-auto flex items-center justify-end">
+            <span
+              className="text-[9px] font-bold tabular-nums leading-none"
+              style={{ color: style.accent }}
+            >
+              {formatCurrency(appointment.service_cost)}
+            </span>
+          </div>
+        )}
+      </div>
     </button>
   );
 }

@@ -141,7 +141,6 @@ export async function deleteAppointment(id: string): Promise<boolean> {
   return true;
 }
 
-/** Detecta qué colaboradores están libres/ocupados a esa hora (excluyendo la propia cita). */
 export async function getStaffAvailability(
   date: string,
   startTime: string,
@@ -229,19 +228,139 @@ export function minutesToTime(mins: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-export const APPT_STATUS_STYLES: Record<string, { bg: string; border: string; text: string; barColor: string }> = {
-  Confirmada:   { bg: 'bg-vylta-green-500/10',  border: 'border-vylta-green-500/40',  text: 'text-vylta-green-700 dark:text-vylta-green-400',  barColor: '#10B981' },
-  Pendiente:    { bg: 'bg-vylta-amber-500/10',  border: 'border-vylta-amber-500/40',  text: 'text-vylta-amber-700 dark:text-amber-400',         barColor: '#F59E0B' },
-  Completada:   { bg: 'bg-vylta-indigo-500/10', border: 'border-vylta-indigo-500/40', text: 'text-indigo-700 dark:text-indigo-400',             barColor: '#6366F1' },
-  Pagado:       { bg: 'bg-vylta-green-500/15',  border: 'border-vylta-green-500/50',  text: 'text-vylta-green-700 dark:text-vylta-green-400',  barColor: '#059669' },
-  Reagendada:   { bg: 'bg-vylta-indigo-500/10', border: 'border-vylta-indigo-500/40', text: 'text-indigo-700 dark:text-indigo-400',             barColor: '#8B5CF6' },
-  'En espera':  { bg: 'bg-vylta-amber-500/10',  border: 'border-vylta-amber-500/40',  text: 'text-vylta-amber-700 dark:text-amber-400',         barColor: '#FBBF24' },
-  Solicitud:    { bg: 'bg-blue-500/10',         border: 'border-blue-500/40',         text: 'text-blue-700 dark:text-blue-400',                 barColor: '#3B82F6' },
-  Cancelada:    { bg: 'bg-secondary',           border: 'border-border',              text: 'text-muted-foreground',                            barColor: '#94A3B8' },
-  'No asistió': { bg: 'bg-vylta-rose-500/10',   border: 'border-vylta-rose-500/40',   text: 'text-rose-700 dark:text-rose-400',                 barColor: '#F43F5E' },
-  Rechazada:    { bg: 'bg-vylta-rose-500/10',   border: 'border-vylta-rose-500/40',   text: 'text-rose-700 dark:text-rose-400',                 barColor: '#F43F5E' },
+// ══════════════════════════════════════════════════════════════════════
+// ESTILOS DE STATUS — Brand Kit VYLTA v1.0
+//
+// CRÍTICO: cada status tiene un color DIFERENTE para que la agenda no se
+// vea como un muro monócromo. La idea es jerarquía visual ejecutiva:
+//
+//   🟢 Pagado / Completada  → verde slido (éxito, dinero en mano)
+//   🔵 Confirmada            → azul sky (locked-in, no cobrada aún)
+//   🟡 Pendiente / En espera → ámbar (atención requerida)
+//   🟣 Solicitud             → morado luxury (entró por link, decidir)
+//   🟦 Reagendada            → índigo (movimiento)
+//   ⚫ Cancelada / No-show   → gris muted (descartada)
+//   🔴 Rechazada             → rojo apagado (decisión negativa)
+//
+// Cada estilo aporta:
+//   bg     → fill MUY tenue (alpha 8–12%) para no saturar
+//   border → color medio para el border-left de 3px
+//   text   → color claro para que el texto destaque sobre el bg
+//   dot    → color sólido para el indicador pequeño
+//   accent → color para precio + acentos (más saturado)
+//
+// Todos los hex están alineados con el brand kit (sin #6366F1 indigo
+// legacy y sin tokens vylta-*-500 inventados).
+// ══════════════════════════════════════════════════════════════════════
+
+export interface ApptStatusStyle {
+  /** Background fill tenue del bloque */
+  bg: string;
+  /** Color del border-left de 3px (hex string para style={}) */
+  barColor: string;
+  /** Color del nombre del cliente */
+  text: string;
+  /** Color del precio + dot indicador (más saturado, hex string) */
+  accent: string;
+  /** Texto muted (servicio, hora) */
+  textMuted: string;
+  // Legacy: mantenemos `border` por compatibilidad con código viejo
+  border?: string;
+}
+
+export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
+  // 🟢 PAGADO — verde sólido (éxito máximo, dinero cobrado)
+  Pagado: {
+    bg: 'bg-vylta-green/[0.10]',
+    barColor: '#10B981',
+    text: 'text-vylta-green-light',
+    accent: '#3ECF8E',
+    textMuted: 'text-vylta-green/70',
+    border: 'border-vylta-green/40',
+  },
+  // 🟢 COMPLETADA — verde tenue (servicio dado, falta cobro)
+  Completada: {
+    bg: 'bg-vylta-green/[0.08]',
+    barColor: '#059669',
+    text: 'text-vylta-green-light',
+    accent: '#10B981',
+    textMuted: 'text-vylta-green/60',
+    border: 'border-vylta-green/35',
+  },
+  // 🔵 CONFIRMADA — azul sky (locked-in, todavía no se da el servicio)
+  Confirmada: {
+    bg: 'bg-vylta-sky/[0.10]',
+    barColor: '#0EA5E9',
+    text: 'text-sky-300',
+    accent: '#38BDF8',
+    textMuted: 'text-sky-400/70',
+    border: 'border-vylta-sky/40',
+  },
+  // 🟡 PENDIENTE — ámbar (necesita confirmación)
+  Pendiente: {
+    bg: 'bg-vylta-amber/[0.10]',
+    barColor: '#F59E0B',
+    text: 'text-amber-300',
+    accent: '#FBBF24',
+    textMuted: 'text-amber-400/70',
+    border: 'border-vylta-amber/40',
+  },
+  // 🟡 EN ESPERA — ámbar más pálido (waitlist)
+  'En espera': {
+    bg: 'bg-vylta-amber/[0.08]',
+    barColor: '#FBBF24',
+    text: 'text-amber-300',
+    accent: '#F59E0B',
+    textMuted: 'text-amber-400/60',
+    border: 'border-vylta-amber/30',
+  },
+  // 🟣 SOLICITUD — morado luxury (entró del link público)
+  Solicitud: {
+    bg: 'bg-vylta-luxury/[0.12]',
+    barColor: '#A78BFA',
+    text: 'text-violet-300',
+    accent: '#C4B5FD',
+    textMuted: 'text-violet-400/70',
+    border: 'border-vylta-luxury/40',
+  },
+  // 🟦 REAGENDADA — índigo más azul (se movió de fecha)
+  Reagendada: {
+    bg: 'bg-indigo-500/[0.10]',
+    barColor: '#818CF8',
+    text: 'text-indigo-300',
+    accent: '#A5B4FC',
+    textMuted: 'text-indigo-400/70',
+    border: 'border-indigo-400/40',
+  },
+  // ⚫ CANCELADA — gris muted (sin foco visual)
+  Cancelada: {
+    bg: 'bg-vylta-card/60',
+    barColor: '#64748B',
+    text: 'text-vylta-muted line-through',
+    accent: '#94A3B8',
+    textMuted: 'text-vylta-subtle line-through',
+    border: 'border-border',
+  },
+  // 🔴 NO ASISTIÓ — rosa apagado (perdida)
+  'No asistió': {
+    bg: 'bg-vylta-rose/[0.08]',
+    barColor: '#F43F5E',
+    text: 'text-rose-300',
+    accent: '#FB7185',
+    textMuted: 'text-rose-400/60',
+    border: 'border-vylta-rose/30',
+  },
+  // 🔴 RECHAZADA — rosa sólido (decisión negativa)
+  Rechazada: {
+    bg: 'bg-vylta-rose/[0.10]',
+    barColor: '#E11D48',
+    text: 'text-rose-300',
+    accent: '#F43F5E',
+    textMuted: 'text-rose-400/70',
+    border: 'border-vylta-rose/40',
+  },
 };
 
-export function getApptStatusStyle(status: string) {
+export function getApptStatusStyle(status: string): ApptStatusStyle {
   return APPT_STATUS_STYLES[status] || APPT_STATUS_STYLES.Pendiente;
 }
