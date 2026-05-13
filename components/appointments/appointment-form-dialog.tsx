@@ -18,6 +18,8 @@ import {
   X,
   CheckCircle2,
   Ban,
+  Coffee,
+  History,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -45,22 +47,28 @@ import { toLocalDateString } from '@/lib/date-utils';
 import { useClients } from '@/lib/queries/use-clients';
 import { useServices } from '@/lib/queries/use-services';
 import { useActiveStaff } from '@/lib/queries/use-appointments';
+import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
+import { getBlocksForDate, findBlockConflict, type TimeBlock } from '@/lib/time-blocks';
 
 // ══════════════════════════════════════════════════════════════════════
-// Form de Nueva Cita (rediseñado mayo 2026 — 3 bugs UX corregidos)
+// Form de Nueva Cita — validación completa de slots (Mayo 13, 2026)
 //
-// 1. CLIENTE: combobox con búsqueda (no lista expandida)
-// 2. HORA: grid visual de slots (no input time)
-// 3. DURACIÓN: read-only del servicio (no editable)
+// 5 CAPAS DE VALIDACIÓN DE SLOTS:
+//   1. Slots pasados (si la fecha es hoy y el slot < ahora+5min)
+//   2. (Pendiente) Horario del negocio (weekly_schedule)
+//   3. Bloqueos de tiempo (comidas, vacaciones, eventos)
+//   4. Citas existentes
+//   5. Solapamiento con duración del servicio (un slot "vacío" puede no caber)
 // ══════════════════════════════════════════════════════════════════════
 
 const STATUS_OPTIONS = ['Confirmada', 'Pendiente'] as const;
 const UNASSIGNED_KEY = '__unassigned__';
 
-// Slots visuales: cada 15 minutos entre 8 AM y 9 PM
 const SLOT_START_HOUR = 8;
 const SLOT_END_HOUR = 21;
 const SLOT_INTERVAL_MIN = 15;
+/** Buffer de minutos antes de "ahora" para considerar un slot como pasado. */
+const PAST_SLOT_BUFFER_MIN = 5;
 
 const appointmentSchema = z.object({
   clientId: z.string().min(1, 'Selecciona un cliente'),
@@ -88,6 +96,13 @@ interface BookedSlot {
   staffId: string | null;
 }
 
+/** Razones por las que un slot puede estar bloqueado, en orden de prioridad. */
+type BlockReason =
+  | { kind: 'past' }
+  | { kind: 'block'; label: string }
+  | { kind: 'booking'; clientName: string }
+  | { kind: 'no-fit' };
+
 export function AppointmentFormDialog({
   open,
   onOpenChange,
@@ -98,9 +113,18 @@ export function AppointmentFormDialog({
   const [bookedSlots, setBookedSlots] = useState<BookedSlot[]>([]);
   const [creatingClient, setCreatingClient] = useState(false);
 
+  // Reloj que se actualiza cada minuto para que los slots pasados se actualicen en vivo
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!open) return;
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, [open]);
+
   const { data: clients = [] } = useClients();
   const { data: allServices = [] } = useServices();
   const { data: staffMembers = [] } = useActiveStaff();
+  const { data: timeBlocks = [] } = useTimeBlocks();
   const services = useMemo(
     () => allServices.filter(s => s.is_active),
     [allServices],
@@ -159,7 +183,7 @@ export function AppointmentFormDialog({
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   }, [selectedTime, duration]);
 
-  // Fetch citas del día (para slots ocupados)
+  // Fetch citas del día
   useEffect(() => {
     if (!open || !selectedDate) return;
     let cancelled = false;
@@ -191,16 +215,24 @@ export function AppointmentFormDialog({
     return () => { cancelled = true; };
   }, [open, selectedDate]);
 
-  // Slots disponibles considerando staff seleccionado
+  // ══════════════════════════════════════════════════════════════════════
+  // CÁLCULO DE SLOTS — con las 5 capas de validación
+  // ══════════════════════════════════════════════════════════════════════
   const slots = useMemo(() => {
     const result: Array<{
       time: string;
       minutes: number;
-      busy: boolean;
-      conflictWith?: string;
+      blocked: boolean;
+      reason: BlockReason | null;
     }> = [];
 
     const staffIdForCheck = selectedStaffId === UNASSIGNED_KEY ? null : selectedStaffId;
+    const todayStr = toLocalDateString(new Date());
+    const isToday = selectedDate === todayStr;
+    const nowMinutes = now.getHours() * 60 + now.getMinutes() + PAST_SLOT_BUFFER_MIN;
+
+    // Pre-filtrar bloqueos aplicables a la fecha+staff (más eficiente que filtrar por slot)
+    const blocksForDate = getBlocksForDate(timeBlocks, selectedDate, staffIdForCheck);
 
     for (let h = SLOT_START_HOUR; h <= SLOT_END_HOUR; h++) {
       for (let m = 0; m < 60; m += SLOT_INTERVAL_MIN) {
@@ -208,40 +240,75 @@ export function AppointmentFormDialog({
         const minutes = h * 60 + m;
         const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
+        // Si no hay servicio seleccionado aún, no podemos calcular validaciones
+        // (porque no sabemos la duración). Mostramos todos como neutros.
         if (!duration) {
-          result.push({ time, minutes, busy: false });
+          result.push({ time, minutes, blocked: false, reason: null });
           continue;
         }
 
         const slotEnd = minutes + duration;
-        const conflicting = bookedSlots.find(b => {
+
+        // ── CAPA 1: Slot pasado (solo si la fecha es hoy) ──
+        if (isToday && minutes < nowMinutes) {
+          result.push({ time, minutes, blocked: true, reason: { kind: 'past' } });
+          continue;
+        }
+
+        // ── CAPA 3: Bloqueos de tiempo ──
+        const blockConflict = findBlockConflict(minutes, duration, blocksForDate);
+        if (blockConflict) {
+          result.push({
+            time,
+            minutes,
+            blocked: true,
+            reason: { kind: 'block', label: blockConflict.label },
+          });
+          continue;
+        }
+
+        // ── CAPA 4: Citas existentes ──
+        const bookingConflict = bookedSlots.find(b => {
           if (staffIdForCheck && b.staffId && b.staffId !== staffIdForCheck) return false;
           if (!staffIdForCheck && b.staffId) return false;
           return minutes < b.end && slotEnd > b.start;
         });
+        if (bookingConflict) {
+          result.push({
+            time,
+            minutes,
+            blocked: true,
+            reason: { kind: 'booking', clientName: bookingConflict.clientName },
+          });
+          continue;
+        }
 
-        result.push({
-          time,
-          minutes,
-          busy: !!conflicting,
-          conflictWith: conflicting?.clientName,
-        });
+        // ── CAPA 5: Si el servicio no cabe completo (overflow del rango operativo)
+        if (slotEnd > SLOT_END_HOUR * 60) {
+          result.push({ time, minutes, blocked: true, reason: { kind: 'no-fit' } });
+          continue;
+        }
+
+        result.push({ time, minutes, blocked: false, reason: null });
       }
     }
 
     return result;
-  }, [bookedSlots, duration, selectedStaffId]);
+  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now]);
 
-  // Si el slot seleccionado se vuelve ocupado, deseleccionar
+  // Si el slot seleccionado se vuelve bloqueado (al cambiar de servicio/staff/fecha), deseleccionar
   useEffect(() => {
     if (!selectedTime) return;
     const slot = slots.find(s => s.time === selectedTime);
-    if (slot?.busy) {
+    if (slot?.blocked) {
       setValue('start_time', '');
       toast.info('Ese horario ya no está disponible con esta configuración');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration, selectedStaffId, selectedDate]);
+
+  // Contar slots disponibles para mostrar empty state
+  const availableCount = slots.filter(s => !s.blocked).length;
 
   const staffConflict = useMemo(() => {
     if (selectedStaffId === UNASSIGNED_KEY || !selectedTime || !duration) return null;
@@ -488,6 +555,16 @@ export function AppointmentFormDialog({
                   Elige primero un <strong>servicio</strong> para ver los horarios disponibles
                 </p>
               </div>
+            ) : availableCount === 0 ? (
+              <div className="rounded-lg border border-dashed border-vylta-amber/40 bg-vylta-amber/5 px-4 py-6 text-center">
+                <Clock className="mx-auto h-5 w-5 text-vylta-amber" />
+                <p className="mt-2 text-xs font-semibold text-vylta-amber">
+                  Sin horarios disponibles
+                </p>
+                <p className="mt-0.5 text-[11px] text-vylta-muted">
+                  Prueba otro día, otro colaborador o un servicio más corto.
+                </p>
+              </div>
             ) : (
               <SlotGrid
                 slots={slots}
@@ -566,7 +643,7 @@ export function AppointmentFormDialog({
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// ClientCombobox
+// ClientCombobox (sin cambios)
 // ══════════════════════════════════════════════════════════════════════
 
 interface ClientLite { id: string; name: string; phone: string | null; }
@@ -727,14 +804,14 @@ function ClientCombobox({
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// SlotGrid
+// SlotGrid — ahora soporta razones de bloqueo diferenciadas
 // ══════════════════════════════════════════════════════════════════════
 
 interface Slot {
   time: string;
   minutes: number;
-  busy: boolean;
-  conflictWith?: string;
+  blocked: boolean;
+  reason: BlockReason | null;
 }
 
 function SlotGrid({
@@ -760,15 +837,12 @@ function SlotGrid({
 
   return (
     <div className="space-y-2 rounded-lg border border-border bg-vylta-card/30 p-3">
-      <div className="flex items-center gap-3 text-[10px] text-vylta-muted">
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-sm bg-vylta-green" />
-          Disponible
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-sm bg-vylta-card ring-1 ring-border" />
-          Ocupado
-        </span>
+      {/* Leyenda */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-vylta-muted">
+        <LegendDot color="bg-vylta-green" label="Disponible" />
+        <LegendDot color="bg-vylta-card ring-1 ring-border" label="Ocupado" />
+        <LegendDot color="bg-vylta-luxury/40" label="Bloqueo" />
+        <LegendDot color="bg-vylta-subtle/30" label="Pasado" />
         {duration > 0 && (
           <span className="ml-auto tabular-nums">
             Duración: <strong className="text-vylta-bone">{duration} min</strong>
@@ -783,39 +857,88 @@ function SlotGrid({
               {formatHour(Number(hour))}
             </div>
             <div className="grid grid-cols-4 gap-1.5">
-              {hourSlots.map((slot) => {
-                const isSelected = selectedTime === slot.time;
-                return (
-                  <button
-                    key={slot.time}
-                    type="button"
-                    onClick={() => !slot.busy && onSelect(slot.time)}
-                    disabled={slot.busy}
-                    title={slot.busy ? `Ocupado: ${slot.conflictWith}` : undefined}
-                    className={cn(
-                      'group relative rounded-md border px-2 py-1.5 text-xs font-semibold tabular-nums transition-all',
-                      isSelected
-                        ? 'border-vylta-green bg-vylta-green text-white shadow-[0_0_12px_hsl(160_84%_39%/0.4)]'
-                        : slot.busy
-                          ? 'cursor-not-allowed border-border bg-vylta-card/60 text-vylta-subtle/60 line-through'
-                          : 'border-vylta-green/20 bg-vylta-green/5 text-vylta-green hover:border-vylta-green/40 hover:bg-vylta-green/10',
-                    )}
-                  >
-                    {slot.time}
-                    {slot.busy && (
-                      <Ban className="absolute top-0.5 right-0.5 h-2.5 w-2.5 text-vylta-subtle/50" />
-                    )}
-                    {isSelected && (
-                      <CheckCircle2 className="absolute top-0.5 right-0.5 h-2.5 w-2.5 text-white" />
-                    )}
-                  </button>
-                );
-              })}
+              {hourSlots.map((slot) => (
+                <SlotButton
+                  key={slot.time}
+                  slot={slot}
+                  isSelected={selectedTime === slot.time}
+                  onSelect={() => onSelect(slot.time)}
+                />
+              ))}
             </div>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className={cn('inline-block h-2 w-2 rounded-sm', color)} />
+      {label}
+    </span>
+  );
+}
+
+function SlotButton({
+  slot,
+  isSelected,
+  onSelect,
+}: {
+  slot: Slot;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const { time, blocked, reason } = slot;
+
+  // Diferentes estilos según la razón del bloqueo
+  let className: string;
+  let title: string | undefined;
+  let Icon: typeof Ban | null = null;
+
+  if (isSelected) {
+    className = 'border-vylta-green bg-vylta-green text-white shadow-[0_0_12px_hsl(160_84%_39%/0.4)]';
+    Icon = CheckCircle2;
+  } else if (!blocked) {
+    className = 'border-vylta-green/20 bg-vylta-green/5 text-vylta-green hover:border-vylta-green/40 hover:bg-vylta-green/10';
+  } else if (reason?.kind === 'past') {
+    className = 'cursor-not-allowed border-border bg-vylta-card/40 text-vylta-subtle/40 line-through';
+    title = 'Horario pasado';
+    Icon = History;
+  } else if (reason?.kind === 'block') {
+    className = 'cursor-not-allowed border-vylta-luxury/20 bg-vylta-luxury/5 text-vylta-luxury/60 line-through';
+    title = reason.label;
+    Icon = Coffee;
+  } else if (reason?.kind === 'booking') {
+    className = 'cursor-not-allowed border-border bg-vylta-card/60 text-vylta-subtle/60 line-through';
+    title = `Ocupado: ${reason.clientName}`;
+    Icon = Ban;
+  } else if (reason?.kind === 'no-fit') {
+    className = 'cursor-not-allowed border-border bg-vylta-card/40 text-vylta-subtle/40 line-through';
+    title = 'No alcanza para el servicio completo';
+    Icon = Ban;
+  } else {
+    className = 'cursor-not-allowed border-border bg-vylta-card/60 text-vylta-subtle/60 line-through';
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => !blocked && onSelect()}
+      disabled={blocked}
+      title={title}
+      className={cn(
+        'group relative rounded-md border px-2 py-1.5 text-xs font-semibold tabular-nums transition-all',
+        className,
+      )}
+    >
+      {time}
+      {Icon && (
+        <Icon className="absolute top-0.5 right-0.5 h-2.5 w-2.5 opacity-60" />
+      )}
+    </button>
   );
 }
 
