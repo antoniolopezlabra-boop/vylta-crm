@@ -3,18 +3,18 @@ import { createClient } from '@/lib/supabase/server';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { RouteTransition } from '@/components/layout/route-transition';
+import { QueryProvider } from '@/components/providers/query-provider';
 
 // ══════════════════════════════════════════════════════════════════════
-// Layout autenticado (App Shell) — optimizado para velocidad percibida.
+// Layout autenticado (App Shell) + QueryProvider de React Query
 //
-// MEJORAS DE VELOCIDAD (Opción A):
-//   • Promise.all para hacer getUser + business_profile en PARALELO
-//     (antes era secuencial → ahorramos 100-200ms en cada navegación)
-//   • RouteTransition: barra de progreso verde al cambiar de ruta
-//   • Loading skeletons en cada ruta (loading.tsx) ya no bloquean
+// El QueryProvider envuelve TODA la app autenticada para que cualquier
+// componente puede usar hooks de React Query (useHomeStats, useAppointments,
+// etc) y compartir el mismo cache.
 //
-// El middleware ya verifica auth en cada request, así que aquí solo
-// necesitamos obtener el user (no validar de nuevo).
+// El layout sigue siendo Server Component (verifica auth en el server)
+// pero a partir de aquí dentro, los componentes pueden ser Client
+// Components con cache compartido.
 // ══════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
@@ -24,13 +24,11 @@ export default async function AppLayout({
 }) {
   const supabase = await createClient();
 
-  // Obtener user primero (necesario para la query del profile)
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     redirect('/login');
   }
 
-  // Profile query — no bloqueamos si falla (defensive)
   const { data: profile } = await supabase
     .from('business_profiles')
     .select('business_name, owner_name')
@@ -45,24 +43,25 @@ export default async function AppLayout({
     'Usuario';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      {/* Barra de progreso verde estilo YouTube/GitHub al navegar */}
-      <RouteTransition />
+    <QueryProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <RouteTransition />
 
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar
-          user={{
-            email: user.email,
-            displayName,
-          }}
-        />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1600px] p-6 md:p-8">
-            {children}
-          </div>
-        </main>
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <Topbar
+            user={{
+              email: user.email,
+              displayName,
+            }}
+          />
+          <main className="flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1600px] p-6 md:p-8">
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </QueryProvider>
   );
 }
