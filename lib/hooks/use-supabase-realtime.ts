@@ -5,30 +5,26 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 // ══════════════════════════════════════════════════════════════════════
-// useSupabaseRealtime — Hook reutilizable para escuchar cambios en una
-// tabla de Supabase y refrescar automáticamente los datos del server
-// component padre.
+// useSupabaseRealtime — Hook para suscripciones Realtime de Supabase.
 //
-// Funciona en combinación con Server Components de Next.js 15:
-//   • Cuando Supabase notifica un cambio en la tabla, llamamos
-//     router.refresh() que re-ejecuta los queries del Server Component
-//     SIN recargar la página completa.
-//   • Solo escucha cambios del usuario autenticado (filtro user_id).
+// REGLA DE ORO de Supabase Realtime:
+//   1. Llamar TODOS los .on() ANTES de .subscribe()
+//   2. NUNCA reutilizar un channel ya suscrito — Supabase lo rechaza
+//   3. Channel name debe ser único por instancia (no por usuario+tabla)
+//
+// LECCIÓN APRENDIDA (mayo 2026):
+//   El error "cannot add postgres_changes callbacks after subscribe()"
+//   ocurre por React Strict Mode en dev (Next.js 15) que monta el
+//   componente dos veces. Si el channel name es el mismo entre montajes,
+//   Supabase reusa el channel YA suscrito y rechaza los nuevos .on().
+//
+//   FIX: Channel name único por mount usando timestamp + random.
+//   Esto garantiza que cada montaje crea un channel completamente nuevo.
 //
 // USO:
 //   useSupabaseRealtime('appointments');
-//   useSupabaseRealtime('clients');
-//
-// Soporta múltiples tablas pasando un array:
 //   useSupabaseRealtime(['appointments', 'clients']);
-//
-// Para casos donde NO quieres usar router.refresh sino un callback custom:
-//   useSupabaseRealtime('appointments', () => loadData());
-//
-// REGLA DE ORO (lección aprendida con Hermes/Android en app móvil):
-//   Crear el channel UNA sola vez al montar y limpiar al desmontar.
-//   Si las deps cambian innecesariamente se crean varios channels
-//   duplicados y Supabase los rechaza.
+//   useSupabaseRealtime('appointments', () => refetch());
 // ══════════════════════════════════════════════════════════════════════
 
 type RealtimeEvent = 'INSERT' | 'UPDATE' | 'DELETE' | '*';
@@ -39,31 +35,33 @@ export function useSupabaseRealtime(
   options: { event?: RealtimeEvent } = {},
 ) {
   const router = useRouter();
-  // Guardamos el callback en una ref para que cambios en él no creen un
-  // nuevo channel cada render.
+  // Callback en ref para que cambios no recreen el channel cada render
   const callbackRef = useRef(onChange);
   callbackRef.current = onChange;
 
   const event = options.event || '*';
   const tablesList = Array.isArray(tables) ? tables : [tables];
-  // Serializamos para usarlo como key estable en el useEffect.
   const tablesKey = tablesList.sort().join(',');
 
   useEffect(() => {
     let cancelled = false;
+    let channelRef: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
     const supabase = createClient();
 
     async function setupChannel() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return null;
+      if (!user || cancelled) return;
 
-      // Nombre único del channel: incluye user_id + tablas para evitar
-      // colisiones si el mismo usuario abre varios componentes.
-      const channelName = `realtime:${user.id}:${tablesKey}`;
+      // ── CHANNEL NAME ÚNICO POR MOUNT ──
+      // Usar timestamp + random evita colisiones con channels viejos
+      // que aún no han sido limpiados por Supabase (especialmente bajo
+      // React Strict Mode que monta+desmonta+monta en dev).
+      const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const channelName = `realtime:${user.id}:${tablesKey}:${uniqueId}`;
 
       let channel = supabase.channel(channelName);
 
-      // Suscribir a cada tabla con filtro user_id
+      // ── REGISTRAR TODOS LOS .on() ANTES de .subscribe() ──
       tablesList.forEach((table) => {
         channel = channel.on(
           // @ts-expect-error tipos de supabase-js para postgres_changes
@@ -75,7 +73,7 @@ export function useSupabaseRealtime(
             filter: `user_id=eq.${user.id}`,
           },
           () => {
-            // Ejecutar callback custom si existe, sino router.refresh
+            if (cancelled) return;
             if (callbackRef.current) {
               callbackRef.current();
             } else {
@@ -85,24 +83,31 @@ export function useSupabaseRealtime(
         );
       });
 
+      // Si el componente se desmontó mientras await getUser(), abortar
+      if (cancelled) return;
+
+      // Guardar referencia ANTES de subscribe para que el cleanup pueda
+      // removerlo aunque el subscribe falle
+      channelRef = channel;
+
       channel.subscribe((status) => {
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn(`[useSupabaseRealtime] channel ${channelName}: ${status}`);
+          console.warn(`[useSupabaseRealtime] ${channelName}: ${status}`);
         }
       });
-
-      return channel;
     }
 
-    const channelPromise = setupChannel();
+    setupChannel();
 
     return () => {
       cancelled = true;
-      channelPromise.then((channel) => {
-        if (channel) {
-          supabase.removeChannel(channel);
-        }
-      });
+      // Cleanup sincrónico si ya tenemos el channel ref
+      if (channelRef) {
+        supabase.removeChannel(channelRef).catch(() => {
+          // Ignorar errores de cleanup (channel ya removido, etc.)
+        });
+        channelRef = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tablesKey, event]);
