@@ -1,70 +1,70 @@
-# VYLTA CRM
+# VYLTA CRM Web
 
-Aplicación web ejecutiva tipo CRM para los suscriptores de VYLTA.
+CRM dashboard para dueños de negocio en VYLTA. Built with Next.js 15, Supabase, TanStack Query y Tailwind.
 
-## 🎯 Propósito
+## Stack
+- **Framework**: Next.js 15 (App Router) + TypeScript
+- **DB / Auth**: Supabase (project `nhjmwmkaduiaifgztymi`, São Paulo)
+- **Data layer**: TanStack Query + Realtime
+- **Pagos**: Stripe (live mode)
+- **UI**: shadcn/ui + Tailwind v4
+- **Hosting**: Vercel
 
-Espejo funcional de la app móvil VYLTA, pero diseñado para escritorio:
-- Sidebar ejecutivo lateral
-- Tablas densas y dashboards expandidos
-- Atajos de teclado
-- Vista calendario semanal/mensual
-- Dashboards inspirados en Stripe / Linear
-
-## 🏗️ Stack técnico
-
-- **Framework**: Next.js 15 (App Router)
-- **Lenguaje**: TypeScript
-- **Estilos**: Tailwind CSS 3.4
-- **Componentes**: shadcn/ui
-- **Base de datos**: Supabase (compartida con app móvil)
-- **Auth**: Supabase Auth (mismo login que móvil)
-- **Gráficas**: Recharts
-- **Iconos**: lucide-react
-- **Formularios**: react-hook-form + zod
-- **Tema**: next-themes (light/dark)
-
-## 🚀 Desarrollo local
+## Desarrollo local
 
 ```bash
+# 1. Variables de entorno
+cp .env.example .env.local
+# Edita .env.local con tus keys
+
+# 2. Instalar dependencias
 npm install
-cp .env.local.example .env.local
-# Llenar variables de entorno
+
+# 3. Correr en dev
 npm run dev
+# Abre http://localhost:3000
 ```
 
-Abre http://localhost:3000
+## Deploy a Vercel
 
-## 🌐 Producción
+### Primera vez
+1. Crea proyecto en https://vercel.com/new
+2. Conecta el repo `antoniolopezlabra-boop/vylta-crm`
+3. Framework preset: **Next.js** (auto-detectado)
+4. Build command: `npm run build` (default)
+5. Output directory: `.next` (default)
+6. En **Environment Variables**, pega TODAS las del `.env.example`:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+   - `STRIPE_SECRET_KEY`
+   - `STRIPE_WEBHOOK_SECRET`
+   - `NEXT_PUBLIC_APP_URL` = `https://app.vylta.lat`
+7. Click **Deploy**
 
-Hosteado en Vercel: https://app.vylta.lat
+### Dominio custom (app.vylta.lat)
+1. En Vercel → Project → Settings → Domains → Add `app.vylta.lat`
+2. Vercel te dará un CNAME (algo como `cname.vercel-dns.com`)
+3. En Cloudflare → vylta.lat → DNS → Add Record:
+   - Type: `CNAME`
+   - Name: `app`
+   - Target: `cname.vercel-dns.com`
+   - Proxy: **DNS only** (gris, no naranja) — Vercel maneja SSL
+4. Espera 1-5 min y Vercel verifica automáticamente
 
-## 📦 Arquitectura
+### Deploys posteriores
+Cada push a `main` autodespliega. Las preview branches también generan URLs temporales.
 
+## Variables críticas de Supabase
+Asegúrate de que en Supabase → Authentication → URL Configuration:
+- **Site URL**: `https://app.vylta.lat`
+- **Redirect URLs**: incluye `https://app.vylta.lat/**`
+
+Sin esto, los magic links y resets de contraseña apuntarín a localhost.
+
+## Stripe webhook en producción
+Si aún no está configurado, el webhook de Stripe va en:
 ```
-┌─────────────────────────────────────────┐
-│ Móvil (Expo)  │  Web (Next.js — este)   │
-└──────┬────────┴────────┬────────────────┘
-       │                 │
-       └────────┬────────┘
-                ▼
-       ┌──────────────────┐
-       │ Supabase (común) │
-       │ - Auth           │
-       │ - DB             │
-       │ - Edge Functions │
-       └──────────────────┘
+https://app.vylta.lat/api/stripe/webhook
 ```
-
-La lógica de negocio vive en Supabase Edge Functions (compartidas con móvil).
-Esta web solo es UI nueva consumiendo esas funciones.
-
-## 🎨 Identidad visual
-
-- Verde primario: `#10B981`
-- Tipografía: Inter
-- Modo claro y oscuro soportados
-
-## 📄 Licencia
-
-Propietario VYLTA. Todos los derechos reservados.
+(o donde sea que esté tu route handler). Asegúrate de actualizar el endpoint en Stripe Dashboard.
