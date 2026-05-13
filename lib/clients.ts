@@ -3,11 +3,10 @@ import { createClient } from '@/lib/supabase/client';
 // ══════════════════════════════════════════════════════════════════════
 // Tipos y queries para clientes
 //
-// HALLAZGO: Los campos clients.total_visits y clients.last_visit son
-// mantenidos por la app móvil vía triggers (al cobrar/completar cita).
-// Si esos triggers no corrieron para citas viejas, los campos quedan
-// en 0/null. Para el CRM web los CALCULAMOS desde appointments en vivo,
-// igual que total_spent. Los "computed" son la fuente de verdad.
+// IMPORTANTE: total_spent NO existe como columna en BD. Lo calculamos
+// on-the-fly desde appointments. total_visits y last_visit sí existen
+// en BD pero pueden estar desactualizados — también los recalculamos
+// como fuente de verdad.
 // ══════════════════════════════════════════════════════════════════════
 
 export interface Client {
@@ -19,10 +18,10 @@ export interface Client {
   notes: string | null;
   birthday: string | null;
   is_active: boolean;
-  total_visits: number;  // ← calculado en cliente desde appointments
-  last_visit: string | null;  // ← calculado en cliente desde appointments
+  total_visits: number;
+  last_visit: string | null;
   created_at: string;
-  total_spent?: number;  // ← calculado en cliente desde appointments
+  total_spent?: number;
 }
 
 export interface ClientFilters {
@@ -41,22 +40,14 @@ export interface ClientAppointment {
   service_cost: number | null;
 }
 
-// Status que cuentan como "visita realizada" (paga o no, pero asistió)
 const VISITED_STATUSES = ['Pagado', 'Completada'];
 const PAID_STATUSES = ['Pagado', 'Completada'];
 
-/**
- * Carga clientes y calcula desde appointments:
- *   • total_visits  = # de citas con status Pagado/Completada
- *   • last_visit    = fecha más reciente de Pagado/Completada
- *   • total_spent   = suma de service_cost de Pagado/Completada
- */
 export async function fetchClients(filters: ClientFilters = {}): Promise<Client[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  // Carga en paralelo: clientes + citas (solo las visitadas) para agregar
   const [clientsRes, apptsRes] = await Promise.all([
     supabase.from('clients').select('*').eq('user_id', user.id),
     supabase
@@ -74,7 +65,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     console.warn('[fetchClients] Appointments query error:', apptsRes.error);
   }
 
-  // Acumulador por cliente: { visits, spent, lastVisit }
   const aggMap = new Map<string, { visits: number; spent: number; lastVisit: string | null }>();
   (apptsRes.data || []).forEach((a: any) => {
     if (!a.client_id) return;
@@ -91,9 +81,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     const agg = aggMap.get(c.id);
     return {
       ...c,
-      // Preferir el cálculo del CRM sobre el campo de BD si difieren.
-      // Si el campo de BD tiene un valor más alto (porque el trigger funcionó
-      // alguna vez y no se reflejó aquí), nos quedamos con el máximo.
       total_visits: Math.max(agg?.visits || 0, c.total_visits || 0),
       last_visit: agg?.lastVisit || c.last_visit || null,
       total_spent: agg?.spent || 0,
@@ -101,7 +88,6 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
     };
   });
 
-  // Filtros
   if (filters.search?.trim()) {
     const q = filters.search.trim().toLowerCase();
     clients = clients.filter(c =>
@@ -167,25 +153,35 @@ export async function fetchClientAppointments(clientId: string): Promise<ClientA
   return (data || []) as ClientAppointment[];
 }
 
+// Badges con tokens del brand kit oficial (no vylta-*-500 legacy)
 export function getClientBadge(client: Client): { label: string; color: string } | null {
   const totalVisits = client.total_visits || 0;
   const totalSpent = client.total_spent || 0;
 
   if (totalVisits >= 5 || totalSpent >= 5000) {
-    return { label: 'VIP', color: 'bg-vylta-amber-500/15 text-vylta-amber-700 dark:text-amber-400' };
+    return {
+      label: 'VIP',
+      color: 'bg-vylta-luxury/15 text-vylta-luxury border border-vylta-luxury/30',
+    };
   }
 
   const created = new Date(client.created_at).getTime();
   const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   if (created >= thirtyDaysAgo) {
-    return { label: 'Nuevo', color: 'bg-vylta-green-500/15 text-vylta-green-600 dark:text-vylta-green-400' };
+    return {
+      label: 'Nuevo',
+      color: 'bg-vylta-green/15 text-vylta-green border border-vylta-green/30',
+    };
   }
 
   if (client.last_visit) {
     const lastVisit = new Date(client.last_visit).getTime();
     const sixtyDaysAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
     if (lastVisit < sixtyDaysAgo) {
-      return { label: 'Inactivo', color: 'bg-vylta-rose-500/15 text-rose-600 dark:text-rose-400' };
+      return {
+        label: 'Inactivo',
+        color: 'bg-vylta-amber/15 text-vylta-amber border border-vylta-amber/30',
+      };
     }
   }
 

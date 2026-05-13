@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { getBlocksForDate, findBlockConflict, type TimeBlock } from '@/lib/time-blocks';
 
 // ══════════════════════════════════════════════════════════════════════
 // Citas — schema alineado con app móvil.
@@ -141,11 +142,46 @@ export async function deleteAppointment(id: string): Promise<boolean> {
   return true;
 }
 
+export async function updateAppointmentSchedule(
+  id: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  status: 'Reagendada' | 'Confirmada' | 'Pendiente' = 'Reagendada',
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autenticado' };
+
+  const { error } = await supabase
+    .from('appointments')
+    .update({
+      date,
+      start_time: startTime,
+      end_time: endTime,
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('[updateAppointmentSchedule] Error:', error);
+    return { error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Devuelve el conjunto de staff_ids ocupados en una franja horaria específica.
+ * Considera (a) citas existentes activas (b) bloqueos de tiempo aplicables.
+ */
 export async function getStaffAvailability(
   date: string,
   startTime: string,
   endTime: string,
   excludeAppointmentId?: string,
+  timeBlocks?: TimeBlock[],
 ): Promise<Set<string>> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -166,8 +202,11 @@ export async function getStaffAvailability(
   };
   const newStart = timeToMin(startTime);
   const newEnd = timeToMin(endTime);
+  const slotDuration = newEnd - newStart;
 
   const busyStaff = new Set<string>();
+
+  // 1. Por citas activas
   data.forEach((a: any) => {
     if (a.id === excludeAppointmentId) return;
     if (EXCLUDED_STATUSES.includes(a.status)) return;
@@ -175,6 +214,31 @@ export async function getStaffAvailability(
     const aEnd = a.end_time ? timeToMin(a.end_time) : aStart + 60;
     if (newStart < aEnd && newEnd > aStart) busyStaff.add(a.staff_id);
   });
+
+  // 2. Por bloqueos de tiempo (si fueron provistos)
+  // Si el bloqueo es del negocio (staff_id=null), todo el staff queda ocupado.
+  // Si es de un staff específico, solo ese staff queda ocupado.
+  if (timeBlocks && timeBlocks.length > 0) {
+    // Para cada staff_id mencionado en las citas, ver si tiene bloqueo aplicable
+    const allStaffIds = new Set<string>();
+    data.forEach((a: any) => { if (a.staff_id) allStaffIds.add(a.staff_id); });
+
+    // También revisar bloqueos generales del negocio (staff_id=null en el bloqueo)
+    const businessBlocks = getBlocksForDate(timeBlocks, date, null);
+    const businessConflict = findBlockConflict(newStart, slotDuration, businessBlocks);
+    if (businessConflict) {
+      // Si hay bloqueo del negocio, marcamos TODOS los staff como ocupados
+      allStaffIds.forEach(id => busyStaff.add(id));
+    }
+
+    // Bloqueos por staff individual
+    allStaffIds.forEach(staffId => {
+      const staffBlocks = getBlocksForDate(timeBlocks, date, staffId);
+      const staffConflict = findBlockConflict(newStart, slotDuration, staffBlocks);
+      if (staffConflict) busyStaff.add(staffId);
+    });
+  }
+
   return busyStaff;
 }
 
@@ -230,46 +294,18 @@ export function minutesToTime(mins: number): string {
 
 // ══════════════════════════════════════════════════════════════════════
 // ESTILOS DE STATUS — Brand Kit VYLTA v1.0
-//
-// CRÍTICO: cada status tiene un color DIFERENTE para que la agenda no se
-// vea como un muro monócromo. La idea es jerarquía visual ejecutiva:
-//
-//   🟢 Pagado / Completada  → verde slido (éxito, dinero en mano)
-//   🔵 Confirmada            → azul sky (locked-in, no cobrada aún)
-//   🟡 Pendiente / En espera → ámbar (atención requerida)
-//   🟣 Solicitud             → morado luxury (entró por link, decidir)
-//   🟦 Reagendada            → índigo (movimiento)
-//   ⚫ Cancelada / No-show   → gris muted (descartada)
-//   🔴 Rechazada             → rojo apagado (decisión negativa)
-//
-// Cada estilo aporta:
-//   bg     → fill MUY tenue (alpha 8–12%) para no saturar
-//   border → color medio para el border-left de 3px
-//   text   → color claro para que el texto destaque sobre el bg
-//   dot    → color sólido para el indicador pequeño
-//   accent → color para precio + acentos (más saturado)
-//
-// Todos los hex están alineados con el brand kit (sin #6366F1 indigo
-// legacy y sin tokens vylta-*-500 inventados).
 // ══════════════════════════════════════════════════════════════════════
 
 export interface ApptStatusStyle {
-  /** Background fill tenue del bloque */
   bg: string;
-  /** Color del border-left de 3px (hex string para style={}) */
   barColor: string;
-  /** Color del nombre del cliente */
   text: string;
-  /** Color del precio + dot indicador (más saturado, hex string) */
   accent: string;
-  /** Texto muted (servicio, hora) */
   textMuted: string;
-  // Legacy: mantenemos `border` por compatibilidad con código viejo
   border?: string;
 }
 
 export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
-  // 🟢 PAGADO — verde sólido (éxito máximo, dinero cobrado)
   Pagado: {
     bg: 'bg-vylta-green/[0.10]',
     barColor: '#10B981',
@@ -278,7 +314,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-vylta-green/70',
     border: 'border-vylta-green/40',
   },
-  // 🟢 COMPLETADA — verde tenue (servicio dado, falta cobro)
   Completada: {
     bg: 'bg-vylta-green/[0.08]',
     barColor: '#059669',
@@ -287,7 +322,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-vylta-green/60',
     border: 'border-vylta-green/35',
   },
-  // 🔵 CONFIRMADA — azul sky (locked-in, todavía no se da el servicio)
   Confirmada: {
     bg: 'bg-vylta-sky/[0.10]',
     barColor: '#0EA5E9',
@@ -296,7 +330,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-sky-400/70',
     border: 'border-vylta-sky/40',
   },
-  // 🟡 PENDIENTE — ámbar (necesita confirmación)
   Pendiente: {
     bg: 'bg-vylta-amber/[0.10]',
     barColor: '#F59E0B',
@@ -305,7 +338,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-amber-400/70',
     border: 'border-vylta-amber/40',
   },
-  // 🟡 EN ESPERA — ámbar más pálido (waitlist)
   'En espera': {
     bg: 'bg-vylta-amber/[0.08]',
     barColor: '#FBBF24',
@@ -314,7 +346,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-amber-400/60',
     border: 'border-vylta-amber/30',
   },
-  // 🟣 SOLICITUD — morado luxury (entró del link público)
   Solicitud: {
     bg: 'bg-vylta-luxury/[0.12]',
     barColor: '#A78BFA',
@@ -323,7 +354,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-violet-400/70',
     border: 'border-vylta-luxury/40',
   },
-  // 🟦 REAGENDADA — índigo más azul (se movió de fecha)
   Reagendada: {
     bg: 'bg-indigo-500/[0.10]',
     barColor: '#818CF8',
@@ -332,7 +362,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-indigo-400/70',
     border: 'border-indigo-400/40',
   },
-  // ⚫ CANCELADA — gris muted (sin foco visual)
   Cancelada: {
     bg: 'bg-vylta-card/60',
     barColor: '#64748B',
@@ -341,7 +370,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-vylta-subtle line-through',
     border: 'border-border',
   },
-  // 🔴 NO ASISTIÓ — rosa apagado (perdida)
   'No asistió': {
     bg: 'bg-vylta-rose/[0.08]',
     barColor: '#F43F5E',
@@ -350,7 +378,6 @@ export const APPT_STATUS_STYLES: Record<string, ApptStatusStyle> = {
     textMuted: 'text-rose-400/60',
     border: 'border-vylta-rose/30',
   },
-  // 🔴 RECHAZADA — rosa sólido (decisión negativa)
   Rechazada: {
     bg: 'bg-vylta-rose/[0.10]',
     barColor: '#E11D48',
