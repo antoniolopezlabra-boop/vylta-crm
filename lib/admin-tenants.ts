@@ -14,12 +14,19 @@ import { createClient } from '@/lib/supabase/client';
 //   - 'Gratuito' → Plan Básico visible (gratis, 10 citas/mes)
 //   - 'Basico'   → Plan Premium visible ($399/mes)
 //   - 'Premium'  → Plan Luxury visible ($799/mes)
+//
+// ⚠️ COLUMNAS REALES DE business_profiles (confirmado May 14 2026):
+// La tabla NO tiene 'owner_name'. Las columnas que sí existen:
+//   - id, user_id, business_name, business_type
+//   - phone, email
+//   - business_slug, business_logo_url, business_address
+//   - created_at, updated_at
 // ═════════════════════════════════════════════════════════════════════
 
 export interface TenantListItem {
   user_id: string;
   business_name: string;
-  owner_name: string | null;
+  business_type: string | null;
   email: string | null;
   phone: string | null;
   created_at: string;
@@ -67,32 +74,40 @@ export function planInternalToVisible(planType: string | null | undefined): {
 
 /**
  * Lista todos los tenants con metadata para el panel admin.
- * Usa varias queries en paralelo para minimizar tiempo.
+ *
+ * Estrategia (replicada de app móvil que ya funciona):
+ *   1. SELECT * de business_profiles (no columnas específicas — más robusto)
+ *   2. RPC get_all_subscription_plans (SECURITY DEFINER, bypasea RLS)
+ *   3. Para cada tenant, count() de clientes y citas en paralelo
+ *   4. Lookup de user_sessions para detectar actividad reciente
  */
 export async function fetchAllTenants(): Promise<TenantListItem[]> {
   const supabase = createClient();
 
   const [
-    { data: profiles },
+    { data: profiles, error: profilesError },
     { data: sessions },
-    { data: plans },
-    { data: apptCounts },
-    { data: clientCounts },
+    { data: plans, error: plansError },
   ] = await Promise.all([
     supabase
       .from('business_profiles')
-      .select('user_id, business_name, owner_name, email, phone, created_at')
+      .select('*')
       .order('created_at', { ascending: false }),
     supabase
       .from('user_sessions')
       .select('user_id, last_seen_at')
       .gte('last_seen_at', new Date(Date.now() - 30 * 86400000).toISOString()),
     supabase.rpc('get_all_subscription_plans'),
-    supabase.rpc('get_appointments_count_per_user').then(r => r).catch(() => ({ data: null })),
-    supabase.rpc('get_clients_count_per_user').then(r => r).catch(() => ({ data: null })),
   ]);
 
-  if (!profiles) return [];
+  if (profilesError) {
+    console.error('[fetchAllTenants] business_profiles error:', profilesError);
+  }
+  if (plansError) {
+    console.error('[fetchAllTenants] plans RPC error:', plansError);
+  }
+
+  if (!profiles || profiles.length === 0) return [];
 
   // Mapas para lookup rápido O(1)
   const sessionMap = new Map<string, string>();
@@ -101,32 +116,45 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
   const planMap = new Map<string, string>();
   plans?.forEach((p: any) => planMap.set(p.user_id, p.plan_type));
 
-  const apptMap = new Map<string, number>();
-  apptCounts?.forEach((a: any) => apptMap.set(a.user_id, a.count));
+  // Hacer count de clientes y citas para cada tenant en paralelo.
+  // Esto es el patrón de la app móvil. No es escalable a miles de tenants
+  // pero por ahora (con <100 tenants) está bien.
+  const tenantsData = await Promise.all(
+    profiles.map(async (p: any) => {
+      const [{ count: clientsCount }, { count: appointmentsCount }] = await Promise.all([
+        supabase
+          .from('clients')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', p.user_id),
+        supabase
+          .from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', p.user_id),
+      ]);
 
-  const clientMap = new Map<string, number>();
-  clientCounts?.forEach((c: any) => clientMap.set(c.user_id, c.count));
+      const planType = planMap.get(p.user_id) || 'Gratuito';
+      const { label, price } = planInternalToVisible(planType);
+      const lastSeen = sessionMap.get(p.user_id) || null;
 
-  return profiles.map((p: any) => {
-    const planType = planMap.get(p.user_id) || 'Gratuito';
-    const { label, price } = planInternalToVisible(planType);
-    const lastSeen = sessionMap.get(p.user_id) || null;
-    return {
-      user_id: p.user_id,
-      business_name: p.business_name || 'Sin nombre',
-      owner_name: p.owner_name,
-      email: p.email,
-      phone: p.phone,
-      created_at: p.created_at,
-      plan_type: planType,
-      plan_label: label,
-      plan_price: price,
-      is_active_30d: !!lastSeen,
-      last_seen_at: lastSeen,
-      appointments_count: apptMap.get(p.user_id) || 0,
-      clients_count: clientMap.get(p.user_id) || 0,
-    };
-  });
+      return {
+        user_id: p.user_id,
+        business_name: p.business_name || 'Sin nombre',
+        business_type: p.business_type || null,
+        email: p.email || null,
+        phone: p.phone || null,
+        created_at: p.created_at,
+        plan_type: planType,
+        plan_label: label,
+        plan_price: price,
+        is_active_30d: !!lastSeen,
+        last_seen_at: lastSeen,
+        appointments_count: appointmentsCount || 0,
+        clients_count: clientsCount || 0,
+      };
+    }),
+  );
+
+  return tenantsData;
 }
 
 /**
@@ -194,15 +222,15 @@ export async function fetchTenantDetail(userId: string): Promise<TenantDetail | 
   const paidCount = (paidAppts || []).length;
 
   return {
-    user_id: profile.user_id,
-    business_name: profile.business_name || 'Sin nombre',
-    owner_name: profile.owner_name,
-    email: profile.email,
-    phone: profile.phone,
-    created_at: profile.created_at,
-    business_slug: profile.business_slug || null,
-    business_logo_url: profile.business_logo_url || null,
-    business_address: profile.business_address || null,
+    user_id: (profile as any).user_id,
+    business_name: (profile as any).business_name || 'Sin nombre',
+    business_type: (profile as any).business_type || null,
+    email: (profile as any).email || null,
+    phone: (profile as any).phone || null,
+    created_at: (profile as any).created_at,
+    business_slug: (profile as any).business_slug || null,
+    business_logo_url: (profile as any).business_logo_url || null,
+    business_address: (profile as any).business_address || null,
     plan_type: planType,
     plan_label: label,
     plan_price: price,
