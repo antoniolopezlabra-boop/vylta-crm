@@ -60,6 +60,13 @@ import { updateAppointmentFull, type Appointment } from '@/lib/appointments';
 //   En edición NO se permite cambiar el cliente (campo bloqueado) porque
 //   eso implicaría renombrar el WhatsApp ya enviado etc.
 //   Lo demás sí: servicio, fecha, horario, colaborador, status, notas.
+//
+// NOTA IMPORTANTE — whatsapp_notification:
+// El trigger SQL notify_n8n_appointment_created() solo dispara el
+// webhook de n8n si la cita tiene whatsapp_notification = true. Por
+// eso el INSERT del modo CREAR debe enviar este campo explícitamente
+// (default true). Sin esto, las citas creadas desde el CRM web NO
+// disparan los recordatorios por WhatsApp.
 // ══════════════════════════════════════════════════════════════════════
 
 const STATUS_OPTIONS_CREATE = ['Confirmada', 'Pendiente'] as const;
@@ -417,6 +424,12 @@ export function AppointmentFormDialog({
     }
 
     // ── Modo CREAR ──
+    // IMPORTANTE: whatsapp_notification=true es OBLIGATORIO para que el
+    // trigger notify_n8n_appointment_created() dispare el webhook a n8n
+    // y se envíe el mensaje de confirmación por WhatsApp al cliente.
+    // Sin este campo (queda en NULL o false), la cita se crea pero el
+    // cliente NUNCA recibe la confirmación. La app móvil ya lo envía;
+    // el CRM web debe ser consistente.
     const payload = {
       user_id: user.id,
       client_id: data.clientId,
@@ -428,6 +441,7 @@ export function AppointmentFormDialog({
       status: data.status,
       notes: data.notes?.trim() || null,
       staff_id: staffIdToSave,
+      whatsapp_notification: true,
     };
 
     const result = await supabase.from('appointments').insert(payload);
