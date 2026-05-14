@@ -27,6 +27,7 @@ import {
   Users,
   CalendarDays,
   Pencil,
+  ShieldAlert,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -34,6 +35,8 @@ import {
   assignStaffToAppointment,
   softDeleteAppointment,
   restoreAppointment,
+  hardDeleteAppointment,
+  HARD_DELETABLE_STATUSES,
   fetchActiveStaff,
   getStaffAvailability,
   getApptStatusStyle,
@@ -59,13 +62,15 @@ import { useInvalidateAppointments } from '@/lib/queries/use-appointments';
 import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
 import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
 
-// ══════════════════════════════════════════════════════════════════════
-// Detail de cita — Sprint 2:
-//   • useAppointment (React Query + Realtime) — datos siempre frescos
-//   • Botón "Editar" — abre AppointmentFormDialog en modo edición
-//   • Soft delete con toast undo (5s) — recuperable
-//   • Status badge dinámico con barColor real
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+// Detail de cita — Sprint 3:
+//   • Edit en modo dialog
+//   • Cancelar (soft delete) con undo 8s
+//   • NUEVO: Eliminar permanentemente (hard delete) con doble confirmación
+//     Solo aparece si status está en HARD_DELETABLE_STATUSES (Cancelada
+//     o Rechazada). NO se permite borrar permanentemente citas activas
+//     o pagadas (protege historial fiscal).
+// ═════════════════════════════════════════════════════════════════════
 
 export default function AppointmentDetailPage() {
   const router = useRouter();
@@ -85,6 +90,8 @@ export default function AppointmentDetailPage() {
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
+  const [hardDeleteStep, setHardDeleteStep] = useState<1 | 2>(1);
 
   // Refresca lista de citas en /citas (Realtime ya invalida pero forzamos por seguridad)
   function refreshAll() {
@@ -110,6 +117,15 @@ export default function AppointmentDetailPage() {
       });
     }
   }, [appointment?.id, appointment?.source, appointment?.client, appointment?.client_name_temp, appointment?.client_phone_temp]);
+
+  // Reset del paso de hard delete cuando el dialog cierra
+  useEffect(() => {
+    if (!hardDeleteOpen) {
+      // Pequeño delay para que el usuario no vea el cambio antes de que cierre
+      const t = setTimeout(() => setHardDeleteStep(1), 200);
+      return () => clearTimeout(t);
+    }
+  }, [hardDeleteOpen]);
 
   async function loadStaffAvailability() {
     if (!appointment) return;
@@ -192,6 +208,29 @@ export default function AppointmentDetailPage() {
     });
   }
 
+  // ── HARD DELETE con DOBLE CONFIRMACIÓN ──
+  // Elimina permanentemente la cita de la BD. NO se puede recuperar.
+  // Solo permitido para citas con status en HARD_DELETABLE_STATUSES.
+  // El botón requiere 2 clicks intencionales (step 1 → step 2 → ejecución).
+  async function handleHardDelete() {
+    if (!appointment) return;
+    setActionLoading(true);
+    const result = await hardDeleteAppointment(appointment.id);
+    setActionLoading(false);
+
+    if ('error' in result) {
+      toast.error(result.error);
+      setHardDeleteOpen(false);
+      return;
+    }
+
+    toast.success('Cita eliminada permanentemente');
+    setHardDeleteOpen(false);
+    invalidateAppointments();
+    // Regresar a la lista, esta cita ya no existe
+    router.push('/citas');
+  }
+
   async function handleSaveAsClient() {
     if (!appointment) return;
     if (!clientForm.name.trim() || !clientForm.phone.trim()) {
@@ -265,6 +304,8 @@ export default function AppointmentDetailPage() {
   const isClosedStatus = ['Cancelada', 'Rechazada'].includes(appointment.status);
   // En estados "terminales" como Pagado, edición es riesgosa pero permitida (warning)
   const isFinalStatus = appointment.status === 'Pagado';
+  // ¿Puede borrarse permanentemente? Solo si está en uno de los status seguros.
+  const canHardDelete = HARD_DELETABLE_STATUSES.includes(appointment.status);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 animate-fade-in">
@@ -289,17 +330,34 @@ export default function AppointmentDetailPage() {
               Editar
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSoftDelete}
-            disabled={actionLoading || isClosedStatus}
-            className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive disabled:opacity-50"
-            title={isClosedStatus ? 'Esta cita ya está cancelada' : 'Cancelar cita'}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Cancelar
-          </Button>
+          {/* Botón CANCELAR (soft delete) — solo si la cita NO está cerrada */}
+          {!isClosedStatus && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSoftDelete}
+              disabled={actionLoading}
+              className="border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive"
+              title="Cancelar cita (recuperable durante 8 segundos)"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Cancelar
+            </Button>
+          )}
+          {/* Botón ELIMINAR PERMANENTE — solo si la cita ya está Cancelada/Rechazada */}
+          {canHardDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHardDeleteOpen(true)}
+              disabled={actionLoading}
+              className="border-vylta-rose/40 bg-vylta-rose/5 text-vylta-rose hover:bg-vylta-rose/10 hover:text-vylta-rose"
+              title="Eliminar permanentemente de la base de datos (no se puede deshacer)"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              Eliminar permanente
+            </Button>
+          )}
         </div>
       </div>
 
@@ -578,6 +636,82 @@ export default function AppointmentDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG HARD DELETE — doble confirmación */}
+      <Dialog open={hardDeleteOpen} onOpenChange={setHardDeleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-vylta-rose">
+              <ShieldAlert className="h-5 w-5" />
+              {hardDeleteStep === 1 ? '¿Eliminar permanentemente?' : 'Confirmación final'}
+            </DialogTitle>
+            <DialogDescription className="text-vylta-muted">
+              {hardDeleteStep === 1
+                ? 'Esta acción no se puede deshacer.'
+                : 'Última oportunidad para cancelar.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {/* Card con datos de la cita */}
+            <div className="rounded-lg border border-vylta-rose/30 bg-vylta-rose/5 p-3">
+              <div className="text-xs font-semibold text-vylta-rose mb-1">Vas a eliminar:</div>
+              <div className="text-sm font-bold text-vylta-bone">{clientName}</div>
+              <div className="text-xs text-vylta-muted mt-0.5">
+                {appointment.service_name} · {formattedDate} · {appointment.start_time?.slice(0, 5)}
+              </div>
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded bg-vylta-card px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-vylta-muted">
+                Status: {appointment.status}
+              </div>
+            </div>
+
+            {hardDeleteStep === 1 ? (
+              <div className="rounded-lg border border-vylta-amber/30 bg-vylta-amber/5 p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-vylta-amber mt-0.5" />
+                  <div className="text-xs text-vylta-bone">
+                    Esta cita se borrará <strong>permanentemente</strong> de la base de datos.
+                    No aparecerá en reportes, historial ni en ningún lugar. <strong>No hay forma de recuperarla.</strong>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-vylta-rose/40 bg-vylta-rose/10 p-3">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-vylta-rose mt-0.5" />
+                  <div className="text-xs text-vylta-bone">
+                    ¿Estás 100% seguro? Si haces click en <strong>"Sí, eliminar"</strong> la cita se borrará ahora mismo.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHardDeleteOpen(false)} disabled={actionLoading}>
+              Cancelar
+            </Button>
+            {hardDeleteStep === 1 ? (
+              <Button
+                onClick={() => setHardDeleteStep(2)}
+                disabled={actionLoading}
+                className="bg-vylta-rose hover:bg-vylta-rose/90 text-white"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Continuar
+              </Button>
+            ) : (
+              <Button
+                onClick={handleHardDelete}
+                disabled={actionLoading}
+                className="bg-vylta-rose hover:bg-vylta-rose/90 text-white"
+              >
+                {actionLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Eliminando...</> : <><Trash2 className="h-4 w-4" /> Sí, eliminar</>}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* RESCHEDULE DIALOG */}
       <RescheduleDialog
         open={rescheduleOpen}
@@ -594,7 +728,7 @@ export default function AppointmentDetailPage() {
         onSuccess={refreshAll}
       />
 
-      {actionLoading && (
+      {actionLoading && !hardDeleteOpen && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <Loader2 className="h-8 w-8 animate-spin text-vylta-green" />
         </div>

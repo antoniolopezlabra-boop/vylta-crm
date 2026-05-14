@@ -1,11 +1,11 @@
 import { createClient } from '@/lib/supabase/client';
 import { getBlocksForDate, findBlockConflict, type TimeBlock } from '@/lib/time-blocks';
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Citas — schema alineado con app móvil.
 // Status válidos: Pendiente, Confirmada, Completada, Pagado, Reagendada,
 // En espera, Solicitud, Cancelada, No asistió, Rechazada.
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 
 export interface Appointment {
   id: string;
@@ -37,6 +37,13 @@ export interface AppointmentWithMeta extends Appointment {
 export const ACTIVE_STATUSES = ['Pendiente', 'Confirmada', 'Completada', 'Pagado', 'Reagendada', 'En espera', 'Solicitud'];
 export const EXCLUDED_STATUSES = ['Cancelada', 'No asistió', 'Rechazada'];
 export const PAID_STATUSES = ['Pagado', 'Completada'];
+
+/**
+ * Status que permiten eliminación permanente desde la UI.
+ * Solo citas ya cerradas pueden ser borradas para evitar pérdida
+ * accidental de citas activas o pagadas (que afectan historial fiscal).
+ */
+export const HARD_DELETABLE_STATUSES = ['Cancelada', 'Rechazada'];
 
 export async function fetchAppointmentsInRange(
   startDate: string,
@@ -125,13 +132,42 @@ export async function assignStaffToAppointment(
 }
 
 /**
- * Hard delete — elimina permanentemente. Usar con cuidado.
- * Para soft delete (recomendado), usar softDeleteAppointment.
+ * Hard delete — elimina permanentemente de la BD. NO se puede recuperar.
+ *
+ * REGLAS DE SEGURIDAD:
+ * - Solo debe usarse para citas con status en HARD_DELETABLE_STATUSES
+ *   (Cancelada, Rechazada). La validación debe ocurrir en la UI antes
+ *   de llamar a esta función para evitar pérdida de historial fiscal.
+ * - Para cancelación cotidiana usar softDeleteAppointment (preserva la
+ *   cita pero cambia status a Cancelada con opción de undo).
+ *
+ * Retorna formato consistente con el resto de funciones del módulo.
  */
-export async function deleteAppointment(id: string): Promise<boolean> {
+export async function hardDeleteAppointment(
+  id: string,
+): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
+  if (!user) return { error: 'No autenticado' };
+
+  // Verificar status actual antes de borrar (defensa en profundidad).
+  // La UI también valida, pero esto previene llamadas maliciosas via consola.
+  const { data: current, error: fetchErr } = await supabase
+    .from('appointments')
+    .select('status')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (fetchErr || !current) {
+    return { error: 'No se encontró la cita' };
+  }
+
+  if (!HARD_DELETABLE_STATUSES.includes(current.status)) {
+    return {
+      error: `Solo se pueden eliminar permanentemente las citas Canceladas o Rechazadas. Status actual: ${current.status}`,
+    };
+  }
 
   const { error } = await supabase
     .from('appointments')
@@ -140,10 +176,19 @@ export async function deleteAppointment(id: string): Promise<boolean> {
     .eq('user_id', user.id);
 
   if (error) {
-    console.error('[deleteAppointment] Error:', error);
-    return false;
+    console.error('[hardDeleteAppointment] Error:', error);
+    return { error: error.message };
   }
-  return true;
+  return { ok: true };
+}
+
+/**
+ * @deprecated Usar hardDeleteAppointment en su lugar (formato de retorno consistente).
+ * Esta función se mantiene por compatibilidad con código legacy.
+ */
+export async function deleteAppointment(id: string): Promise<boolean> {
+  const result = await hardDeleteAppointment(id);
+  return 'ok' in result;
 }
 
 /**
@@ -382,9 +427,9 @@ export function minutesToTime(mins: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // ESTILOS DE STATUS — Brand Kit VYLTA v1.0
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 
 export interface ApptStatusStyle {
   bg: string;
