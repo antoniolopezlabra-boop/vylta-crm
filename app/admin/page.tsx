@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Building2,
@@ -15,149 +14,24 @@ import {
   Loader2,
   Ticket,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
 
 // ═════════════════════════════════════════════════════════════════════
 // Control Center Dashboard — VYLTA Admin
 //
-// MRR en vivo basado en planes activos:
-//   - basicCount (interno: 'Basico')   = Premium visible ($399)
-//   - premiumCount (interno: 'Premium')= Luxury visible ($799)
-//   - gratuitoCount (interno: 'Gratuito') = Basico visible ($0)
-//
-// KPIs en tarjetas con accent colors:
-//   - Negocios (verde)
-//   - Activos 30d (azul) — con sesión en user_sessions
-//   - Retención (gold) — active/total %
-//   - Citas mes (purple)
-//
-// 2 Line charts SVG con datos reales:
-//   - Citas últimos 14 días
-//   - Nuevos negocios últimas 8 semanas
+// OPTIMIZADO con TanStack Query (useAdminDashboard):
+//   • Cache de 30s: volver al dashboard <30s = instantáneo (cero queries)
+//   • Stale-while-revalidate: hasta 5min muestra cache + refresca silente
+//   • isFetching != isLoading: spinner solo en primera carga, no en refetch
 // ═════════════════════════════════════════════════════════════════════
 
-interface DashboardData {
-  totalTenants: number;
-  activeTenants: number;
-  retentionRate: number;
-  totalAppointments: number;
-  monthAppointments: number;
-  basicCount: number;
-  premiumCount: number;
-  gratuitoCount: number;
-  mrr: number;
-  dailyCitas: { label: string; value: number }[];
-  weeklyNegocios: { label: string; value: number }[];
-}
-
 export default function AdminDashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const { data, isLoading, isFetching, refetch } = useAdminDashboard();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData(isRefresh = false) {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
-    const supabase = createClient();
-
-    try {
-      const todayLocal = new Date();
-      const monthStart = new Date(todayLocal.getFullYear(), todayLocal.getMonth(), 1);
-      const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-01`;
-
-      const fourteenAgo = new Date();
-      fourteenAgo.setDate(fourteenAgo.getDate() - 14);
-      const fourteenAgoStr = `${fourteenAgo.getFullYear()}-${String(fourteenAgo.getMonth() + 1).padStart(2, '0')}-${String(fourteenAgo.getDate()).padStart(2, '0')}`;
-
-      const fiftySixAgo = new Date(Date.now() - 56 * 86400000);
-      const thirtyAgo = new Date(Date.now() - 30 * 86400000);
-
-      const [
-        { count: totalTenants },
-        { count: totalAppointments },
-        { count: monthAppointments },
-        { data: sessions },
-        { data: dailyApts },
-        { data: weeklyRegs },
-        { data: plans, error: plansError },
-      ] = await Promise.all([
-        supabase.from('business_profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('appointments').select('*', { count: 'exact', head: true }),
-        supabase.from('appointments').select('*', { count: 'exact', head: true }).gte('date', monthStartStr),
-        supabase.from('user_sessions').select('user_id').gte('last_seen_at', thirtyAgo.toISOString()),
-        supabase.from('appointments').select('date').gte('date', fourteenAgoStr).order('date'),
-        supabase.from('business_profiles').select('created_at').gte('created_at', fiftySixAgo.toISOString()).order('created_at'),
-        supabase.rpc('get_all_subscription_plans'),
-      ]);
-
-      if (plansError) console.error('[Admin] Plans RPC error:', plansError);
-
-      const basicCount = plans?.filter((p: any) =>
-        ['basico', 'básico'].includes((p.plan_type || '').toLowerCase().trim())
-      ).length || 0;
-      const premiumCount = plans?.filter((p: any) =>
-        (p.plan_type || '').toLowerCase().trim() === 'premium'
-      ).length || 0;
-      const gratuitoCount = plans?.filter((p: any) =>
-        (p.plan_type || '').toLowerCase().trim() === 'gratuito'
-      ).length || 0;
-
-      // MRR: Basico interno = $399 visible Premium, Premium interno = $799 visible Luxury
-      const mrr = basicCount * 399 + premiumCount * 799;
-      const activeTenants = sessions?.length || 0;
-      const retentionRate = totalTenants ? Math.round((activeTenants / (totalTenants || 1)) * 100) : 0;
-
-      // Citas últimos 14 días
-      const days: Record<string, number> = {};
-      for (let i = 13; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        days[`${d.getDate()}/${d.getMonth() + 1}`] = 0;
-      }
-      dailyApts?.forEach((a: any) => {
-        const d = new Date(a.date + 'T12:00:00');
-        const key = `${d.getDate()}/${d.getMonth() + 1}`;
-        if (days[key] !== undefined) days[key]++;
-      });
-
-      // Nuevos negocios últimas 8 semanas
-      const weeks: Record<string, number> = {};
-      for (let i = 7; i >= 0; i--) weeks[`S${8 - i}`] = 0;
-      weeklyRegs?.forEach((p: any) => {
-        const weeksAgo = Math.floor((Date.now() - new Date(p.created_at).getTime()) / (7 * 86400000));
-        const key = `S${8 - weeksAgo}`;
-        if (weeks[key] !== undefined) weeks[key]++;
-      });
-
-      setData({
-        totalTenants: totalTenants || 0,
-        activeTenants,
-        retentionRate,
-        totalAppointments: totalAppointments || 0,
-        monthAppointments: monthAppointments || 0,
-        basicCount,
-        premiumCount,
-        gratuitoCount,
-        mrr,
-        dailyCitas: Object.entries(days).map(([label, value]) => ({ label, value })),
-        weeklyNegocios: Object.entries(weeks).map(([label, value]) => ({ label, value })),
-      });
-    } catch (e) {
-      console.error('[Admin Dashboard]', e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  if (loading || !data) {
+  if (isLoading || !data) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
@@ -181,12 +55,12 @@ export default function AdminDashboardPage() {
           <p className="text-sm text-vylta-muted mt-1">Panel de administración global del sistema</p>
         </div>
         <button
-          onClick={() => loadData(true)}
-          disabled={refreshing}
+          onClick={() => refetch()}
+          disabled={isFetching}
           className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
         >
-          {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          {refreshing ? 'Actualizando...' : 'Actualizar datos'}
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+          {isFetching ? 'Actualizando...' : 'Actualizar'}
         </button>
       </div>
 
@@ -356,7 +230,7 @@ function KpiCard({
     </div>
   );
 
-  return href ? <Link href={href}>{inner}</Link> : inner;
+  return href ? <Link href={href} prefetch>{inner}</Link> : inner;
 }
 
 function ChartCard({
@@ -435,6 +309,7 @@ function ActionCard({
   return (
     <Link
       href={href}
+      prefetch
       className={cn('group relative overflow-hidden rounded-xl border p-5 shadow-card transition-all hover:-translate-y-0.5', colorMap)}
     >
       <div className="flex items-start gap-3">

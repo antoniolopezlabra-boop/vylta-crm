@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Building2,
   Search,
@@ -15,48 +16,48 @@ import {
   Phone,
   ArrowRight,
   Briefcase,
+  RefreshCw,
 } from 'lucide-react';
-import { fetchAllTenants, formatLastSeen, type TenantListItem } from '@/lib/admin-tenants';
+import { formatLastSeen, fetchTenantDetail, type TenantListItem } from '@/lib/admin-tenants';
+import { useAdminTenants } from '@/hooks/use-admin-tenants';
 import { cn, getInitials } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // /admin/tenants — Lista de todos los negocios registrados
 //
-// Features:
-//   • Búsqueda en vivo (nombre negocio, tipo, email)
-//   • Filtros por plan (Basico / Premium / Luxury / Todos)
-//   • Indicador de actividad (activo 30d con pulse)
-//   • Stats por negocio: citas, clientes
-//   • Click en tenant → navega a /admin/tenants/[id]
-// ═════════════════════════════════════════════════════════════════════
+// OPTIMIZADO con TanStack Query (useAdminTenants):
+//   • Cache 30s → volver instantáneo
+//   • Prefetch al hover: cuando pasas el mouse sobre un tenant,
+//     se precarga su detalle. Para cuando haces click, ya está listo.
+// ══════════════════════════════════════════════════════════════════════
 
 type PlanFilter = 'all' | 'Basico' | 'Premium' | 'Luxury';
 type SortBy = 'created_desc' | 'created_asc' | 'name_asc' | 'appointments_desc';
 
 export default function AdminTenantsPage() {
-  const [tenants, setTenants] = useState<TenantListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: tenants = [], isLoading, isFetching, refetch } = useAdminTenants();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [planFilter, setPlanFilter] = useState<PlanFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('created_desc');
 
-  useEffect(() => {
-    fetchAllTenants()
-      .then((data) => setTenants(data))
-      .catch((e) => console.error('[Tenants] Error:', e))
-      .finally(() => setLoading(false));
-  }, []);
+  // Prefetch detalle al hacer hover sobre una fila de tenant.
+  // Cuando el user haga click, los datos ya están en cache → navegación instantánea.
+  function prefetchTenantDetail(userId: string) {
+    queryClient.prefetchQuery({
+      queryKey: ['admin-tenant', userId],
+      queryFn: () => fetchTenantDetail(userId),
+    });
+  }
 
   const filtered = useMemo(() => {
     let result = tenants;
 
-    // Filtro por plan
     if (planFilter !== 'all') {
       result = result.filter((t) => t.plan_label === planFilter);
     }
 
-    // Búsqueda
     const q = search.trim().toLowerCase();
     if (q) {
       result = result.filter((t) =>
@@ -67,7 +68,6 @@ export default function AdminTenantsPage() {
       );
     }
 
-    // Sort
     const sorted = [...result];
     if (sortBy === 'created_desc') {
       sorted.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
@@ -90,7 +90,7 @@ export default function AdminTenantsPage() {
     active30d: tenants.filter((t) => t.is_active_30d).length,
   }), [tenants]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
@@ -105,6 +105,7 @@ export default function AdminTenantsPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/admin"
+            prefetch
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -119,11 +120,18 @@ export default function AdminTenantsPage() {
             </p>
           </div>
         </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
+          aria-label="Refrescar lista"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+        </button>
       </div>
 
       {/* FILTROS */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Búsqueda */}
         <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle pointer-events-none" />
           <Input
@@ -134,7 +142,6 @@ export default function AdminTenantsPage() {
           />
         </div>
 
-        {/* Sort */}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortBy)}
@@ -147,51 +154,18 @@ export default function AdminTenantsPage() {
         </select>
       </div>
 
-      {/* PILLS DE PLAN */}
       <div className="flex flex-wrap gap-2">
-        <PlanPill
-          label="Todos"
-          count={counts.all}
-          active={planFilter === 'all'}
-          onClick={() => setPlanFilter('all')}
-          color="bone"
-        />
-        <PlanPill
-          label="Basico"
-          sublabel="$0"
-          count={counts.Basico}
-          active={planFilter === 'Basico'}
-          onClick={() => setPlanFilter('Basico')}
-          color="subtle"
-        />
-        <PlanPill
-          label="Premium"
-          sublabel="$399"
-          count={counts.Premium}
-          active={planFilter === 'Premium'}
-          onClick={() => setPlanFilter('Premium')}
-          color="green"
-          Icon={Gem}
-        />
-        <PlanPill
-          label="Luxury"
-          sublabel="$799"
-          count={counts.Luxury}
-          active={planFilter === 'Luxury'}
-          onClick={() => setPlanFilter('Luxury')}
-          color="luxury"
-          Icon={Crown}
-        />
+        <PlanPill label="Todos" count={counts.all} active={planFilter === 'all'} onClick={() => setPlanFilter('all')} color="bone" />
+        <PlanPill label="Basico" sublabel="$0" count={counts.Basico} active={planFilter === 'Basico'} onClick={() => setPlanFilter('Basico')} color="subtle" />
+        <PlanPill label="Premium" sublabel="$399" count={counts.Premium} active={planFilter === 'Premium'} onClick={() => setPlanFilter('Premium')} color="green" Icon={Gem} />
+        <PlanPill label="Luxury" sublabel="$799" count={counts.Luxury} active={planFilter === 'Luxury'} onClick={() => setPlanFilter('Luxury')} color="luxury" Icon={Crown} />
       </div>
 
-      {/* RESULTADOS */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-vylta-card/30 py-16 text-center">
           <Building2 className="h-10 w-10 text-vylta-subtle mb-3" />
           <h3 className="text-sm font-bold text-vylta-bone">Sin resultados</h3>
-          <p className="text-xs text-vylta-muted mt-1">
-            Ajusta los filtros o búsqueda para ver más tenants.
-          </p>
+          <p className="text-xs text-vylta-muted mt-1">Ajusta los filtros o búsqueda para ver más tenants.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
@@ -209,7 +183,11 @@ export default function AdminTenantsPage() {
             </thead>
             <tbody>
               {filtered.map((t) => (
-                <TenantRow key={t.user_id} tenant={t} />
+                <TenantRow
+                  key={t.user_id}
+                  tenant={t}
+                  onHover={() => prefetchTenantDetail(t.user_id)}
+                />
               ))}
             </tbody>
           </table>
@@ -219,7 +197,7 @@ export default function AdminTenantsPage() {
   );
 }
 
-function TenantRow({ tenant }: { tenant: TenantListItem }) {
+function TenantRow({ tenant, onHover }: { tenant: TenantListItem; onHover: () => void }) {
   const planColors = {
     Basico:  'bg-vylta-card/60 text-vylta-muted border-border',
     Premium: 'bg-vylta-green/10 text-vylta-green border-vylta-green/30',
@@ -237,10 +215,12 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
   })();
 
   return (
-    <tr className="group border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/30">
-      {/* Negocio */}
+    <tr
+      className="group border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/30"
+      onMouseEnter={onHover}
+    >
       <td className="py-3 px-4">
-        <Link href={`/admin/tenants/${tenant.user_id}`} className="flex items-center gap-3">
+        <Link href={`/admin/tenants/${tenant.user_id}`} prefetch className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-vylta-gold/10 text-[10px] font-bold text-vylta-gold ring-1 ring-vylta-gold/20">
             {getInitials(tenant.business_name)}
           </div>
@@ -258,7 +238,6 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
         </Link>
       </td>
 
-      {/* Contacto */}
       <td className="py-3 px-4">
         <div className="flex flex-col gap-0.5">
           {tenant.email && (
@@ -279,7 +258,6 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
         </div>
       </td>
 
-      {/* Plan */}
       <td className="py-3 px-4">
         <div className={cn('inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider', planColors)}>
           {tenant.plan_label === 'Premium' && <Gem className="h-2.5 w-2.5" />}
@@ -287,13 +265,10 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
           {tenant.plan_label}
         </div>
         {tenant.plan_price > 0 && (
-          <div className="mt-0.5 text-[10px] tabular-nums text-vylta-subtle">
-            ${tenant.plan_price}/mes
-          </div>
+          <div className="mt-0.5 text-[10px] tabular-nums text-vylta-subtle">${tenant.plan_price}/mes</div>
         )}
       </td>
 
-      {/* Citas */}
       <td className="py-3 px-4 text-center">
         <div className="flex items-center justify-center gap-1">
           <Calendar className="h-3 w-3 text-vylta-subtle" />
@@ -301,7 +276,6 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
         </div>
       </td>
 
-      {/* Clientes */}
       <td className="py-3 px-4 text-center">
         <div className="flex items-center justify-center gap-1">
           <Users className="h-3 w-3 text-vylta-subtle" />
@@ -309,7 +283,6 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
         </div>
       </td>
 
-      {/* Actividad */}
       <td className="py-3 px-4">
         <div className="flex flex-col gap-0.5">
           {tenant.is_active_30d ? (
@@ -318,9 +291,7 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
                 <span className="absolute inset-0 animate-ping rounded-full bg-vylta-green/60" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-vylta-green" />
               </span>
-              <span className="text-[11px] font-semibold text-vylta-green">
-                {formatLastSeen(tenant.last_seen_at)}
-              </span>
+              <span className="text-[11px] font-semibold text-vylta-green">{formatLastSeen(tenant.last_seen_at)}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
@@ -332,7 +303,6 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
         </div>
       </td>
 
-      {/* Arrow */}
       <td className="py-3 px-4">
         <ArrowRight className="h-4 w-4 text-vylta-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-vylta-gold" />
       </td>
@@ -363,9 +333,7 @@ function PlanPill({
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition',
-        active
-          ? colorMap.active
-          : 'border-border bg-transparent text-vylta-muted hover:bg-vylta-card hover:text-vylta-bone',
+        active ? colorMap.active : 'border-border bg-transparent text-vylta-muted hover:bg-vylta-card hover:text-vylta-bone',
       )}
     >
       {Icon && <Icon className="h-3 w-3" />}

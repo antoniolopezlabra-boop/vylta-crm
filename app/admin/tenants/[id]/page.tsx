@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -22,44 +21,29 @@ import {
   CalendarDays,
   Briefcase,
 } from 'lucide-react';
-import { fetchTenantDetail, formatLastSeen, type TenantDetail } from '@/lib/admin-tenants';
+import { formatLastSeen } from '@/lib/admin-tenants';
+import { useAdminTenantDetail } from '@/hooks/use-admin-tenants';
 import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { getApptStatusStyle } from '@/lib/appointments';
 import { MONTHS_ES } from '@/lib/date-utils';
 
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 // /admin/tenants/[id] — Detalle de un negocio específico
 //
-// Muestra:
-//   • Header con avatar, nombre, plan, contacto
-//   • KPIs: citas totales, clientes, ingresos lifetime, citas mes
-//   • Acciones rápidas: WhatsApp, email, ver booking link
-//   • Últimas 10 citas con status
-//   • Metadata: alta, last seen, plan price
-// ═════════════════════════════════════════════════════════════════════
+// OPTIMIZADO con TanStack Query (useAdminTenantDetail):
+//   • Si el user pasó por /admin/tenants y hizo hover sobre la fila,
+//     el detalle YA ESTÁ EN CACHE → carga instantánea, sin spinner
+//   • Si volvió de otra ruta dentro de 30s, también instantáneo
+//   • Cache key compuesto: ['admin-tenant', userId] — cada tenant
+//     tiene su propio cache independiente
+// ══════════════════════════════════════════════════════════════════════
 
 export default function AdminTenantDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
-  const [tenant, setTenant] = useState<TenantDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const { data: tenant, isLoading, error } = useAdminTenantDetail(id);
 
-  useEffect(() => {
-    if (!id) return;
-    fetchTenantDetail(id)
-      .then((data) => {
-        if (!data) setNotFound(true);
-        else setTenant(data);
-      })
-      .catch((e) => {
-        console.error('[Tenant Detail] Error:', e);
-        setNotFound(true);
-      })
-      .finally(() => setLoading(false));
-  }, [id]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
@@ -67,16 +51,15 @@ export default function AdminTenantDetailPage() {
     );
   }
 
-  if (notFound || !tenant) {
+  if (error || !tenant) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-vylta-card/30 py-16 text-center">
         <Building2 className="h-10 w-10 text-vylta-subtle mb-3" />
         <h3 className="text-sm font-bold text-vylta-bone">Negocio no encontrado</h3>
-        <p className="text-xs text-vylta-muted mt-1">
-          El tenant que buscas no existe o fue eliminado.
-        </p>
+        <p className="text-xs text-vylta-muted mt-1">El tenant que buscas no existe o fue eliminado.</p>
         <Link
           href="/admin/tenants"
+          prefetch
           className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-vylta-gold hover:text-vylta-gold/80"
         >
           <ArrowLeft className="h-3 w-3" />
@@ -100,10 +83,10 @@ export default function AdminTenantDetailPage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* HEADER */}
       <div className="flex items-center gap-3">
         <Link
           href="/admin/tenants"
+          prefetch
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -113,29 +96,20 @@ export default function AdminTenantDetailPage() {
         </h1>
       </div>
 
-      {/* HERO CARD */}
       <div className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
         <div className="pointer-events-none absolute -top-20 -right-20 h-64 w-64 rounded-full bg-vylta-gold/8 blur-[80px]" />
         <div className="relative flex items-start gap-5">
-          {/* Avatar */}
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-vylta-gold/10 text-lg font-bold text-vylta-gold ring-1 ring-vylta-gold/30">
             {tenant.business_logo_url ? (
-              <img
-                src={tenant.business_logo_url}
-                alt={tenant.business_name}
-                className="h-full w-full rounded-2xl object-cover"
-              />
+              <img src={tenant.business_logo_url} alt={tenant.business_name} className="h-full w-full rounded-2xl object-cover" />
             ) : (
               getInitials(tenant.business_name)
             )}
           </div>
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-2xl font-bold text-vylta-bone tracking-tightest">
-                {tenant.business_name}
-              </h2>
+              <h2 className="text-2xl font-bold text-vylta-bone tracking-tightest">{tenant.business_name}</h2>
               <div className={cn('inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider', planColors)}>
                 {tenant.plan_label === 'Premium' && <Gem className="h-2.5 w-2.5" />}
                 {tenant.plan_label === 'Luxury' && <Crown className="h-2.5 w-2.5" />}
@@ -168,12 +142,7 @@ export default function AdminTenantDetailPage() {
                 </a>
               )}
               {tenant.phone && phoneClean && (
-                <a
-                  href={`https://wa.me/${phoneClean}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 hover:text-vylta-whatsapp transition-colors"
-                >
+                <a href={`https://wa.me/${phoneClean}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-vylta-whatsapp transition-colors">
                   <Phone className="h-3 w-3" />
                   {tenant.phone}
                 </a>
@@ -199,15 +168,9 @@ export default function AdminTenantDetailPage() {
           </div>
         </div>
 
-        {/* Acciones rápidas */}
         {bookingUrl && (
           <div className="relative mt-4 pt-4 border-t border-border">
-            <a
-              href={bookingUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-1.5 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10"
-            >
+            <a href={bookingUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-1.5 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10">
               <Globe className="h-3 w-3" />
               Ver booking público
               <ExternalLink className="h-2.5 w-2.5" />
@@ -216,7 +179,6 @@ export default function AdminTenantDetailPage() {
         )}
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <DetailKpi label="Citas totales" value={tenant.appointments_count} Icon={Calendar} color="green" />
         <DetailKpi label="Clientes" value={tenant.clients_count} Icon={Users} color="luxury" />
@@ -224,7 +186,6 @@ export default function AdminTenantDetailPage() {
         <DetailKpi label="Ingresos históricos" value={formatCurrency(tenant.total_revenue)} Icon={DollarSign} color="gold" tabular />
       </div>
 
-      {/* RECIENTES */}
       <div className="overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
         <div className="flex items-center justify-between border-b border-border bg-vylta-card/40 px-5 py-3">
           <div className="flex items-center gap-2">
@@ -235,9 +196,7 @@ export default function AdminTenantDetailPage() {
             </span>
           </div>
           {tenant.appointments_paid > 0 && (
-            <span className="text-[11px] text-vylta-muted">
-              {tenant.appointments_paid} citas cobradas históricas
-            </span>
+            <span className="text-[11px] text-vylta-muted">{tenant.appointments_paid} citas cobradas históricas</span>
           )}
         </div>
 
@@ -262,19 +221,14 @@ export default function AdminTenantDetailPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-vylta-bone">{apt.client_name}</span>
-                      <span
-                        className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white"
-                        style={{ backgroundColor: style.barColor }}
-                      >
+                      <span className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white" style={{ backgroundColor: style.barColor }}>
                         {apt.status}
                       </span>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-vylta-muted">{apt.service_name}</div>
                   </div>
                   {apt.service_cost ? (
-                    <span className="shrink-0 text-sm font-bold tabular-nums text-vylta-green">
-                      {formatCurrency(apt.service_cost)}
-                    </span>
+                    <span className="shrink-0 text-sm font-bold tabular-nums text-vylta-green">{formatCurrency(apt.service_cost)}</span>
                   ) : null}
                 </li>
               );
@@ -304,10 +258,7 @@ function DetailKpi({
 
   return (
     <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-4 shadow-card">
-      <div
-        className="pointer-events-none absolute -top-10 -right-10 h-32 w-32 rounded-full blur-2xl opacity-20"
-        style={{ background: colorMap.halo }}
-      />
+      <div className="pointer-events-none absolute -top-10 -right-10 h-32 w-32 rounded-full blur-2xl opacity-20" style={{ background: colorMap.halo }} />
       <div className="relative">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</span>
