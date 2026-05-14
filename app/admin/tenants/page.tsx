@@ -7,7 +7,6 @@ import {
   Search,
   ArrowLeft,
   Loader2,
-  Activity,
   Calendar,
   Users,
   Gem,
@@ -15,17 +14,17 @@ import {
   Mail,
   Phone,
   ArrowRight,
-  TrendingUp,
+  Briefcase,
 } from 'lucide-react';
 import { fetchAllTenants, formatLastSeen, type TenantListItem } from '@/lib/admin-tenants';
-import { cn, formatCurrency, getInitials } from '@/lib/utils';
+import { cn, getInitials } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
 // ═════════════════════════════════════════════════════════════════════
 // /admin/tenants — Lista de todos los negocios registrados
 //
 // Features:
-//   • Búsqueda en vivo (nombre negocio, dueño, email)
+//   • Búsqueda en vivo (nombre negocio, tipo, email)
 //   • Filtros por plan (Basico / Premium / Luxury / Todos)
 //   • Indicador de actividad (activo 30d con pulse)
 //   • Stats por negocio: citas, clientes
@@ -62,7 +61,7 @@ export default function AdminTenantsPage() {
     if (q) {
       result = result.filter((t) =>
         t.business_name.toLowerCase().includes(q) ||
-        (t.owner_name || '').toLowerCase().includes(q) ||
+        (t.business_type || '').toLowerCase().includes(q) ||
         (t.email || '').toLowerCase().includes(q) ||
         (t.phone || '').includes(q),
       );
@@ -130,7 +129,7 @@ export default function AdminTenantsPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar negocio, dueño o email..."
+            placeholder="Buscar negocio, tipo, email..."
             className="pl-10"
           />
         </div>
@@ -249,8 +248,11 @@ function TenantRow({ tenant }: { tenant: TenantListItem }) {
             <div className="truncate text-sm font-bold text-vylta-bone group-hover:text-vylta-gold transition-colors">
               {tenant.business_name}
             </div>
-            {tenant.owner_name && (
-              <div className="truncate text-[11px] text-vylta-muted">{tenant.owner_name}</div>
+            {tenant.business_type && (
+              <div className="flex items-center gap-1 truncate text-[11px] text-vylta-muted">
+                <Briefcase className="h-2.5 w-2.5" />
+                {tenant.business_type}
+              </div>
             )}
           </div>
         </Link>

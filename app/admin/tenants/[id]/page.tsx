@@ -20,6 +20,7 @@ import {
   Globe,
   ExternalLink,
   CalendarDays,
+  Briefcase,
 } from 'lucide-react';
 import { fetchTenantDetail, formatLastSeen, type TenantDetail } from '@/lib/admin-tenants';
 import { cn, formatCurrency, getInitials } from '@/lib/utils';
@@ -152,8 +153,11 @@ export default function AdminTenantDetailPage() {
               )}
             </div>
 
-            {tenant.owner_name && (
-              <p className="mt-1 text-sm text-vylta-muted">Dueño: {tenant.owner_name}</p>
+            {tenant.business_type && (
+              <p className="mt-1 inline-flex items-center gap-1 text-sm text-vylta-muted">
+                <Briefcase className="h-3 w-3" />
+                {tenant.business_type}
+              </p>
             )}
 
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-vylta-muted">
