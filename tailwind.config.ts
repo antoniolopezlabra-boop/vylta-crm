@@ -14,6 +14,7 @@ import type { Config } from 'tailwindcss';
 //   • Blanco hueso #F1F5F9 → texto principal
 //   • Texto muted  #94A3B8 → subtítulos
 //   • Texto sutil  #64748B → labels
+//   • Gold         #F59E0B → SOLO Admin Control Center (uso restringido)
 //
 // Dark mode permanente — la marca VYLTA es dark-first.
 // ══════════════════════════════════════════════════════════════════════
@@ -120,6 +121,17 @@ const config: Config = {
           amber:    '#F59E0B',  // alertas / por cobrar
           rose:     '#F43F5E',  // negativos / urgente (sobrio sobre dark)
           sky:      '#0EA5E9',  // info
+          // ── Admin Control Center (uso EXCLUSIVO del panel admin) ──
+          // El gold diferencia visualmente el panel admin del CRM normal.
+          // No usar fuera de /admin/* o componentes admin.
+          gold: {
+            DEFAULT: '#F59E0B',
+            light:   '#FBBF24',
+            dark:    '#D97706',
+          },
+          // Background del Control Center: ligeramente más oscuro que el
+          // normal para reforzar el "modo admin"
+          'admin-bg': '#070B14',
         },
       },
       borderRadius: {
@@ -138,6 +150,8 @@ const config: Config = {
         'cta':      '0 0 0 1px hsl(160 84% 39% / 0.3), 0 8px 24px hsl(160 84% 39% / 0.25), 0 1px 0 hsl(0 0% 100% / 0.1) inset',
         // Card luxury con glow morado sutil
         'luxury':   '0 0 0 1px hsl(258 90% 76% / 0.3), 0 8px 24px hsl(258 90% 76% / 0.15)',
+        // Card admin con glow gold sutil
+        'gold':     '0 0 0 1px hsl(45 93% 47% / 0.3), 0 8px 24px hsl(45 93% 47% / 0.2)',
       },
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
