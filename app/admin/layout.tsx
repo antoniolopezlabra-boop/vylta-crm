@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getAdminUserServer } from '@/lib/admin';
+import { getAdminUserServer } from '@/lib/admin-server';
 import { QueryProvider } from '@/components/providers/query-provider';
 import { AdminSidebar } from '@/components/admin/admin-sidebar';
 import { AdminTopbar } from '@/components/admin/admin-topbar';

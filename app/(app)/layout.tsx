@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { getAdminUserServer } from '@/lib/admin';
+import { getAdminUserServer } from '@/lib/admin-server';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { RouteTransition } from '@/components/layout/route-transition';
@@ -14,6 +14,9 @@ import { QueryProvider } from '@/components/providers/query-provider';
 // Si lo está → redirect('/admin') para evitar que vea el dashboard de
 // dueño de negocio. Esto replica el comportamiento de la app móvil
 // donde antonio.lopez.labra@hotmail.com va directo al Control Center.
+//
+// NOTA: importamos getAdminUserServer desde admin-server.ts (no admin.ts)
+// para evitar que cookies() se bundle al cliente.
 // ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({

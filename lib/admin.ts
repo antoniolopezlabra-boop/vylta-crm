@@ -1,27 +1,13 @@
-import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient as createBrowserClient } from '@/lib/supabase/client';
 
 // ═════════════════════════════════════════════════════════════════════
-// Sistema de Administradores VYLTA
+// Sistema de Administradores VYLTA — utilidades client-safe
 //
-// La tabla `vylta_admins` en Supabase guarda los usuarios que tienen
-// acceso al panel Control Center.
+// IMPORTANTE: Este archivo NO importa cookies() ni nada de next/headers.
+// Puede ser usado tanto en Server Components como en Client Components.
 //
-// Campos:
-//   - user_id (uuid, FK auth.users)
-//   - role ('super_admin' | 'admin')
-//   - is_active (bool)
-//   - name (texto, nombre del admin)
-//   - created_at
-//
-// La lógica del CRM web es:
-//   - Layout autenticado (app/(app)/layout.tsx) verifica si user_id está
-//     en vylta_admins con is_active=true.
-//   - Si lo está → redirect('/admin')
-//   - Si no → continúa al CRM normal
-//
-// Esto se ejecuta en el SERVIDOR (Server Component) para evitar flash
-// de contenido incorrecto al usuario antes de redirigir.
+// Para uso server-only (verificaciones en layouts), usar lib/admin-server.ts
+// que tiene la función getAdminUserServer() con acceso a cookies.
 // ═════════════════════════════════════════════════════════════════════
 
 export type AdminRole = 'super_admin' | 'admin';
@@ -35,34 +21,11 @@ export interface AdminUser {
 }
 
 /**
- * Server-side: Verifica si el usuario autenticado actual es admin.
- * Devuelve el registro de admin si lo es, null si no.
+ * Client-side: verifica si el usuario autenticado actual es admin.
+ * Lee la sesión desde el cliente Supabase del browser.
  *
- * Usar desde Server Components (layout, page) que necesiten hacer
- * redirecciones server-side.
- */
-export async function getAdminUserServer(): Promise<AdminUser | null> {
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data, error } = await supabase
-    .from('vylta_admins')
-    .select('user_id, role, is_active, name, created_at')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (error) {
-    console.error('[getAdminUserServer] Error:', error);
-    return null;
-  }
-  return data as AdminUser | null;
-}
-
-/**
- * Client-side: misma lógica pero desde Client Component.
- * Útil para hooks de React Query que verifican estatus admin.
+ * Usar desde Client Components (ej: en componentes 'use client' que
+ * necesiten saber el currentUserId del admin actual).
  */
 export async function getAdminUserClient(): Promise<AdminUser | null> {
   const supabase = createBrowserClient();
