@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   Dice5,
   Copy,
   CheckCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -31,9 +32,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import {
+  useAdminPromoCodes,
+  useTogglePromoCode,
+  useCreatePromoCode,
+  type PromoCode,
+} from '@/hooks/use-admin-promo-codes';
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // /admin/promo-codes — CRUD de códigos promocionales
+//
+// OPTIMIZADO con TanStack Query (May 2026):
+//   • useAdminPromoCodes() para la lista — cache 30s + stale-while-revalidate
+//   • useTogglePromoCode() mutation con invalidación automática
+//   • useCreatePromoCode() mutation con invalidación automática
+//   • Botón refresh con isFetching spinner
 //
 // Schema de tabla `promo_codes`:
 //   - id, code, discount_type ('full' | 'percent'), discount_value
@@ -41,61 +54,22 @@ import { cn } from '@/lib/utils';
 //   - max_uses, current_uses, is_active, notes, stripe_promo_code_id
 //
 // El código se crea vía Edge Function `create-promo-code` que también
-// crea el cupón en Stripe automáticamente. Sin Stripe el código NO
-// funcionará en checkout, pero la BD queda registrada.
+// crea el cupón en Stripe automáticamente.
 // ══════════════════════════════════════════════════════════════════════
 
-interface PromoCode {
-  id: string;
-  code: string;
-  discount_type: string;
-  discount_value: number;
-  duration_days: number | null;
-  max_uses: number;
-  current_uses: number;
-  is_active: boolean;
-  notes: string | null;
-  stripe_promo_code_id: string | null;
-  created_at: string;
-}
-
 export default function AdminPromoCodesPage() {
-  const [codes, setCodes] = useState<PromoCode[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: codes = [], isLoading, isFetching, refetch } = useAdminPromoCodes();
+  const toggleMutation = useTogglePromoCode();
   const [formOpen, setFormOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCodes();
-  }, []);
-
-  async function loadCodes() {
-    setLoading(true);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('promo_codes')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) {
-      console.error('[PromoCodes]', error);
-      toast.error('Error cargando códigos');
-    }
-    setCodes((data || []) as PromoCode[]);
-    setLoading(false);
-  }
-
   async function toggleActive(id: string, currentlyActive: boolean) {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('promo_codes')
-      .update({ is_active: !currentlyActive })
-      .eq('id', id);
-    if (error) {
+    try {
+      await toggleMutation.mutateAsync({ id, currentlyActive });
+      toast.success(currentlyActive ? 'Código desactivado' : 'Código activado');
+    } catch {
       toast.error('Error actualizando estado');
-      return;
     }
-    toast.success(currentlyActive ? 'Código desactivado' : 'Código activado');
-    loadCodes();
   }
 
   async function copyToClipboard(code: string, id: string) {
@@ -114,7 +88,7 @@ export default function AdminPromoCodesPage() {
     used: codes.reduce((sum, c) => sum + c.current_uses, 0),
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
@@ -129,6 +103,7 @@ export default function AdminPromoCodesPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/admin"
+            prefetch
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -143,10 +118,20 @@ export default function AdminPromoCodesPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setFormOpen(true)}>
-          <Plus className="h-4 w-4" />
-          Nuevo código
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
+            aria-label="Refrescar lista"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+          </button>
+          <Button onClick={() => setFormOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Nuevo código
+          </Button>
+        </div>
       </div>
 
       {/* INFO BANNER */}
@@ -192,10 +177,7 @@ export default function AdminPromoCodesPage() {
       <NewPromoCodeDialog
         open={formOpen}
         onOpenChange={setFormOpen}
-        onSuccess={() => {
-          setFormOpen(false);
-          loadCodes();
-        }}
+        onSuccess={() => setFormOpen(false)}
       />
     </div>
   );
@@ -364,6 +346,7 @@ function NewPromoCodeDialog({
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
+  const createMutation = useCreatePromoCode();
   const [code, setCode] = useState('');
   const [notes, setNotes] = useState('');
   const [isFree, setIsFree] = useState(true);
@@ -371,7 +354,6 @@ function NewPromoCodeDialog({
   const [isPermanent, setIsPermanent] = useState(false);
   const [durationMonths, setDurationMonths] = useState('1');
   const [maxUses, setMaxUses] = useState('1');
-  const [saving, setSaving] = useState(false);
 
   function resetForm() {
     setCode('');
@@ -405,35 +387,29 @@ function NewPromoCodeDialog({
       return;
     }
 
-    setSaving(true);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     try {
-      const { data, error } = await supabase.functions.invoke('create-promo-code', {
-        body: {
-          code: code.trim().toUpperCase(),
-          discountType: isFree ? 'full' : 'percent',
-          discountValue: isFree ? 100 : parseInt(discountValue),
-          durationMonths: isPermanent ? null : months,
-          maxUses: max,
-          notes: notes.trim(),
-          createdBy: user?.id,
-        },
+      await createMutation.mutateAsync({
+        code: code.trim().toUpperCase(),
+        discountType: isFree ? 'full' : 'percent',
+        discountValue: isFree ? 100 : parseInt(discountValue),
+        durationMonths: isPermanent ? null : months,
+        maxUses: max,
+        notes: notes.trim(),
+        createdBy: user?.id,
       });
-      if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
-
       toast.success('Código creado en Stripe ✅');
       resetForm();
       onSuccess();
     } catch (err: any) {
       console.error('[CreatePromoCode]', err);
       toast.error(err?.message || 'Error al crear el código');
-    } finally {
-      setSaving(false);
     }
   }
+
+  const saving = createMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -449,7 +425,6 @@ function NewPromoCodeDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Código */}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-vylta-muted">
               Código <span className="text-destructive">*</span>
@@ -468,7 +443,6 @@ function NewPromoCodeDialog({
             </div>
           </div>
 
-          {/* Notas */}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-vylta-muted">Notas internas</Label>
             <Input
@@ -479,7 +453,6 @@ function NewPromoCodeDialog({
             <p className="text-[10px] text-vylta-subtle">Solo visible para admins. Para tu referencia.</p>
           </div>
 
-          {/* Tipo de descuento */}
           <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-vylta-card/30 p-3">
             <div>
               <div className="text-sm font-bold text-vylta-bone">100% gratis</div>
@@ -514,7 +487,6 @@ function NewPromoCodeDialog({
             </div>
           )}
 
-          {/* Duración */}
           <div className="flex items-start justify-between gap-3 rounded-lg border border-border bg-vylta-card/30 p-3">
             <div>
               <div className="text-sm font-bold text-vylta-bone">Permanente</div>
@@ -558,7 +530,6 @@ function NewPromoCodeDialog({
             </div>
           )}
 
-          {/* Max usos */}
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-vylta-muted">Número máximo de usos</Label>
             <Input
@@ -570,7 +541,6 @@ function NewPromoCodeDialog({
             <p className="text-[10px] text-vylta-subtle">Cuántos usuarios pueden canjear este código (usa 999 para ilimitado)</p>
           </div>
 
-          {/* Resumen */}
           <div className="rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-vylta-gold mb-1">Resumen</div>
             <div className="text-sm font-semibold text-vylta-bone">

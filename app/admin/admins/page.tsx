@@ -11,15 +11,25 @@ import {
   Info,
   Calendar,
   Mail,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createClient } from '@/lib/supabase/client';
 import { getAdminUserClient } from '@/lib/admin';
 import { cn, getInitials } from '@/lib/utils';
 import { MONTHS_ES } from '@/lib/date-utils';
+import {
+  useAdminAdmins,
+  useToggleAdminActive,
+  type AdminMember,
+} from '@/hooks/use-admin-admins';
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // /admin/admins — Gestión de administradores del sistema
+//
+// OPTIMIZADO con TanStack Query (May 2026):
+//   • useAdminAdmins() para la lista — cache + stale-while-revalidate
+//   • useToggleAdminActive() mutation con invalidación automática
+//   • Botón refresh con isFetching spinner
 //
 // IMPORTANTE: agregar admins requiere user_id de auth.users (UUID).
 // Como esto no se puede hacer por email desde el cliente con seguridad,
@@ -33,40 +43,14 @@ import { MONTHS_ES } from '@/lib/date-utils';
 // auto-bloqueo): debe hacerse desde Supabase directamente.
 // ══════════════════════════════════════════════════════════════════════
 
-interface AdminMember {
-  id: string;
-  user_id: string;
-  name: string | null;
-  email: string | null;
-  role: string;
-  is_active: boolean;
-  created_at: string;
-}
-
 export default function AdminAdminsPage() {
-  const [admins, setAdmins] = useState<AdminMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: admins = [], isLoading, isFetching, refetch } = useAdminAdmins();
+  const toggleMutation = useToggleAdminActive();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadAdmins();
     getAdminUserClient().then((u) => setCurrentUserId(u?.user_id || null));
   }, []);
-
-  async function loadAdmins() {
-    setLoading(true);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from('vylta_admins')
-      .select('*')
-      .order('created_at', { ascending: true });
-    if (error) {
-      console.error('[Admins]', error);
-      toast.error('Error cargando admins');
-    }
-    setAdmins((data || []) as AdminMember[]);
-    setLoading(false);
-  }
 
   async function toggleActive(admin: AdminMember) {
     // Defensa: no permitir auto-desactivación
@@ -80,20 +64,22 @@ export default function AdminAdminsPage() {
       return;
     }
 
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('vylta_admins')
-      .update({ is_active: !admin.is_active })
-      .eq('id', admin.id);
-    if (error) {
+    try {
+      await toggleMutation.mutateAsync({
+        id: admin.id,
+        currentlyActive: admin.is_active,
+      });
+      toast.success(
+        admin.is_active
+          ? `${admin.name || 'Admin'} desactivado`
+          : `${admin.name || 'Admin'} activado`,
+      );
+    } catch {
       toast.error('Error actualizando');
-      return;
     }
-    toast.success(admin.is_active ? `${admin.name || 'Admin'} desactivado` : `${admin.name || 'Admin'} activado`);
-    loadAdmins();
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
         <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
@@ -111,6 +97,7 @@ export default function AdminAdminsPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/admin"
+            prefetch
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -125,6 +112,14 @@ export default function AdminAdminsPage() {
             </p>
           </div>
         </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
+          aria-label="Refrescar lista"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+        </button>
       </div>
 
       {/* INFO BANNER — cómo agregar admin */}
