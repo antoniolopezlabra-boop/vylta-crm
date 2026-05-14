@@ -1,21 +1,20 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getAdminUserServer } from '@/lib/admin';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { RouteTransition } from '@/components/layout/route-transition';
 import { QueryProvider } from '@/components/providers/query-provider';
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Layout autenticado (App Shell) + QueryProvider de React Query
 //
-// El QueryProvider envuelve TODA la app autenticada para que cualquier
-// componente puede usar hooks de React Query (useHomeStats, useAppointments,
-// etc) y compartir el mismo cache.
-//
-// El layout sigue siendo Server Component (verifica auth en el server)
-// pero a partir de aquí dentro, los componentes pueden ser Client
-// Components con cache compartido.
-// ══════════════════════════════════════════════════════════════════════
+// CHECK ADMIN (Sprint A, Mayo 14 2026):
+// Antes de renderizar el CRM, verifica si el user_id está en vylta_admins.
+// Si lo está → redirect('/admin') para evitar que vea el dashboard de
+// dueño de negocio. Esto replica el comportamiento de la app móvil
+// donde antonio.lopez.labra@hotmail.com va directo al Control Center.
+// ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
   children,
@@ -27,6 +26,14 @@ export default async function AppLayout({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     redirect('/login');
+  }
+
+  // CHECK ADMIN — redirige al Control Center si el usuario es admin.
+  // No usamos try/catch: si falla la consulta, mejor caer al CRM normal
+  // que dejar al usuario sin acceso a nada.
+  const adminUser = await getAdminUserServer();
+  if (adminUser) {
+    redirect('/admin');
   }
 
   const { data: profile } = await supabase
