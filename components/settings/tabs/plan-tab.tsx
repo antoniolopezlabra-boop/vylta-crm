@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CreditCard,
   Check,
@@ -14,6 +14,10 @@ import {
   Shield,
   Lock,
   Zap,
+  Crown,
+  Diamond,
+  MessageCircle,
+  Award,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -26,22 +30,43 @@ import {
   getPlanPrice,
   getPlanDescription,
   getPlanTier,
+  isVipTier,
 } from '@/lib/plan-labels';
 
 // ══════════════════════════════════════════════════════════════════════
 // PlanTab — Plan actual + activación via Stripe + Customer Portal.
 // Brand Kit VYLTA v1.0: morado #A78BFA para Luxury (NO indigo).
+// Branding VIP (May 2026): negro #0A0A0A + dorado #D4AF37.
 //
 // Mismo flow que app móvil:
-//   • Payment Links live para activar Premium / Luxury
+//   • Payment Links live para activar Premium / Luxury / VIP Premium / VIP Luxury
 //   • Edge Function 'create-portal-session' (body: user_id snake_case)
-//   • Detalles desde subscription_plans (created_at, updated_at, status)
+//   • Detalles desde subscription_plans (created_at, updated_at, status, billing_cycle, is_vip, vip_expires_at)
 // ══════════════════════════════════════════════════════════════════════
 
 const STRIPE_LINKS = {
-  premium: 'https://buy.stripe.com/7sY5kF5Ym9hm7mw5g938400',
-  luxury:  'https://buy.stripe.com/8x228t72q65a9uE23X38402',
+  premium:     'https://buy.stripe.com/7sY5kF5Ym9hm7mw5g938400',
+  luxury:      'https://buy.stripe.com/8x228t72q65a9uE23X38402',
+  vip_premium: 'https://buy.stripe.com/8x2fZjaeCeBGayI7oh38403', // VIP Premium $4,390/año
+  vip_luxury:  'https://buy.stripe.com/14A7sN5YmgJOdKU23X38404', // VIP Luxury  $8,790/año
 };
+
+// ═══════ Paleta VIP (negro + dorado) ═══════
+const VIP_GOLD = '#D4AF37';
+const VIP_GOLD_SOFT = '#E8C76C';
+const VIP_BLACK = '#0A0A0A';
+
+// ═══════ Lista oficial de beneficios VIP (espejo de la app móvil) ═══════
+const VIP_BENEFITS = [
+  'Comunicación directa con el CEO/Director de Operaciones por WhatsApp',
+  'Capacitación 1-a-1 sobre el uso de la herramienta',
+  'Sesiones estratégicas de crecimiento para tu negocio',
+  'Configuración inicial asistida (servicios, horarios, plantillas)',
+  'Capacitación personalizada para tu equipo',
+  'Capacitación para 1 colaborador adicional sin costo',
+  'Acceso anticipado a nuevas funciones',
+  '1 mes GRATIS al pagar la anualidad completa',
+];
 
 interface PlanTabProps {
   userId: string;
@@ -54,6 +79,11 @@ interface PlanTabProps {
     stripe_subscription_id?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
+    // ─── Campos VIP (May 2026) ───
+    billing_cycle?: string | null;
+    is_vip?: boolean | null;
+    vip_expires_at?: string | null;
+    onboarding_call_scheduled_at?: string | null;
   } | null;
 }
 
@@ -84,8 +114,19 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 // ── Mapping de plan tier a estética visual ──
-function getTierVisual(tier: 'basico' | 'premium' | 'luxury') {
+function getTierVisual(tier: 'basico' | 'premium' | 'luxury' | 'vip_premium' | 'vip_luxury') {
   switch (tier) {
+    case 'vip_luxury':
+    case 'vip_premium':
+      return {
+        text: 'text-amber-400',
+        bg: 'bg-amber-500/10',
+        ring: 'ring-amber-500/30',
+        border: 'border-amber-500/40',
+        badge: 'bg-amber-500/15 text-amber-500 border-amber-500/30',
+        cellBg: 'bg-amber-500/5',
+        headerBg: 'bg-amber-500/10 text-amber-500',
+      };
     case 'luxury':
       return {
         text: 'text-vylta-luxury',
@@ -121,6 +162,7 @@ function getTierVisual(tier: 'basico' | 'premium' | 'luxury') {
 
 export function PlanTab({ userId, plan }: PlanTabProps) {
   const [portalLoading, setPortalLoading] = useState(false);
+  const [businessName, setBusinessName] = useState<string>('');
 
   const rawPlanType = plan?.plan_type;
   const tier = getPlanTier(rawPlanType);
@@ -129,13 +171,35 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
   const planPrice = getPlanPrice(rawPlanType);
   const planDescription = getPlanDescription(rawPlanType);
   const isActive = (plan?.status || '').toLowerCase() === 'active';
-  const hasPaidPlan = tier === 'premium' || tier === 'luxury';
+  const isVip = isVipTier(rawPlanType) || !!plan?.is_vip;
+  const isAnnual = plan?.billing_cycle === 'annual';
+  const hasPaidPlan = tier === 'premium' || tier === 'luxury' || isVip;
   const visual = getTierVisual(tier);
 
-  function buildPaymentUrl(target: 'premium' | 'luxury'): string {
+  // Cargar business_name del usuario para el mensaje WhatsApp pre-llenado
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('business_profiles')
+        .select('business_name')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (data?.business_name) setBusinessName(data.business_name);
+    })();
+  }, [userId]);
+
+  function buildPaymentUrl(target: 'premium' | 'luxury' | 'vip_premium' | 'vip_luxury'): string {
     const baseUrl = STRIPE_LINKS[target];
     const separator = baseUrl.includes('?') ? '&' : '?';
     return `${baseUrl}${separator}client_reference_id=${userId}`;
+  }
+
+  function openVipCeoWhatsApp() {
+    const businessLabel = businessName?.trim() || '[mi negocio]';
+    const message = `Hola Antonio, soy ${businessLabel} cliente VIP de VYLTA.`;
+    const url = `https://wa.me/525634330814?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   async function openCustomerPortal() {
@@ -156,13 +220,23 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
     }
   }
 
+  // Próximo cobro: anual (1 año) vs mensual (30 días)
   const nextBilling = (() => {
     if (!plan?.updated_at) return null;
     const d = new Date(plan.updated_at);
-    d.setDate(d.getDate() + 30);
+    if (isAnnual) {
+      d.setFullYear(d.getFullYear() + 1);
+    } else {
+      d.setDate(d.getDate() + 30);
+    }
     return d;
   })();
   const isNextBillingSoon = nextBilling && (nextBilling.getTime() - Date.now()) < 5 * 24 * 60 * 60 * 1000;
+
+  // Días hasta expiración VIP
+  const daysUntilVipExpiry = plan?.vip_expires_at
+    ? Math.max(0, Math.ceil((new Date(plan.vip_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
 
   return (
     <div className="space-y-4">
@@ -176,13 +250,13 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
         <div className={cn(
           'relative overflow-hidden rounded-xl border p-5',
           visual.border,
-          tier === 'luxury' ? 'bg-vylta-luxury/[0.04]' : tier === 'premium' ? 'bg-vylta-green/[0.04]' : 'bg-vylta-card/40',
+          isVip ? 'bg-amber-500/[0.05]' : tier === 'luxury' ? 'bg-vylta-luxury/[0.04]' : tier === 'premium' ? 'bg-vylta-green/[0.04]' : 'bg-vylta-card/40',
         )}>
           {/* Halo decorativo del color del tier */}
           {tier !== 'basico' && (
             <div
               className="pointer-events-none absolute -top-16 -right-16 h-48 w-48 rounded-full blur-3xl opacity-30"
-              style={{ background: tier === 'luxury' ? '#A78BFA' : '#10B981' }}
+              style={{ background: isVip ? VIP_GOLD : tier === 'luxury' ? '#A78BFA' : '#10B981' }}
             />
           )}
 
@@ -194,13 +268,19 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
                   'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
                   visual.badge,
                 )}>
-                  {tier === 'luxury' && <Sparkles className="h-2.5 w-2.5" />}
+                  {isVip && <Diamond className="h-2.5 w-2.5" />}
+                  {!isVip && tier === 'luxury' && <Sparkles className="h-2.5 w-2.5" />}
                   {planBadge}
                 </span>
                 {isActive && (
                   <span className="inline-flex items-center gap-1 rounded-md bg-vylta-green/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-vylta-green">
                     <CheckCircle2 className="h-2.5 w-2.5" />
                     Activo
+                  </span>
+                )}
+                {isAnnual && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-500">
+                    Anual
                   </span>
                 )}
               </div>
@@ -214,6 +294,39 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
           </div>
         </div>
 
+        {/* ══════════ PANEL EXCLUSIVO VIP — contacto directo con CEO ══════════ */}
+        {isVip && (
+          <div
+            className="mt-4 overflow-hidden rounded-xl border p-5"
+            style={{ background: VIP_BLACK, borderColor: VIP_GOLD }}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Crown className="h-4 w-4" style={{ color: VIP_GOLD }} />
+              <span className="text-xs font-bold uppercase tracking-[0.15em]" style={{ color: VIP_GOLD }}>
+                Tu contacto directo
+              </span>
+            </div>
+            <p className="text-sm text-white mb-3">
+              <strong>Antonio López</strong>, CEO/Director de Operaciones de VYLTA, está disponible para ti por WhatsApp.
+            </p>
+            <button
+              onClick={openVipCeoWhatsApp}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold transition hover:opacity-90"
+              style={{ borderColor: VIP_GOLD, color: VIP_GOLD, background: '#1A1A1A' }}
+            >
+              <MessageCircle className="h-4 w-4" />
+              Contactar a Antonio
+              <ExternalLink className="h-3 w-3" />
+            </button>
+            {daysUntilVipExpiry !== null && (
+              <div className="mt-3 flex items-center gap-2 text-[11px]" style={{ color: VIP_GOLD_SOFT }}>
+                <Calendar className="h-3.5 w-3.5" />
+                Tu plan VIP se renueva en {daysUntilVipExpiry} días
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Detalles de suscripción */}
         {hasPaidPlan && (
           <div className="mt-4 space-y-3 rounded-xl border border-border bg-vylta-card/40 p-4">
@@ -225,7 +338,7 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
             />
             <DetailRow
               icon={Zap}
-              label="Próximo cobro"
+              label={isAnnual ? 'Renovación anual' : 'Próximo cobro'}
               value={
                 <span className={cn(
                   isNextBillingSoon ? 'text-vylta-amber font-bold' : 'text-vylta-bone',
@@ -314,11 +427,11 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
         )}
       </SettingsCard>
 
-      {/* ══════════ TARJETAS DE UPGRADE ══════════ */}
-      {tier !== 'luxury' && (
+      {/* ══════════ TARJETAS DE UPGRADE — Planes mensuales ══════════ */}
+      {!isVip && tier !== 'luxury' && (
         <div className="space-y-3">
           <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted">
-            Activar un plan
+            Activar un plan mensual
           </h3>
 
           {tier === 'basico' && (
@@ -370,10 +483,82 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
         </div>
       )}
 
+      {/* ══════════ TARJETAS VIP ANUALES (negro + dorado) ══════════ */}
+      {!isVip && (
+        <div className="space-y-4 mt-6">
+          {/* Divisor visual */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-amber-500/40 to-amber-500/40" />
+            <div className="flex items-center gap-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500">
+              <Diamond className="h-3 w-3" />
+              Planes VIP · Anuales
+              <Diamond className="h-3 w-3" />
+            </div>
+            <div className="flex-1 h-px bg-gradient-to-l from-transparent via-amber-500/40 to-amber-500/40" />
+          </div>
+
+          {/* Card con los 8 beneficios VIP */}
+          <div
+            className="overflow-hidden rounded-xl border p-5"
+            style={{ background: VIP_BLACK, borderColor: VIP_GOLD }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Award className="h-4 w-4" style={{ color: VIP_GOLD }} />
+              <span className="text-xs font-bold uppercase tracking-[0.15em]" style={{ color: VIP_GOLD }}>
+                Beneficios exclusivos VIP
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {VIP_BENEFITS.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-white leading-relaxed">
+                  <Sparkles className="h-3 w-3 shrink-0 mt-0.5" style={{ color: VIP_GOLD }} />
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Cards VIP — Premium + Luxury */}
+          <VipPlanCard
+            name="VIP Premium"
+            icon={<Diamond className="h-5 w-5" />}
+            price="$4,390"
+            period="MXN / año"
+            equiv="Equivalente a $399 × 11 meses (1 mes gratis)"
+            badge="AHORRAS 1 MES"
+            includesBaseLabel="Todo lo del Plan Premium"
+            ctaUrl={buildPaymentUrl('vip_premium')}
+          />
+
+          <VipPlanCard
+            name="VIP Luxury"
+            icon={<Crown className="h-5 w-5" />}
+            price="$8,790"
+            period="MXN / año"
+            equiv="Equivalente a $799 × 11 meses (1 mes gratis)"
+            badge="EXCLUSIVO"
+            includesBaseLabel="Todo lo del Plan Luxury (5 colaboradores, etc.)"
+            ctaUrl={buildPaymentUrl('vip_luxury')}
+            recommended
+          />
+
+          <div
+            className="flex items-start gap-2 rounded-xl border p-3.5"
+            style={{ background: '#1A1A1A', borderColor: 'rgba(212,175,55,0.3)' }}
+          >
+            <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: VIP_GOLD_SOFT }} />
+            <p className="text-[11px] leading-relaxed" style={{ color: VIP_GOLD_SOFT }}>
+              Pago anual seguro procesado por <strong style={{ color: VIP_GOLD }}>Stripe</strong>. Renovación automática. Puedes cancelar
+              la renovación en cualquier momento desde "Gestionar suscripción" sin perder los beneficios del año en curso.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ══════════ TABLA COMPARATIVA ══════════ */}
       <div className="overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
         <div className="border-b border-border bg-vylta-card/40 px-5 py-3">
-          <h3 className="text-sm font-bold text-vylta-bone">Compara los planes</h3>
+          <h3 className="text-sm font-bold text-vylta-bone">Compara los planes mensuales</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -499,7 +684,6 @@ function PlanUpgradeCard({
       accentMap.borderHover,
       recommended && accentMap.glow,
     )}>
-      {/* Halo decorativo del accent */}
       <div
         className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full blur-3xl opacity-20 transition-opacity group-hover:opacity-40"
         style={{ background: accentMap.haloHex }}
@@ -544,6 +728,98 @@ function PlanUpgradeCard({
         )}
       >
         <Sparkles className="h-4 w-4" />
+        Activar Plan {name}
+        <ExternalLink className="h-3 w-3" />
+      </a>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// VipPlanCard — Tarjeta exclusiva VIP (negro + dorado premium)
+// ══════════════════════════════════════════════════════════════════════
+function VipPlanCard({
+  name,
+  icon,
+  price,
+  period,
+  equiv,
+  badge,
+  includesBaseLabel,
+  ctaUrl,
+  recommended,
+}: {
+  name: string;
+  icon: React.ReactNode;
+  price: string;
+  period: string;
+  equiv: string;
+  badge: string;
+  includesBaseLabel: string;
+  ctaUrl: string;
+  recommended?: boolean;
+}) {
+  return (
+    <div
+      className="group relative overflow-hidden rounded-xl border-2 p-5 transition-all hover:-translate-y-0.5"
+      style={{
+        background: VIP_BLACK,
+        borderColor: recommended ? VIP_GOLD : 'rgba(212,175,55,0.6)',
+        boxShadow: recommended ? `0 0 30px rgba(212,175,55,0.2)` : `0 0 20px rgba(212,175,55,0.1)`,
+      }}
+    >
+      {/* Halo dorado */}
+      <div
+        className="pointer-events-none absolute -top-20 -right-20 h-56 w-56 rounded-full blur-3xl opacity-25 transition-opacity group-hover:opacity-50"
+        style={{ background: VIP_GOLD }}
+      />
+
+      {/* Badge */}
+      <div
+        className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.15em] mb-3"
+        style={{
+          background: recommended ? VIP_GOLD : 'rgba(212,175,55,0.15)',
+          color: recommended ? VIP_BLACK : VIP_GOLD,
+          border: recommended ? 'none' : `1px solid ${VIP_GOLD}`,
+        }}
+      >
+        <Diamond className="h-2.5 w-2.5" />
+        {badge}
+      </div>
+
+      <div className="relative flex items-start gap-3">
+        <div style={{ color: VIP_GOLD }}>{icon}</div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-xl font-bold tracking-tightest" style={{ color: VIP_GOLD }}>{name}</h3>
+          <div className="mt-3 flex items-baseline gap-1.5">
+            <span className="text-3xl font-bold tabular-nums tracking-tightest text-white">
+              {price}
+            </span>
+            <span className="text-xs" style={{ color: VIP_GOLD_SOFT }}>{period}</span>
+          </div>
+          <p className="mt-1 text-[11px] italic" style={{ color: VIP_GOLD_SOFT }}>{equiv}</p>
+        </div>
+      </div>
+
+      <ul className="relative mt-4 space-y-1.5">
+        <li className="flex items-start gap-2 text-xs text-white">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: VIP_GOLD }} strokeWidth={2.5} />
+          <span>{includesBaseLabel}</span>
+        </li>
+        <li className="flex items-start gap-2 text-xs text-white">
+          <Award className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: VIP_GOLD }} strokeWidth={2.5} />
+          <span>+ los 8 beneficios VIP exclusivos arriba</span>
+        </li>
+      </ul>
+
+      <a
+        href={ctaUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="relative mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition hover:opacity-90"
+        style={{ background: VIP_GOLD, color: VIP_BLACK }}
+      >
+        <Crown className="h-4 w-4" />
         Activar Plan {name}
         <ExternalLink className="h-3 w-3" />
       </a>
