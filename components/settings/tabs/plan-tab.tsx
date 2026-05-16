@@ -42,6 +42,12 @@ import {
 //   • Payment Links live para activar Premium / Luxury / VIP Premium / VIP Luxury
 //   • Edge Function 'create-portal-session' (body: user_id snake_case)
 //   • Detalles desde subscription_plans (created_at, updated_at, status, billing_cycle, is_vip, vip_expires_at)
+//
+// Narrativa pública del equipo directivo (May 16 2026):
+//   ✅ "El CEO" / "El equipo directivo de VYLTA"
+//   ❌ NO usar nombres propios ("Antonio López")
+//   ❌ NO usar "Director de Operaciones" / "desarrollador"
+//   Mantiene consistencia con landing vylta.lat + prompt IA + app móvil.
 // ══════════════════════════════════════════════════════════════════════
 
 const STRIPE_LINKS = {
@@ -56,9 +62,15 @@ const VIP_GOLD = '#D4AF37';
 const VIP_GOLD_SOFT = '#E8C76C';
 const VIP_BLACK = '#0A0A0A';
 
-// ═══════ Lista oficial de beneficios VIP (espejo de la app móvil) ═══════
+// ═══════ Lista oficial de beneficios VIP (fuente de verdad: vylta-docs/pricing/PLANS.md) ═══════
+// IMPORTANTE: Esta lista debe ser idéntica en 4 lugares:
+//   1. app/settings/subscription.tsx (app móvil)
+//   2. components/settings/tabs/plan-tab.tsx (este archivo)
+//   3. vylta-web/index.html (landing pública)
+//   4. supabase/functions/ai-chat/index.ts (prompt IA)
+// Si se cambia, actualizar los 4.
 const VIP_BENEFITS = [
-  'Comunicación directa con el CEO/Director de Operaciones por WhatsApp',
+  'Comunicación directa con el CEO por WhatsApp',
   'Capacitación 1-a-1 sobre el uso de la herramienta',
   'Sesiones estratégicas de crecimiento para tu negocio',
   'Configuración inicial asistida (servicios, horarios, plantillas)',
@@ -195,9 +207,12 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
     return `${baseUrl}${separator}client_reference_id=${userId}`;
   }
 
-  function openVipCeoWhatsApp() {
+  // Abre WhatsApp con el equipo directivo de VYLTA (número exclusivo VIP).
+  // El número +52 1 56 3433 0814 NO se publica en landing pública; solo aquí
+  // dentro del flujo post-compra para clientes que ya activaron un plan VIP.
+  function openVipTeamWhatsApp() {
     const businessLabel = businessName?.trim() || '[mi negocio]';
-    const message = `Hola Antonio, soy ${businessLabel} cliente VIP de VYLTA.`;
+    const message = `Hola, soy ${businessLabel} cliente VIP de VYLTA.`;
     const url = `https://wa.me/525634330814?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   }
@@ -294,7 +309,7 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
           </div>
         </div>
 
-        {/* ══════════ PANEL EXCLUSIVO VIP — contacto directo con CEO ══════════ */}
+        {/* ══════════ PANEL EXCLUSIVO VIP — contacto directo con el equipo directivo ══════════ */}
         {isVip && (
           <div
             className="mt-4 overflow-hidden rounded-xl border p-5"
@@ -307,15 +322,15 @@ export function PlanTab({ userId, plan }: PlanTabProps) {
               </span>
             </div>
             <p className="text-sm text-white mb-3">
-              <strong>Antonio López</strong>, CEO/Director de Operaciones de VYLTA, está disponible para ti por WhatsApp.
+              El <strong style={{ color: VIP_GOLD }}>equipo directivo</strong> de VYLTA está disponible para ti por WhatsApp.
             </p>
             <button
-              onClick={openVipCeoWhatsApp}
+              onClick={openVipTeamWhatsApp}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-bold transition hover:opacity-90"
               style={{ borderColor: VIP_GOLD, color: VIP_GOLD, background: '#1A1A1A' }}
             >
               <MessageCircle className="h-4 w-4" />
-              Contactar a Antonio
+              Contactar al equipo directivo
               <ExternalLink className="h-3 w-3" />
             </button>
             {daysUntilVipExpiry !== null && (
