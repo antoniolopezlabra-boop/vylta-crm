@@ -11,24 +11,26 @@ export const metadata: Metadata = {
 // ══════════════════════════════════════════════════════════════════════
 // /setup — Wizard de onboarding para usuarios nuevos.
 //
-// Cuándo se entra aquí:
-//   • Después de crear cuenta en /register (router.push('/setup'))
-//   • Si el middleware detecta usuario logueado SIN business_profile
-//     (futura mejora — Fase 3)
+// ⚡ HOTFIX (May 19 2026): la lógica anterior detectaba "setup completo"
+// si existía un row en business_profiles con business_name lleno.
+// PROBLEMA: Supabase tiene un trigger SQL (handle_new_user u otro) que
+// pre-crea un row en business_profiles al hacer signUp, con
+// business_name vacío o con valor default. Esto causaba que usuarios
+// recién registrados fueran redirigidos al dashboard SIN haber pasado
+// por el wizard.
 //
-// Cuándo NO se debe entrar:
-//   • Usuario sin sesión → middleware lo manda a /login
-//   • Usuario que ya completó el setup → redirigir a /dashboard
-//     (lo hacemos aquí en server para evitar flash visual)
+// SOLUCIÓN ROBUSTA: detectar "setup completo" verificando si el usuario
+// tiene al menos 1 servicio activo. Esto es algo que SOLO se crea
+// cuando el wizard se completa (o cuando el usuario lo crea manualmente
+// desde Configuración en la app móvil — caso retrocompatible).
 //
-// Estructura del wizard (4 pasos, espejo de la app móvil):
-//   1. Negocio: nombre, tipo, teléfono
-//   2. Primer servicio: nombre, duración, precio
-//   3. Horarios de atención: días + rangos
-//   4. Listo: link público generado + invitación a compartir
-//
-// Diseño: dark premium consistente con /login y /register, con stepper
-// arriba que indica progreso (1/4 · 2/4 · etc).
+// Ventajas de este enfoque:
+//   • Inmune a triggers SQL que pre-creen rows en business_profiles
+//   • Retrocompatible: usuarios viejos con servicios siguen
+//     yendo directo al dashboard
+//   • Funciona aunque otro proceso (admin panel, app móvil) modifique
+//     business_profiles sin completar setup
+//   • Simple: 1 query a services count
 // ══════════════════════════════════════════════════════════════════════
 
 export default async function SetupPage() {
@@ -39,24 +41,29 @@ export default async function SetupPage() {
     redirect('/login?next=/setup');
   }
 
-  // Si ya tiene business_profile completo → directo a dashboard.
-  // Usamos maybeSingle() en lugar de single() para que NO arroje
-  // si el row no existe (caso normal en usuarios nuevos).
-  const { data: profile } = await supabase
-    .from('business_profiles')
-    .select('business_name, business_type')
+  // ⚡ Detección de setup completo: ¿tiene al menos 1 servicio?
+  //
+  // Si tiene → ya pasó por el wizard (en mobile o web) → dashboard
+  // Si no   → es nuevo o saltó el wizard → mostrar wizard
+  //
+  // Usamos head:true + count para evitar traer las columnas — más rápido.
+  // Filtramos por is_active para no contar servicios eliminados/inactivos.
+  const { count: servicesCount } = await supabase
+    .from('services')
+    .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .maybeSingle();
+    .eq('is_active', true);
 
-  const isAlreadySetup = !!(profile?.business_name && profile?.business_type);
+  const hasCompletedSetup = (servicesCount ?? 0) > 0;
 
-  if (isAlreadySetup) {
+  if (hasCompletedSetup) {
     redirect('/dashboard');
   }
 
   // Pasamos el nombre del usuario al wizard para personalizar saludo.
   const userName =
     (user.user_metadata?.full_name as string | undefined)?.trim().split(' ')[0]
+    || (user.user_metadata?.name as string | undefined)?.trim().split(' ')[0]
     || user.email?.split('@')[0]
     || '';
 
