@@ -9,7 +9,6 @@ import {
   Palette,
   Calendar as CalIcon,
   Info,
-  Smartphone,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -43,6 +42,7 @@ import {
   deleteStaffMember,
   type StaffHour,
 } from '@/lib/staff';
+import { StaffAccessSection } from './staff-access-section';
 
 // ══════════════════════════════════════════════════════════════════════
 // Modal de crear/editar colaborador.
@@ -52,8 +52,15 @@ import {
 //   ├─ Nombre + Rol (dropdown)
 //   ├─ Paleta de colores (10 opciones)
 //   ├─ Switch "Activo" (solo edit)
+//   ├─ Acceso a la app móvil (solo edit) ← FUNCIONAL (May 19 2026)
 //   ├─ Horario por día (7 días, cada uno con switch + hora inicio/fin)
 //   └─ Botón eliminar (solo edit)
+//
+// ⚡ ACTUALIZACIÓN (May 19 2026):
+// La sección de acceso a la app móvil pasó de ser informativa
+// (decía "abre VYLTA en tu celular") a ser FUNCIONAL. Ahora el dueño
+// puede crear y revocar acceso directamente desde el browser.
+// Implementación en components/team/staff-access-section.tsx
 // ══════════════════════════════════════════════════════════════════════
 
 interface StaffFormDialogProps {
@@ -74,6 +81,10 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
   const [isActive, setIsActive] = useState(true);
   const [hours, setHours] = useState<StaffHour[]>([]);
   const [hasAccount, setHasAccount] = useState(false);
+
+  // Bumpear este key fuerza re-fetch del estado de la cuenta (tras
+  // crear/revocar acceso desde el StaffAccessSection)
+  const [accountReloadKey, setAccountReloadKey] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -111,7 +122,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
     })();
 
     return () => { cancelled = true; };
-  }, [open, isEdit, staffId]);
+  }, [open, isEdit, staffId, accountReloadKey]);
 
   function toggleDay(dow: number) {
     setHours(h => h.map(d => d.day_of_week === dow ? { ...d, is_open: !d.is_open } : d));
@@ -167,6 +178,13 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
     } else {
       toast.error('No pudimos eliminar al colaborador');
     }
+  }
+
+  function handleAccessChanged() {
+    // Refresca el estado hasAccount + notifica al padre para que la lista
+    // /equipo refresque el badge "App" en la card del colaborador.
+    setAccountReloadKey(k => k + 1);
+    onSaved?.();
   }
 
   return (
@@ -279,28 +297,14 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
               </label>
             )}
 
-            {/* Acceso a la app (solo edit, solo mostrar estado) */}
-            {isEdit && (
-              <div className="rounded-lg border border-border bg-secondary/30 p-3">
-                <div className="flex items-start gap-3">
-                  <div className={cn(
-                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
-                    hasAccount ? 'bg-vylta-green-500/10 text-vylta-green-700 dark:text-vylta-green-400' : 'bg-secondary text-muted-foreground',
-                  )}>
-                    <Smartphone className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 text-xs">
-                    <div className="font-bold">
-                      {hasAccount ? 'Tiene acceso a la app' : 'Sin acceso a la app'}
-                    </div>
-                    <div className="mt-0.5 text-muted-foreground leading-relaxed">
-                      Para crear o revocar accesos a la app móvil, abre VYLTA en tu celular → Ajustes → Mi equipo → selecciona al colaborador.
-                      <br />
-                      <span className="text-[10px] italic">Por seguridad esta acción requiere la app móvil.</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            {/* Acceso a la app móvil — funcional (May 19 2026) */}
+            {isEdit && staffId && (
+              <StaffAccessSection
+                staffMemberId={staffId}
+                staffName={name || 'el colaborador'}
+                hasAccount={hasAccount}
+                onChanged={handleAccessChanged}
+              />
             )}
 
             {/* Horarios */}
