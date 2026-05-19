@@ -1,738 +1,690 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  Store, Package, Clock, Link as LinkIcon, Loader2,
-  ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Info,
-  Instagram, Phone, Globe, Facebook, ChevronDown, X,
+  Loader2, ArrowRight, ArrowLeft, Building2, Scissors, Clock,
+  CheckCircle2, Shield, Copy, ExternalLink, Phone, Sparkles,
+  Check,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  BUSINESS_TYPES,
-  BUSINESS_TYPE_OTHER,
-  isCustomBusinessType,
-  validateCustomBusinessType,
-} from '@/lib/business-types';
-import { generateSlug, ensureUniqueSlug } from '@/lib/slug-generator';
 
-// ═════════════════════════════════════════════════════════════════════════
-// SETUP WIZARD CRM — 4 pasos espejo del wizard de la app móvil
+// ══════════════════════════════════════════════════════════════════════
+// Setup Wizard — Onboarding guiado de 4 pasos.
 //
-// PASOS:
-//   1. Negocio: nombre, tipo, teléfono
-//   2. Servicio: nombre, precio, duración
-//   3. Horarios: días que atiendes + horario apertura/cierre
-//   4. Link: booking_link generado + invitación a compartir
+// Filosofía:
+//   • Cada paso captura LO MÍNIMO necesario para arrancar
+//   • Stepper visual arriba indica progreso (cabeza fría = sabes dónde
+//     estás)
+//   • Botón "Saltar" en cada paso permite ir directo al dashboard si
+//     el usuario prefiere configurar después
+//   • Validación en cada paso antes de avanzar
+//   • Guarda en Supabase al final del paso 3 (los pasos 1-3 se mantienen
+//     en estado local; al pasar a 4 se hacen 3 inserts atómicos)
 //
-// AUTO-GENERA booking_link en paso 1 (espejo de la app móvil) para
-// que el usuario salga del wizard con un link público listo.
+// Tablas afectadas (mismas que usa la app móvil):
+//   • business_profiles (paso 1)
+//   • services (paso 2)
+//   • business_hours (paso 3, 7 rows, uno por día de semana)
 //
-// Marca setup_completed en localStorage al terminar para no volver
-// a mostrarse. La app móvil usa AsyncStorage pero el CRM usa
-// localStorage — son sistemas separados.
-// ═════════════════════════════════════════════════════════════════════════
+// Tipos de negocio: subset de los 31 que tiene la app móvil. Lista
+// curada para los más comunes en MX, mejorable después con más data.
+// ══════════════════════════════════════════════════════════════════════
 
-const DAYS_OF_WEEK = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-const DAY_NAMES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+interface SetupWizardProps {
+  userId: string;
+  userName: string;
+}
 
-export function SetupWizard() {
+const BUSINESS_TYPES = [
+  { id: 'salon',      label: 'Salón de belleza',  emoji: '💇' },
+  { id: 'barberia',   label: 'Barbería',          emoji: '💈' },
+  { id: 'spa',        label: 'Spa',               emoji: '🧖' },
+  { id: 'unas',       label: 'Estudio de uñas',   emoji: '💅' },
+  { id: 'estetica',   label: 'Clínica estética',  emoji: '✨' },
+  { id: 'masajes',    label: 'Masajes',           emoji: '💆' },
+  { id: 'consulta',   label: 'Consultorio',       emoji: '🩺' },
+  { id: 'otro',       label: 'Otro',              emoji: '🏷️' },
+];
+
+const DAYS_OF_WEEK = [
+  { id: 1, label: 'Lun' },
+  { id: 2, label: 'Mar' },
+  { id: 3, label: 'Mié' },
+  { id: 4, label: 'Jue' },
+  { id: 5, label: 'Vie' },
+  { id: 6, label: 'Sáb' },
+  { id: 0, label: 'Dom' },
+];
+
+// Slug a partir del nombre del negocio (lowercase, sin acentos, guiones)
+function slugify(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 50);
+}
+
+export function SetupWizard({ userId, userName }: SetupWizardProps) {
   const router = useRouter();
 
-  const [step, setStep] = useState(0);
+  // ──────────────────────────────────────────────────────────
+  // Estado del wizard
+  // ──────────────────────────────────────────────────────────
+  const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [skipping, setSkipping] = useState(false);
 
-  // ════ PASO 1: Negocio ════
+  // Paso 1: Negocio
   const [businessName, setBusinessName] = useState('');
-  const [selectedType, setSelectedType] = useState('');
-  const [customType, setCustomType] = useState('');
-  const [showTypePicker, setShowTypePicker] = useState(false);
-  const [phone, setPhone] = useState('');
+  const [businessType, setBusinessType] = useState<string>('salon');
+  const [businessPhone, setBusinessPhone] = useState('');
 
-  // ════ PASO 2: Primer servicio ════
+  // Paso 2: Primer servicio
   const [serviceName, setServiceName] = useState('');
-  const [servicePrice, setServicePrice] = useState('');
   const [serviceDuration, setServiceDuration] = useState('30');
+  const [servicePrice, setServicePrice] = useState('');
 
-  // ════ PASO 3: Horarios ════
-  const [openDays, setOpenDays] = useState<number[]>([0, 1, 2, 3, 4, 5]); // Lun-Sáb default
+  // Paso 3: Horarios
+  // Días seleccionados (por defecto lun-vie); horario default 9-18.
+  const [activeDays, setActiveDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5]));
   const [openTime, setOpenTime] = useState('09:00');
-  const [closeTime, setCloseTime] = useState('19:00');
+  const [closeTime, setCloseTime] = useState('18:00');
 
-  // ════ PASO 4: Link ════
-  const [bookingSlug, setBookingSlug] = useState<string | null>(null);
-  const [linkLoading, setLinkLoading] = useState(false);
+  // Paso 4: Link generado (computado)
+  const slug = useMemo(() => slugify(businessName || `vylta-${userId.slice(0, 6)}`), [businessName, userId]);
+  const publicLink = `https://book.vylta.lat/${slug}`;
 
-  // Cargar userId al montar
-  useEffect(() => {
-    (async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.replace('/login');
-        return;
-      }
-      setUserId(user.id);
-      // Pre-cargar perfil existente si lo hay
-      const { data: profile } = await supabase
+  // ──────────────────────────────────────────────────────────
+  // Validaciones
+  // ──────────────────────────────────────────────────────────
+  function validateStep1(): string | null {
+    if (!businessName.trim()) return 'Ingresa el nombre de tu negocio';
+    if (businessName.trim().length < 2) return 'El nombre es muy corto';
+    if (!businessType) return 'Selecciona el tipo de negocio';
+    return null;
+  }
+
+  function validateStep2(): string | null {
+    if (!serviceName.trim()) return 'Ingresa el nombre del servicio';
+    if (!servicePrice.trim()) return 'Ingresa el precio';
+    const price = Number(servicePrice);
+    if (isNaN(price) || price < 0) return 'El precio no es válido';
+    const dur = Number(serviceDuration);
+    if (isNaN(dur) || dur < 5) return 'La duración mínima es 5 minutos';
+    return null;
+  }
+
+  function validateStep3(): string | null {
+    if (activeDays.size === 0) return 'Selecciona al menos un día';
+    if (openTime >= closeTime) return 'La hora de apertura debe ser antes del cierre';
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Avance del wizard
+  // ──────────────────────────────────────────────────────────
+  function handleNext() {
+    let err: string | null = null;
+    if (step === 1) err = validateStep1();
+    if (step === 2) err = validateStep2();
+    if (step === 3) err = validateStep3();
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    if (step === 3) {
+      handleFinish();
+      return;
+    }
+    setStep(step + 1);
+  }
+
+  function handleBack() {
+    if (step > 1) setStep(step - 1);
+  }
+
+  function toggleDay(dayId: number) {
+    setActiveDays(prev => {
+      const next = new Set(prev);
+      if (next.has(dayId)) next.delete(dayId);
+      else next.add(dayId);
+      return next;
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Persistencia: al terminar paso 3, guardar todo en BD.
+  // ──────────────────────────────────────────────────────────
+  async function handleFinish() {
+    if (saving) return;
+    setSaving(true);
+
+    const supabase = createClient();
+
+    try {
+      // 1. business_profile
+      const { error: profileError } = await supabase
         .from('business_profiles')
-        .select('business_name, business_type, phone')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (profile) {
-        setBusinessName(profile.business_name || '');
-        const t = profile.business_type || '';
-        if (t) {
-          if (isCustomBusinessType(t)) {
-            setSelectedType(BUSINESS_TYPE_OTHER);
-            setCustomType(t);
-          } else {
-            setSelectedType(t);
-          }
-        }
-        setPhone(profile.phone || '');
-      }
-    })();
-  }, [router]);
+        .upsert({
+          user_id: userId,
+          business_name: businessName.trim(),
+          business_type: businessType,
+          business_phone: businessPhone.trim() || null,
+          slug,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
 
-  // Cargar slug existente cuando llegamos al paso 4
-  useEffect(() => {
-    if (step === 3 && userId) loadBookingLink();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, userId]);
+      if (profileError) throw new Error(`Negocio: ${profileError.message}`);
 
-  const loadBookingLink = async () => {
-    if (!userId) return;
-    setLinkLoading(true);
-    try {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('booking_links')
-        .select('slug')
-        .eq('user_id', userId)
-        .maybeSingle();
-      if (data?.slug) setBookingSlug(data.slug);
-    } catch (e) {
-      console.error('[Setup] Error loading booking link:', e);
-    } finally {
-      setLinkLoading(false);
-    }
-  };
+      // 2. service
+      const { error: serviceError } = await supabase
+        .from('services')
+        .insert({
+          user_id: userId,
+          name: serviceName.trim(),
+          duration_minutes: Number(serviceDuration),
+          price: Number(servicePrice),
+          is_active: true,
+        });
 
-  const markSetupCompleted = () => {
-    if (!userId) return;
-    localStorage.setItem(`setup_completed_${userId}`, 'true');
-  };
+      if (serviceError) throw new Error(`Servicio: ${serviceError.message}`);
 
-  const handleSkipAll = () => {
-    if (!confirm('¿Saltar configuración? Puedes hacerla más tarde desde Ajustes. Tomaría solo 2 minutos ahora.')) {
-      return;
-    }
-    markSetupCompleted();
-    router.replace('/dashboard');
-  };
-
-  // ════ PASO 1: Guardar negocio + auto-generar booking_link ════
-  const getEffectiveBusinessType = (): string => {
-    if (selectedType === BUSINESS_TYPE_OTHER) {
-      return customType.trim();
-    }
-    return selectedType;
-  };
-
-  const handleSaveBusinessAndNext = async () => {
-    if (!businessName.trim()) {
-      toast.error('Por favor escribe el nombre de tu negocio.');
-      return;
-    }
-    if (!selectedType) {
-      toast.error('Por favor selecciona el tipo de negocio.');
-      return;
-    }
-    if (selectedType === BUSINESS_TYPE_OTHER) {
-      const v = validateCustomBusinessType(customType);
-      if (!v.valid) {
-        toast.error(v.error || 'Escribe tu tipo de negocio.');
-        return;
-      }
-    }
-    if (!userId) return;
-
-    setSaving(true);
-    try {
-      const supabase = createClient();
-      const finalBusinessType = getEffectiveBusinessType();
-
-      await supabase.from('business_profiles').upsert({
+      // 3. business_hours (7 filas, una por día)
+      const hoursRows = DAYS_OF_WEEK.map(d => ({
         user_id: userId,
-        business_name: businessName.trim(),
-        business_type: finalBusinessType,
-        phone: phone.trim() || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
-
-      // Auto-crear booking_link (mismo patrón que la app móvil).
-      // Si falla, no bloqueamos el wizard — se puede crear después en Ajustes.
-      try {
-        const { data: existing } = await supabase
-          .from('booking_links')
-          .select('id')
-          .eq('user_id', userId)
-          .maybeSingle();
-
-        if (!existing) {
-          const baseSlug = generateSlug(businessName.trim());
-          const finalSlug = await ensureUniqueSlug(baseSlug, supabase);
-          await supabase.from('booking_links').insert({
-            user_id: userId,
-            slug: finalSlug,
-            is_active: true,
-            require_approval: false,
-            whatsapp_confirmation: true,
-          });
-        }
-      } catch (linkErr: any) {
-        console.warn('[Setup] No se pudo auto-crear el booking_link:', linkErr?.message);
-      }
-
-      setStep(1);
-    } catch (err: any) {
-      toast.error('No se pudo guardar. Intenta de nuevo.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ════ PASO 2: Guardar primer servicio (opcional) ════
-  const handleSaveServiceAndNext = async () => {
-    if (!userId) return;
-    if (!serviceName.trim()) {
-      // Servicio vacío: saltar al siguiente paso sin crear nada
-      setStep(2);
-      return;
-    }
-    const price = parseFloat(servicePrice);
-    const duration = parseInt(serviceDuration);
-    if (isNaN(price) || price < 0) {
-      toast.error('Escribe un precio válido o deja vacío para agregar después.');
-      return;
-    }
-    if (isNaN(duration) || duration < 5) {
-      toast.error('La duración mínima es de 5 minutos.');
-      return;
-    }
-    setSaving(true);
-    try {
-      const supabase = createClient();
-      await supabase.from('services').insert({
-        user_id: userId,
-        name: serviceName.trim(),
-        price,
-        duration_minutes: duration,
-        is_active: true,
-      });
-      setStep(2);
-    } catch (err: any) {
-      toast.error('No se pudo guardar el servicio.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ════ PASO 3: Guardar horarios ════
-  const handleSaveScheduleAndNext = async () => {
-    if (!userId) return;
-    setSaving(true);
-    try {
-      const supabase = createClient();
-      const rows = Array.from({ length: 7 }, (_, dayIdx) => ({
-        user_id: userId,
-        day_of_week: dayIdx,
-        start_time: openTime,
-        end_time: closeTime,
-        is_open: openDays.includes(dayIdx),
+        day_of_week: d.id,
+        is_open: activeDays.has(d.id),
+        start_time: activeDays.has(d.id) ? openTime : null,
+        end_time: activeDays.has(d.id) ? closeTime : null,
       }));
-      await supabase.from('business_hours').delete().eq('user_id', userId);
-      await supabase.from('business_hours').insert(rows);
-      setStep(3);
-    } catch (err: any) {
-      toast.error('No se pudieron guardar los horarios.');
+
+      const { error: hoursError } = await supabase
+        .from('business_hours')
+        .upsert(hoursRows, { onConflict: 'user_id,day_of_week' });
+
+      if (hoursError) throw new Error(`Horarios: ${hoursError.message}`);
+
+      toast.success('¡Configuración guardada!');
+      setStep(4);
+    } catch (e: any) {
+      toast.error(e?.message || 'No pudimos guardar. Intenta de nuevo.');
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  // ════ PASO 4: Finalizar ════
-  const handleFinish = () => {
-    markSetupCompleted();
-    router.replace('/dashboard');
-  };
+  // ──────────────────────────────────────────────────────────
+  // Saltar configuración → ir directo al dashboard
+  // ──────────────────────────────────────────────────────────
+  async function handleSkip() {
+    if (skipping) return;
+    setSkipping(true);
+    // Crear un row mínimo en business_profiles para que el guard
+    // del setup no nos mande de regreso aquí en el próximo login.
+    const supabase = createClient();
+    await supabase.from('business_profiles').upsert({
+      user_id: userId,
+      business_name: `Negocio de ${userName || 'tu cuenta'}`,
+      business_type: 'otro',
+      slug: `vylta-${userId.slice(0, 8)}`,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    router.push('/dashboard');
+  }
 
-  const handleCopyLink = async () => {
-    if (!bookingSlug) return;
-    const url = `https://book.vylta.lat/${bookingSlug}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(`Link copiado: ${url}`);
-    } catch {
-      toast.error('No se pudo copiar automáticamente. Selecciona el link y cópialo manualmente.');
-    }
-  };
+  // ──────────────────────────────────────────────────────────
+  // Acción del paso 4
+  // ──────────────────────────────────────────────────────────
+  function copyLink() {
+    navigator.clipboard.writeText(publicLink);
+    toast.success('Link copiado');
+  }
 
-  const toggleDay = (dayIdx: number) => {
-    setOpenDays(prev =>
-      prev.includes(dayIdx) ? prev.filter(d => d !== dayIdx) : [...prev, dayIdx]
-    );
-  };
+  function goToDashboard() {
+    router.push('/dashboard');
+    router.refresh();
+  }
 
-  const pickerDisplayText = () => {
-    if (!selectedType) return 'Seleccionar tipo de negocio';
-    if (selectedType === BUSINESS_TYPE_OTHER) {
-      return customType.trim() ? `Otro: ${customType.trim()}` : 'Otro (especifica)';
-    }
-    return selectedType;
-  };
-
-  const progressPct = ((step + 1) / 4) * 100;
-
+  // ══════════════════════════════════════════════════════════
+  // Render
+  // ══════════════════════════════════════════════════════════
   return (
     <div className="relative min-h-screen overflow-hidden bg-vylta-black">
-      {/* Background decorativo — espejo del login */}
+      {/* Background decorativo */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
         <div className="absolute -top-32 -left-32 h-[600px] w-[600px] rounded-full bg-vylta-green/20 blur-[120px]" />
         <div className="absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-vylta-luxury/12 blur-[100px]" />
-        <div
-          className="absolute inset-0 bg-[linear-gradient(to_right,#1F2937_1px,transparent_1px),linear-gradient(to_bottom,#1F2937_1px,transparent_1px)] bg-[size:32px_32px] opacity-40"
-          style={{
-            maskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 80%)',
-            WebkitMaskImage: 'radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 80%)',
-          }}
-        />
       </div>
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        {/* Header con progress */}
-        <div className="sticky top-0 z-20 border-b border-border bg-vylta-black/70 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-2xl items-start justify-between gap-4 px-6 pt-6 pb-4">
-            <div className="flex-1">
-              <h1 className="text-xl font-bold tracking-tight text-vylta-bone">
-                Configura tu negocio
-              </h1>
-              <p className="mt-1 text-xs text-vylta-muted">
-                Toma 2 minutos. Te ahorras horas después.
-              </p>
-            </div>
-            <button
-              onClick={handleSkipAll}
-              className="text-sm font-medium text-vylta-subtle transition hover:text-vylta-bone"
-            >
-              Saltar
-            </button>
-          </div>
-          <div className="mx-auto max-w-2xl px-6 pb-4">
-            <div className="h-1.5 overflow-hidden rounded-full bg-vylta-card">
-              <div
-                className="h-full rounded-full bg-vylta-green transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-vylta-subtle">
-              Paso {step + 1} de 4
-            </p>
-          </div>
-        </div>
-
-        {/* Contenido */}
-        <div className="flex-1 overflow-y-auto px-6 py-8">
-          <div className="mx-auto max-w-2xl">
-            {/* ════ PASO 1: NEGOCIO ════ */}
-            {step === 0 && (
-              <div className="animate-fade-in">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-vylta-green/10 ring-1 ring-vylta-green/30">
-                    <Store className="h-9 w-9 text-vylta-green" />
-                  </div>
-                </div>
-                <h2 className="text-center text-2xl font-bold tracking-tight text-vylta-bone">
-                  Cuéntanos de tu negocio
-                </h2>
-                <p className="mx-auto mt-2 max-w-md text-center text-sm text-vylta-muted">
-                  Esta información aparecerá en tu link público de citas.
+      <div className="relative z-10 flex min-h-screen flex-col items-center px-4 py-10">
+        <div className="w-full max-w-xl">
+          {/* Header: saludo + stepper */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-xs font-medium text-vylta-muted uppercase tracking-wider">
+                  Paso {step} de 4
                 </p>
-
-                <div className="mt-8 space-y-5">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                      Nombre del negocio *
-                    </Label>
-                    <Input
-                      placeholder="Ej. Salón Bella, Barbería Clásica"
-                      value={businessName}
-                      onChange={(e) => setBusinessName(e.target.value)}
-                      maxLength={60}
-                      className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                      Tipo de negocio *
-                    </Label>
-                    <button
-                      type="button"
-                      onClick={() => setShowTypePicker(true)}
-                      className="flex h-11 w-full items-center justify-between rounded-md border border-border bg-vylta-card px-3 text-left text-sm transition hover:border-vylta-green/40"
-                    >
-                      <span className={selectedType ? 'text-vylta-bone' : 'text-vylta-subtle'}>
-                        {pickerDisplayText()}
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-vylta-subtle" />
-                    </button>
-
-                    {selectedType === BUSINESS_TYPE_OTHER && (
-                      <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                        <Label className="text-[11px] font-bold uppercase tracking-wider text-amber-200">
-                          Especifica tu tipo *
-                        </Label>
-                        <Input
-                          placeholder="Ej. Especialista Parasitólogo"
-                          value={customType}
-                          onChange={(e) => setCustomType(e.target.value)}
-                          maxLength={50}
-                          className="mt-1.5 h-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle"
-                        />
-                        <p className="mt-1 text-right text-[10px] text-amber-300/70">
-                          {customType.length}/50
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                      Teléfono de contacto (opcional)
-                    </Label>
-                    <Input
-                      placeholder="442 123 4567"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      maxLength={15}
-                      type="tel"
-                      className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                    />
-                  </div>
-                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-vylta-bone mt-0.5">
+                  {step === 1 && `Hola, ${userName || 'bienvenido'} 👋`}
+                  {step === 2 && 'Tu primer servicio'}
+                  {step === 3 && 'Horarios de atención'}
+                  {step === 4 && '¡Todo listo! 🎉'}
+                </h1>
               </div>
-            )}
+              {step < 4 && (
+                <button
+                  onClick={handleSkip}
+                  disabled={skipping}
+                  className="text-xs font-medium text-vylta-subtle hover:text-vylta-bone transition-colors disabled:opacity-50"
+                >
+                  Saltar y configurar después
+                </button>
+              )}
+            </div>
 
-            {/* ════ PASO 2: SERVICIO ════ */}
+            {/* Stepper de progreso */}
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4].map(n => (
+                <div
+                  key={n}
+                  className={`flex-1 h-1.5 rounded-full transition-colors ${
+                    n <= step ? 'bg-vylta-green' : 'bg-vylta-card'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Card del paso */}
+          <div className="animate-slide-up rounded-2xl border border-border bg-vylta-surface/80 p-7 shadow-card-lg backdrop-blur-xl">
+
+            {/* ════════════════ PASO 1: Negocio ════════════════ */}
             {step === 1 && (
-              <div className="animate-fade-in">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-amber-500/10 ring-1 ring-amber-500/30">
-                    <Package className="h-9 w-9 text-amber-500" />
+              <div className="space-y-5">
+                <div className="flex items-center gap-3 pb-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vylta-green/15 text-vylta-green">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-vylta-bone">Tu negocio</h2>
+                    <p className="text-xs text-vylta-muted">Cuéntanos lo básico para empezar.</p>
                   </div>
                 </div>
-                <h2 className="text-center text-2xl font-bold tracking-tight text-vylta-bone">
-                  Agrega tu primer servicio
-                </h2>
-                <p className="mx-auto mt-2 max-w-md text-center text-sm text-vylta-muted">
-                  Lo que ofreces a tus clientes. Podrás agregar más después desde Ajustes.
-                </p>
 
-                <div className="mt-8 space-y-5">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                      Nombre del servicio
-                    </Label>
-                    <Input
-                      placeholder="Ej. Consulta Médica, Corte de cabello, Poligel"
-                      value={serviceName}
-                      onChange={(e) => setServiceName(e.target.value)}
-                      maxLength={50}
-                      className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                        Precio (MXN)
-                      </Label>
-                      <Input
-                        placeholder="250"
-                        value={servicePrice}
-                        onChange={(e) => setServicePrice(e.target.value)}
-                        type="number"
-                        inputMode="numeric"
-                        className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                        Duración (min)
-                      </Label>
-                      <Input
-                        placeholder="30"
-                        value={serviceDuration}
-                        onChange={(e) => setServiceDuration(e.target.value)}
-                        type="number"
-                        inputMode="numeric"
-                        className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                    <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                    <p className="text-xs leading-relaxed text-amber-200/80">
-                      Si quieres agregar después, deja los campos vacíos y toca Continuar.
-                    </p>
-                  </div>
+                {/* Nombre del negocio */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="bn" className="text-xs font-semibold text-vylta-muted">
+                    Nombre del negocio
+                  </Label>
+                  <Input
+                    id="bn"
+                    placeholder="Ej. Salón Bella María"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    autoCapitalize="words"
+                    maxLength={60}
+                    disabled={saving}
+                    className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                  />
                 </div>
-              </div>
-            )}
 
-            {/* ════ PASO 3: HORARIOS ════ */}
-            {step === 2 && (
-              <div className="animate-fade-in">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-blue-500/10 ring-1 ring-blue-500/30">
-                    <Clock className="h-9 w-9 text-blue-400" />
-                  </div>
-                </div>
-                <h2 className="text-center text-2xl font-bold tracking-tight text-vylta-bone">
-                  ¿Qué días atiendes?
-                </h2>
-                <p className="mx-auto mt-2 max-w-md text-center text-sm text-vylta-muted">
-                  Toca los días que estás abierto. Podrás ajustar horarios por día en Ajustes.
-                </p>
-
-                <div className="mt-8 space-y-5">
-                  <div className="flex justify-between gap-1.5">
-                    {DAYS_OF_WEEK.map((d, idx) => {
-                      const active = openDays.includes(idx);
+                {/* Tipo de negocio (grid) */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-vylta-muted">Tipo de negocio</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {BUSINESS_TYPES.map(t => {
+                      const isSel = businessType === t.id;
                       return (
                         <button
-                          key={idx}
+                          key={t.id}
                           type="button"
-                          onClick={() => toggleDay(idx)}
-                          className={`flex flex-1 flex-col items-center rounded-xl border-2 py-3 px-1 transition ${
-                            active
-                              ? 'border-vylta-green bg-vylta-green text-white'
-                              : 'border-border bg-vylta-card text-vylta-subtle hover:border-vylta-green/30'
+                          onClick={() => setBusinessType(t.id)}
+                          disabled={saving}
+                          className={`flex items-center gap-2.5 rounded-lg border-2 p-3 text-left transition-all ${
+                            isSel
+                              ? 'border-vylta-green bg-vylta-green/8 ring-2 ring-vylta-green/20'
+                              : 'border-border bg-vylta-card hover:border-vylta-green/40'
                           }`}
                         >
-                          <span className="text-base font-extrabold">{d}</span>
-                          <span className={`mt-1 text-[9px] font-semibold ${active ? 'text-white/80' : 'text-vylta-subtle'}`}>
-                            {DAY_NAMES[idx].substring(0, 3)}
+                          <span className="text-xl">{t.emoji}</span>
+                          <span className={`text-sm font-medium flex-1 ${isSel ? 'text-vylta-bone' : 'text-vylta-muted'}`}>
+                            {t.label}
                           </span>
+                          {isSel && <Check className="h-4 w-4 text-vylta-green" />}
                         </button>
                       );
                     })}
                   </div>
+                </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                        Hora de apertura
-                      </Label>
-                      <Input
-                        placeholder="09:00"
-                        value={openTime}
-                        onChange={(e) => setOpenTime(e.target.value)}
-                        maxLength={5}
-                        className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-semibold uppercase tracking-wider text-vylta-muted">
-                        Hora de cierre
-                      </Label>
-                      <Input
-                        placeholder="19:00"
-                        value={closeTime}
-                        onChange={(e) => setCloseTime(e.target.value)}
-                        maxLength={5}
-                        className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
-                    <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-400" />
-                    <p className="text-xs leading-relaxed text-blue-200/80">
-                      Formato 24h. Ejemplo: 09:00 a 19:00. Estos horarios aplicarán a todos los días seleccionados.
-                    </p>
+                {/* Teléfono (opcional) */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="bp" className="text-xs font-semibold text-vylta-muted">
+                    Teléfono / WhatsApp <span className="text-vylta-subtle">(opcional)</span>
+                  </Label>
+                  <div className="relative">
+                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
+                    <Input
+                      id="bp"
+                      placeholder="Ej. 442 123 4567"
+                      value={businessPhone}
+                      onChange={(e) => setBusinessPhone(e.target.value)}
+                      type="tel"
+                      maxLength={20}
+                      disabled={saving}
+                      className="h-11 pl-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
                   </div>
                 </div>
               </div>
             )}
 
-            {/* ════ PASO 4: LINK ════ */}
-            {step === 3 && (
-              <div className="animate-fade-in">
-                <div className="mb-6 flex justify-center">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-purple-500/10 ring-1 ring-purple-500/30">
-                    <LinkIcon className="h-9 w-9 text-purple-400" />
+            {/* ════════════════ PASO 2: Primer servicio ════════════════ */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <div className="flex items-center gap-3 pb-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vylta-green/15 text-vylta-green">
+                    <Scissors className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-vylta-bone">Primer servicio</h2>
+                    <p className="text-xs text-vylta-muted">Agrega más después en Configuración.</p>
                   </div>
                 </div>
-                <h2 className="text-center text-2xl font-bold tracking-tight text-vylta-bone">
-                  ¡Tu negocio está listo!
-                </h2>
-                <p className="mx-auto mt-2 max-w-md text-center text-sm text-vylta-muted">
-                  Comparte tu link público para que tus clientes agenden citas en línea.
-                </p>
 
-                <div className="mt-8 space-y-5">
-                  {linkLoading ? (
-                    <div className="flex items-center justify-center gap-3 rounded-xl border border-border bg-vylta-card p-6">
-                      <Loader2 className="h-5 w-5 animate-spin text-vylta-green" />
-                      <span className="text-sm text-vylta-muted">Generando tu link...</span>
-                    </div>
-                  ) : bookingSlug ? (
-                    <>
-                      <div className="flex items-center gap-3 rounded-xl border border-vylta-green/30 bg-vylta-green/5 p-4">
-                        <LinkIcon className="h-5 w-5 flex-shrink-0 text-vylta-green" />
-                        <code className="flex-1 truncate text-sm font-semibold text-vylta-bone">
-                          book.vylta.lat/{bookingSlug}
-                        </code>
-                      </div>
-                      <Button
-                        onClick={handleCopyLink}
-                        className="w-full bg-vylta-green hover:bg-vylta-green-light text-white"
+                {/* Nombre del servicio */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="sn" className="text-xs font-semibold text-vylta-muted">
+                    Nombre del servicio
+                  </Label>
+                  <Input
+                    id="sn"
+                    placeholder="Ej. Corte de cabello"
+                    value={serviceName}
+                    onChange={(e) => setServiceName(e.target.value)}
+                    autoCapitalize="sentences"
+                    maxLength={60}
+                    disabled={saving}
+                    className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                  />
+                </div>
+
+                {/* Duración + Precio en row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sd" className="text-xs font-semibold text-vylta-muted">
+                      Duración (min)
+                    </Label>
+                    <Input
+                      id="sd"
+                      type="number"
+                      placeholder="30"
+                      value={serviceDuration}
+                      onChange={(e) => setServiceDuration(e.target.value)}
+                      min={5}
+                      max={480}
+                      step={5}
+                      disabled={saving}
+                      className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sp" className="text-xs font-semibold text-vylta-muted">
+                      Precio ($MXN)
+                    </Label>
+                    <Input
+                      id="sp"
+                      type="number"
+                      placeholder="200"
+                      value={servicePrice}
+                      onChange={(e) => setServicePrice(e.target.value)}
+                      min={0}
+                      step={50}
+                      disabled={saving}
+                      className="h-11 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
+                  </div>
+                </div>
+
+                {/* Sugerencias de duración rápidas */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-vylta-muted">Duraciones comunes</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {['15', '30', '45', '60', '90', '120'].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setServiceDuration(d)}
+                        disabled={saving}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                          serviceDuration === d
+                            ? 'bg-vylta-green text-white'
+                            : 'bg-vylta-card text-vylta-muted hover:bg-vylta-card/80'
+                        }`}
                       >
-                        <Copy className="h-4 w-4" />
-                        Copiar link
-                      </Button>
+                        {Number(d) >= 60 ? `${Number(d) / 60}h${Number(d) % 60 ? ` ${Number(d) % 60}min` : ''}` : `${d} min`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ════════════════ PASO 3: Horarios ════════════════ */}
+            {step === 3 && (
+              <div className="space-y-5">
+                <div className="flex items-center gap-3 pb-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-vylta-green/15 text-vylta-green">
+                    <Clock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-vylta-bone">¿Cuándo atiendes?</h2>
+                    <p className="text-xs text-vylta-muted">Lo puedes ajustar después por día.</p>
+                  </div>
+                </div>
+
+                {/* Selección de días */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-vylta-muted">Días que atiendes</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {DAYS_OF_WEEK.map(d => {
+                      const active = activeDays.has(d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => toggleDay(d.id)}
+                          disabled={saving}
+                          className={`px-4 py-2.5 rounded-lg border-2 text-sm font-semibold transition-all ${
+                            active
+                              ? 'border-vylta-green bg-vylta-green text-white'
+                              : 'border-border bg-vylta-card text-vylta-muted hover:border-vylta-green/40'
+                          }`}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Hora de apertura y cierre */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ot" className="text-xs font-semibold text-vylta-muted">
+                      Hora de apertura
+                    </Label>
+                    <Input
+                      id="ot"
+                      type="time"
+                      value={openTime}
+                      onChange={(e) => setOpenTime(e.target.value)}
+                      disabled={saving}
+                      className="h-11 bg-vylta-card border-border text-vylta-bone focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ct" className="text-xs font-semibold text-vylta-muted">
+                      Hora de cierre
+                    </Label>
+                    <Input
+                      id="ct"
+                      type="time"
+                      value={closeTime}
+                      onChange={(e) => setCloseTime(e.target.value)}
+                      disabled={saving}
+                      className="h-11 bg-vylta-card border-border text-vylta-bone focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
+                  </div>
+                </div>
+
+                {/* Resumen visual */}
+                <div className="rounded-lg bg-vylta-card/50 border border-border p-3">
+                  <p className="text-xs text-vylta-muted">
+                    <span className="font-semibold text-vylta-bone">Resumen:</span>{' '}
+                    {activeDays.size === 0
+                      ? 'Sin días seleccionados'
+                      : `${activeDays.size} ${activeDays.size === 1 ? 'día' : 'días'} a la semana, de ${openTime} a ${closeTime}`}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ════════════════ PASO 4: ¡Listo! ════════════════ */}
+            {step === 4 && (
+              <div className="space-y-5 text-center py-2">
+                <div className="flex justify-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-vylta-green/15">
+                    <CheckCircle2 className="h-8 w-8 text-vylta-green" />
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-bold text-vylta-bone">¡{businessName}!</h2>
+                  <p className="text-sm text-vylta-muted mt-1">
+                    Tu cuenta está lista. Aquí tienes el link público de tu negocio:
+                  </p>
+                </div>
+
+                {/* Link público */}
+                <div className="rounded-xl border border-vylta-green/30 bg-vylta-green/5 p-4 text-left">
+                  <p className="text-xs font-semibold text-vylta-muted uppercase tracking-wider mb-2">
+                    Tu link de reservas
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs text-vylta-green font-mono truncate flex-1">
+                      {publicLink}
+                    </code>
+                    <button
+                      onClick={copyLink}
+                      className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
+                      aria-label="Copiar link"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                    <a
+                      href={publicLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
+                      aria-label="Abrir link"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Lista de cosas que ya tiene listas */}
+                <div className="text-left rounded-xl bg-vylta-card/30 p-4 space-y-2">
+                  <p className="text-xs font-semibold text-vylta-muted uppercase tracking-wider mb-1">
+                    Ya quedó listo
+                  </p>
+                  {[
+                    `${businessName}`,
+                    `Servicio: ${serviceName} · ${serviceDuration} min · $${servicePrice}`,
+                    `Horarios: ${activeDays.size} ${activeDays.size === 1 ? 'día' : 'días'}, ${openTime}-${closeTime}`,
+                  ].map((line, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-vylta-bone">
+                      <Check className="h-3.5 w-3.5 text-vylta-green mt-0.5 flex-shrink-0" />
+                      <span className="truncate">{line}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* CTA */}
+                <Button
+                  onClick={goToDashboard}
+                  size="lg"
+                  className="w-full h-11 glow-primary bg-vylta-green hover:bg-vylta-green-light text-white font-semibold"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Entrar a mi panel
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {/* ════════════════ Botones de navegación ════════════════ */}
+            {step < 4 && (
+              <div className="flex gap-2 mt-7 pt-5 border-t border-border">
+                {step > 1 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBack}
+                    disabled={saving}
+                    className="h-11 bg-vylta-card border-border text-vylta-bone hover:bg-vylta-card/80"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Atrás
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={saving}
+                  size="lg"
+                  className="flex-1 h-11 glow-primary bg-vylta-green hover:bg-vylta-green-light text-white font-semibold"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : step === 3 ? (
+                    <>
+                      Terminar configuración
+                      <CheckCircle2 className="h-4 w-4" />
                     </>
                   ) : (
-                    <div className="rounded-xl border border-border bg-vylta-card p-6 text-center">
-                      <p className="text-sm text-vylta-muted">
-                        Tu link se activará cuando completes la configuración del link de citas en Ajustes.
-                      </p>
-                    </div>
+                    <>
+                      Continuar
+                      <ArrowRight className="h-4 w-4" />
+                    </>
                   )}
-
-                  <div>
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-vylta-muted">
-                      Dónde compartirlo
-                    </h3>
-                    <div className="space-y-2.5">
-                      {[
-                        { Icon: Instagram, label: 'Bio de Instagram', color: 'text-pink-400 bg-pink-500/10' },
-                        { Icon: Phone, label: 'Estado de WhatsApp', color: 'text-emerald-400 bg-emerald-500/10' },
-                        { Icon: Globe, label: 'Google Business', color: 'text-blue-400 bg-blue-500/10' },
-                        { Icon: Facebook, label: 'Página de Facebook', color: 'text-sky-400 bg-sky-500/10' },
-                      ].map(({ Icon, label, color }) => (
-                        <div key={label} className="flex items-center gap-3 py-1">
-                          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${color}`}>
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <span className="text-sm text-vylta-bone">{label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                </Button>
               </div>
             )}
           </div>
-        </div>
 
-        {/* Footer con botones */}
-        <div className="sticky bottom-0 z-10 border-t border-border bg-vylta-black/80 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-2xl items-center gap-3 px-6 py-4">
-            {step > 0 && (
-              <button
-                onClick={() => setStep(step - 1)}
-                disabled={saving}
-                className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-vylta-card text-vylta-subtle transition hover:text-vylta-bone disabled:opacity-50"
-                aria-label="Atrás"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            )}
-            <Button
-              onClick={
-                step === 0 ? handleSaveBusinessAndNext :
-                step === 1 ? handleSaveServiceAndNext :
-                step === 2 ? handleSaveScheduleAndNext :
-                handleFinish
-              }
-              disabled={saving}
-              size="lg"
-              className="h-12 flex-1 bg-vylta-green hover:bg-vylta-green-light text-white font-semibold"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  {step === 3 ? 'Comenzar a usar VYLTA' : 'Continuar'}
-                  {step === 3 ? <Check className="h-5 w-5" /> : <ArrowRight className="h-5 w-5" />}
-                </>
-              )}
-            </Button>
+          {/* Footer trust signal */}
+          <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-vylta-subtle">
+            <Shield className="h-3 w-3" />
+            <span>Conexión segura · Hecho en México 🇲🇽</span>
           </div>
         </div>
       </div>
-
-      {/* MODAL: Selector de tipo de negocio */}
-      {showTypePicker && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowTypePicker(false)}>
-          <div
-            className="animate-slide-up max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-t-3xl border border-border bg-vylta-surface shadow-card-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border px-6 py-4">
-              <h3 className="text-lg font-bold text-vylta-bone">Tipo de negocio</h3>
-              <button
-                onClick={() => setShowTypePicker(false)}
-                className="text-vylta-subtle hover:text-vylta-bone"
-                aria-label="Cerrar"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="border-b border-border px-6 py-3 text-xs text-vylta-muted">
-              Selecciona el que mejor describe tu negocio. Si no aparece, elige “Otro”.
-            </p>
-            <div className="max-h-[calc(80vh-130px)] overflow-y-auto">
-              {BUSINESS_TYPES.map((type) => {
-                const isSelected = selectedType === type;
-                const isOther = type === BUSINESS_TYPE_OTHER;
-                return (
-                  <button
-                    key={type}
-                    onClick={() => {
-                      setSelectedType(type);
-                      setShowTypePicker(false);
-                      if (type !== BUSINESS_TYPE_OTHER) setCustomType('');
-                    }}
-                    className={`flex w-full items-center justify-between border-t border-border px-6 py-4 text-left transition ${
-                      isSelected ? 'bg-vylta-green/10' : 'hover:bg-vylta-card'
-                    } ${isOther ? 'border-t-4 border-t-amber-500/40 bg-amber-500/5' : ''}`}
-                  >
-                    <span className={`text-sm ${isSelected ? 'font-bold text-vylta-green' : 'text-vylta-bone'}`}>
-                      {type}
-                    </span>
-                    {isSelected && <Check className="h-4 w-4 text-vylta-green" />}
-                  </button>
-                );
-              })}
-              <div className="h-6" />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
