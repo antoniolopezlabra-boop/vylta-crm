@@ -229,4 +229,118 @@
     0%   { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
+
+  /* ══════════════════════════════════════════════════════════════
+     ── NUEVA CITA — Animación de glow + ring + pulse (May 19 2026)
+     ──
+     ── Aplicada al recibir un INSERT en `appointments` via realtime.
+     ── Duración total: 8s sincronizada con NEW_APPT_TTL_MS del hook.
+     ──
+     ── Combina 3 efectos para máxima visibilidad sin ser molesta:
+     ──   1. Glow exterior verde pulsante (4 ciclos de 1.6s c/u)
+     ──   2. Border verde brillante que late
+     ──   3. Ring exterior que se expande y desvanece (señala atención)
+     ── ══════════════════════════════════════════════════════════════ */
+  .animate-new-pulse {
+    /* Anclamos position relative para que ::before/::after se posicionen
+       desde la tarjeta. Si la tarjeta ya tiene position:absolute (como
+       AppointmentBlock en el grid de citas), el efecto sigue funcionando
+       porque no sobreescribimos el position aquí. */
+    animation: vylta-new-glow 1.6s ease-in-out 0s 5;
+    /* z-index alto para que la tarjeta animada quede arriba del resto
+       y el ring no quede cortado por bloques vecinos. */
+    z-index: 20 !important;
+    /* Borde verde brillante permanente durante la animación */
+    box-shadow:
+      0 0 0 2px hsl(160 84% 39% / 0.8),
+      0 0 24px 4px hsl(160 84% 39% / 0.45);
+  }
+
+  /* Pulse principal: glow exterior que late (4 ciclos × 1.6s = 6.4s) */
+  @keyframes vylta-new-glow {
+    0%   {
+      box-shadow:
+        0 0 0 2px hsl(160 84% 39% / 0.4),
+        0 0 12px 2px hsl(160 84% 39% / 0.3);
+      filter: brightness(1);
+    }
+    40%  {
+      box-shadow:
+        0 0 0 3px hsl(160 84% 39% / 1),
+        0 0 32px 8px hsl(160 84% 39% / 0.7),
+        0 0 48px 12px hsl(160 84% 39% / 0.35);
+      filter: brightness(1.18);
+    }
+    100% {
+      box-shadow:
+        0 0 0 2px hsl(160 84% 39% / 0.4),
+        0 0 12px 2px hsl(160 84% 39% / 0.3);
+      filter: brightness(1);
+    }
+  }
+
+  /* Ring exterior que se expande — pseudo-elemento para no afectar layout */
+  .animate-new-pulse::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 2px solid hsl(160 84% 39%);
+    border-radius: inherit;
+    pointer-events: none;
+    animation: vylta-new-ring 1.6s ease-out 0s 4;
+    opacity: 0;
+  }
+  @keyframes vylta-new-ring {
+    0%   {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(1.25);
+      opacity: 0;
+    }
+  }
+
+  /* Badge "Nueva" en esquina superior derecha — aparece y se oculta */
+  .animate-new-pulse::after {
+    content: 'NUEVA';
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 30;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: hsl(160 84% 39%);
+    color: white;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    box-shadow: 0 2px 8px hsl(160 84% 39% / 0.6);
+    pointer-events: none;
+    animation: vylta-new-badge 8s ease-out forwards;
+  }
+  @keyframes vylta-new-badge {
+    0%   { transform: scale(0)   translateY(4px); opacity: 0; }
+    8%   { transform: scale(1.2) translateY(0);   opacity: 1; }
+    14%  { transform: scale(1)   translateY(0);   opacity: 1; }
+    85%  { transform: scale(1)   translateY(0);   opacity: 1; }
+    100% { transform: scale(0.8) translateY(-4px); opacity: 0; }
+  }
+
+  /* Respeto a usuarios que prefieren menos movimiento (accesibilidad) */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-new-pulse {
+      animation: none;
+      box-shadow:
+        0 0 0 2px hsl(160 84% 39% / 0.8),
+        0 0 16px 2px hsl(160 84% 39% / 0.4);
+    }
+    .animate-new-pulse::before { animation: none; opacity: 0; }
+    .animate-new-pulse::after {
+      animation: none;
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 }
