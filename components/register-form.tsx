@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2, Mail, Lock, ArrowRight, Shield } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, User, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,66 +12,100 @@ import { Label } from '@/components/ui/label';
 import { VyltaLogo } from '@/components/layout/vylta-logo';
 
 // ═════════════════════════════════════════════════════════════════════
-// Login dark premium — espejo de vylta.lat con identidad oficial.
+// Register dark premium — espejo del LoginForm con identidad oficial.
 //
-// Composición:
-//   • Background con grid sutil + halo verde + halo morado luxury
-//   • Logo grande con tagline "Cada cliente regresa" tipo splash
-//   • Card flotante con borde sutil y glow verde discreto
-//   • Inputs dark con iconos
-//   • Footer con shield trust signal
+// FLUJO DE ONBOARDING (May 2026 — paridad con app móvil):
+//   1. Aquí: solo 3 campos mínimos (nombre, email, password) → ~30 seg
+//   2. Setup wizard (4 pasos): negocio, servicios, horarios, link
 //
-// ⚡ FIX (May 19 2026): el link de registro ahora apunta a /register
-// (la nueva página interna del CRM) en lugar de https://vylta.lat.
+// POR QUÉ NO PEDIR MÁS AQUÍ:
+//   - Pedir nombre/tipo de negocio aquí Y en el wizard es redundante
+//   - Reducir fricción en el momento más crítico (registro)
+//   - El wizard tiene mejor contexto visual (iconos, progress, anim)
+//   - Patrón estándar de SaaS modernos (Slack, Notion, Calendly)
 // ═════════════════════════════════════════════════════════════════════
 
-export function LoginForm() {
+export function RegisterForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextUrl = searchParams.get('next') || '/dashboard';
 
+  const [name, setName]         = useState('');
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd]   = useState(false);
   const [loading, setLoading]   = useState(false);
 
+  function validateBeforeSubmit(): string | null {
+    if (!name.trim() || !email.trim() || !password) {
+      return 'Por favor completa todos los campos';
+    }
+    if (password.length < 6) {
+      return 'La contraseña debe tener al menos 6 caracteres';
+    }
+    if (!email.includes('@') || !email.includes('.')) {
+      return 'Ingresa un correo electrónico válido';
+    }
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
 
+    const validationError = validateBeforeSubmit();
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
+
     setLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
       password,
+      options: {
+        data: {
+          full_name: name.trim(),
+        },
+      },
     });
 
     if (error) {
       setLoading(false);
-      const msg = error.message.toLowerCase().includes('invalid')
-        ? 'Email o contraseña incorrectos'
-        : error.message.toLowerCase().includes('email not confirmed')
-        ? 'Necesitas confirmar tu email primero'
-        : 'No pudimos iniciar sesión. Intenta de nuevo.';
+      const lower = error.message.toLowerCase();
+      let msg = 'No pudimos crear tu cuenta. Intenta de nuevo.';
+      if (lower.includes('already') || lower.includes('registered') || lower.includes('exists')) {
+        msg = 'Ya existe una cuenta con este correo electrónico';
+      } else if (lower.includes('password')) {
+        msg = 'La contraseña no cumple los requisitos mínimos';
+      } else if (lower.includes('email')) {
+        msg = 'El correo electrónico no es válido';
+      }
       toast.error(msg);
       return;
     }
 
-    toast.success('¡Bienvenido de vuelta!');
-    router.push(nextUrl);
+    if (!data?.session) {
+      // Supabase Auth está configurado en este proyecto sin verificación
+      // de email (los usuarios pueden entrar directo). Si en algún momento
+      // se activa la verificación, este branch capturará ese caso.
+      setLoading(false);
+      toast.success('Cuenta creada. Revisa tu correo para confirmar.');
+      router.push('/login');
+      return;
+    }
+
+    toast.success('¡Bienvenido a VYLTA!');
+    router.push('/setup');
     router.refresh();
   }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-vylta-black">
-      {/* ── Background decorativo ── */}
+      {/* ── Background decorativo (idéntico al login) ── */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-        {/* Halo verde principal arriba-izquierda */}
         <div className="absolute -top-32 -left-32 h-[600px] w-[600px] rounded-full bg-vylta-green/20 blur-[120px]" />
-        {/* Halo morado luxury abajo-derecha */}
         <div className="absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-vylta-luxury/12 blur-[100px]" />
-        {/* Grid sutil con mask radial */}
         <div
           className="absolute inset-0 bg-[linear-gradient(to_right,#1F2937_1px,transparent_1px),linear-gradient(to_bottom,#1F2937_1px,transparent_1px)] bg-[size:32px_32px] opacity-40"
           style={{
@@ -85,12 +119,12 @@ export function LoginForm() {
       <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           {/* Logo + tagline */}
-          <div className="mb-10 flex flex-col items-center animate-fade-in">
-            <VyltaLogo size={64} />
-            <h2 className="mt-5 text-3xl font-bold tracking-tightest text-vylta-bone">
+          <div className="mb-8 flex flex-col items-center animate-fade-in">
+            <VyltaLogo size={56} />
+            <h2 className="mt-4 text-2xl font-bold tracking-tightest text-vylta-bone">
               VYLTA
             </h2>
-            <p className="mt-1 text-sm italic text-vylta-green">
+            <p className="mt-1 text-xs italic text-vylta-green">
               Cada cliente regresa.
             </p>
           </div>
@@ -99,14 +133,35 @@ export function LoginForm() {
           <div className="animate-slide-up rounded-2xl border border-border bg-vylta-surface/80 p-7 shadow-card-lg backdrop-blur-xl">
             <div className="mb-6">
               <h1 className="text-xl font-bold tracking-tight text-vylta-bone">
-                Bienvenido de vuelta
+                Crea tu cuenta
               </h1>
               <p className="mt-1 text-sm text-vylta-muted">
-                Inicia sesión para administrar tu negocio
+                Empecemos con lo básico. Configurarás tu negocio en el siguiente paso.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="name" className="text-xs font-semibold text-vylta-muted">
+                  Tu nombre
+                </Label>
+                <div className="relative">
+                  <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Ej. María López"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
+                    required
+                    disabled={loading}
+                    maxLength={60}
+                    className="h-11 pl-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-xs font-semibold text-vylta-muted">
                   Email
@@ -128,26 +183,18 @@ export function LoginForm() {
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-xs font-semibold text-vylta-muted">
-                    Contraseña
-                  </Label>
-                  <Link
-                    href="/forgot-password"
-                    className="text-xs font-medium text-vylta-green hover:text-vylta-green-light transition-colors"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </Link>
-                </div>
+                <Label htmlFor="password" className="text-xs font-semibold text-vylta-muted">
+                  Contraseña
+                </Label>
                 <div className="relative">
                   <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
                   <Input
                     id="password"
                     type={showPwd ? 'text' : 'password'}
-                    placeholder="••••••••"
+                    placeholder="Mínimo 6 caracteres"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
+                    autoComplete="new-password"
                     required
                     disabled={loading}
                     className="h-11 pl-10 pr-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
@@ -173,24 +220,36 @@ export function LoginForm() {
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Entrando...
+                    Creando cuenta...
                   </>
                 ) : (
                   <>
-                    Iniciar sesión
+                    Crear cuenta
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
               </Button>
+
+              <p className="text-center text-xs leading-relaxed text-vylta-subtle">
+                Al continuar aceptas nuestros{' '}
+                <a href="https://vylta.lat/terminos" target="_blank" rel="noopener noreferrer" className="font-semibold text-vylta-green hover:text-vylta-green-light">
+                  Términos
+                </a>{' '}
+                y{' '}
+                <a href="https://vylta.lat/privacidad" target="_blank" rel="noopener noreferrer" className="font-semibold text-vylta-green hover:text-vylta-green-light">
+                  Aviso de Privacidad
+                </a>.
+              </p>
             </form>
 
             <div className="mt-6 pt-6 border-t border-border text-center text-sm text-vylta-muted">
-              ¿No tienes cuenta aún?{' '}
+              ¿Ya tienes cuenta?{' '}
               <Link
-                href="/register"
-                className="font-semibold text-vylta-green hover:text-vylta-green-light transition-colors"
+                href="/login"
+                className="font-semibold text-vylta-green hover:text-vylta-green-light transition-colors inline-flex items-center gap-1"
               >
-                Crea una aquí
+                <ArrowLeft className="h-3 w-3" />
+                Inicia sesión
               </Link>
             </div>
           </div>
