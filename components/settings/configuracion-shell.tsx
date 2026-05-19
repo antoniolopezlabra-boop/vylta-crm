@@ -10,6 +10,7 @@ import {
   Shield,
   Settings as SettingsIcon,
   Coffee,
+  Clock,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { BusinessTab } from './tabs/business-tab';
@@ -19,8 +20,20 @@ import { OverlapsTab } from './tabs/overlaps-tab';
 import { BlocksTab } from './tabs/blocks-tab';
 import { WhatsAppTab } from './tabs/whatsapp-tab';
 import { AccountTab } from './tabs/account-tab';
+import { HoursTab } from './tabs/hours-tab';
 import { hasPremiumAccess, hasLuxuryAccess, getPlanTier } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
+
+// ══════════════════════════════════════════════════════════════════════
+// Shell de Configuración — coordina las tabs.
+//
+// ⚡ ACTUALIZACIÓN (May 19 2026):
+//   • Añadida pestaña "Horarios" para editar business_hours día por día
+//     (resuelve bug reportado: usuarios no podían modificar horarios
+//     post-wizard).
+//   • Posicionada entre "Negocio" y "Link público" porque conceptualmente
+//     se llena justo después del perfil del negocio.
+// ══════════════════════════════════════════════════════════════════════
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -56,6 +69,7 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         <div className="relative border-b border-border overflow-x-auto">
           <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0">
             <ConfigTab value="negocio" icon={Building2} label="Negocio" />
+            <ConfigTab value="horarios" icon={Clock} label="Horarios" />
             <ConfigTab value="plan" icon={CreditCard} label="Plan" />
             <ConfigTab value="link" icon={Link2} label="Link público" />
             <ConfigTab value="bloqueos" icon={Coffee} label="Bloqueos" />
@@ -67,6 +81,9 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
 
         <TabsContent value="negocio" className="focus-visible:outline-none">
           <BusinessTab userId={user.id} profile={profile} />
+        </TabsContent>
+        <TabsContent value="horarios" className="focus-visible:outline-none">
+          <HoursTab userId={user.id} />
         </TabsContent>
         <TabsContent value="plan" className="focus-visible:outline-none">
           <PlanTab userId={user.id} plan={plan} />
