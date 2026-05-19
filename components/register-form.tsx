@@ -4,26 +4,26 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Loader2, Mail, Lock, User, ArrowRight, ArrowLeft, Shield } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Mail, Lock, User, ArrowRight, Shield } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { VyltaLogo } from '@/components/layout/vylta-logo';
 
-// ═════════════════════════════════════════════════════════════════════
-// Register dark premium — espejo del LoginForm con identidad oficial.
+// ══════════════════════════════════════════════════════════════════════
+// Register dark premium — espejo de LoginForm.
 //
-// FLUJO DE ONBOARDING (May 2026 — paridad con app móvil):
-//   1. Aquí: solo 3 campos mínimos (nombre, email, password) → ~30 seg
-//   2. Setup wizard (4 pasos): negocio, servicios, horarios, link
+// Filosofía de UX (alineada con la app móvil — May 2026):
+//   • Solo 3 campos: nombre, email, contraseña → registro en 30 seg
+//   • La info del negocio (nombre, tipo, horarios, etc.) se captura
+//     después en el wizard de /setup. NO pedirla aquí.
+//   • Esto reduce fricción en el momento más crítico (registro)
+//     y es el patrón estándar de SaaS modernos (Slack, Notion, Calendly).
 //
-// POR QUÉ NO PEDIR MÁS AQUÍ:
-//   - Pedir nombre/tipo de negocio aquí Y en el wizard es redundante
-//   - Reducir fricción en el momento más crítico (registro)
-//   - El wizard tiene mejor contexto visual (iconos, progress, anim)
-//   - Patrón estándar de SaaS modernos (Slack, Notion, Calendly)
-// ═════════════════════════════════════════════════════════════════════
+// Después del registro exitoso → redirigir a /setup donde el usuario
+// completa la configuración inicial guiada.
+// ══════════════════════════════════════════════════════════════════════
 
 export function RegisterForm() {
   const router = useRouter();
@@ -34,16 +34,13 @@ export function RegisterForm() {
   const [showPwd, setShowPwd]   = useState(false);
   const [loading, setLoading]   = useState(false);
 
-  function validateBeforeSubmit(): string | null {
-    if (!name.trim() || !email.trim() || !password) {
-      return 'Por favor completa todos los campos';
-    }
-    if (password.length < 6) {
-      return 'La contraseña debe tener al menos 6 caracteres';
-    }
-    if (!email.includes('@') || !email.includes('.')) {
-      return 'Ingresa un correo electrónico válido';
-    }
+  function validate(): string | null {
+    if (!name.trim()) return 'Ingresa tu nombre';
+    if (name.trim().length < 2) return 'El nombre es muy corto';
+    if (!email.trim()) return 'Ingresa tu correo electrónico';
+    if (!email.includes('@') || !email.includes('.')) return 'Correo electrónico inválido';
+    if (!password) return 'Crea una contraseña';
+    if (password.length < 6) return 'La contraseña debe tener al menos 6 caracteres';
     return null;
   }
 
@@ -51,58 +48,75 @@ export function RegisterForm() {
     e.preventDefault();
     if (loading) return;
 
-    const validationError = validateBeforeSubmit();
-    if (validationError) {
-      toast.error(validationError);
+    const error = validate();
+    if (error) {
+      toast.error(error);
       return;
     }
 
     setLoading(true);
     const supabase = createClient();
 
-    const { data, error } = await supabase.auth.signUp({
+    // ────────────────────────────────────────────────────────────────
+    // Crear cuenta vía Supabase Auth.
+    //
+    // user_metadata.full_name se guarda en auth.users — la app móvil
+    // y el CRM lo leen desde useAuth() para mostrar "Hola {nombre}".
+    // ────────────────────────────────────────────────────────────────
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email: email.trim().toLowerCase(),
       password,
       options: {
-        data: {
-          full_name: name.trim(),
-        },
+        data: { full_name: name.trim() },
+        // No mandar email de confirmación: la sesión queda activa
+        // inmediatamente para que el usuario continúe al wizard.
+        emailRedirectTo: typeof window !== 'undefined'
+          ? `${window.location.origin}/dashboard`
+          : undefined,
       },
     });
 
-    if (error) {
+    if (signUpError) {
       setLoading(false);
-      const lower = error.message.toLowerCase();
-      let msg = 'No pudimos crear tu cuenta. Intenta de nuevo.';
-      if (lower.includes('already') || lower.includes('registered') || lower.includes('exists')) {
-        msg = 'Ya existe una cuenta con este correo electrónico';
-      } else if (lower.includes('password')) {
-        msg = 'La contraseña no cumple los requisitos mínimos';
-      } else if (lower.includes('email')) {
-        msg = 'El correo electrónico no es válido';
-      }
-      toast.error(msg);
+      const msg = signUpError.message.toLowerCase();
+      const friendly =
+        msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already')
+          ? 'Ya existe una cuenta con este correo. ¿Intentas iniciar sesión?'
+          : msg.includes('password')
+          ? 'La contraseña no cumple los requisitos. Usa al menos 6 caracteres.'
+          : msg.includes('invalid') && msg.includes('email')
+          ? 'El correo electrónico no es válido'
+          : 'No pudimos crear tu cuenta. Intenta de nuevo.';
+      toast.error(friendly);
       return;
     }
 
-    if (!data?.session) {
-      // Supabase Auth está configurado en este proyecto sin verificación
-      // de email (los usuarios pueden entrar directo). Si en algún momento
-      // se activa la verificación, este branch capturará ese caso.
+    // ────────────────────────────────────────────────────────────────
+    // Verificar si Supabase pide confirmación de email.
+    // En configuración default de Supabase, si "Confirm email" está ON,
+    // signUp devuelve user pero session=null. Mostramos mensaje.
+    // En nuestra configuración actual está OFF para login inmediato.
+    // ────────────────────────────────────────────────────────────────
+    if (data?.user && !data.session) {
       setLoading(false);
-      toast.success('Cuenta creada. Revisa tu correo para confirmar.');
+      toast.success(
+        'Cuenta creada. Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.',
+        { duration: 6000 },
+      );
       router.push('/login');
       return;
     }
 
-    toast.success('¡Bienvenido a VYLTA!');
-    router.push('/setup');
+    toast.success('¡Cuenta creada! Vamos a configurar tu negocio.');
+    // El refresh es importante para que el middleware vea la nueva sesión
+    // antes de la siguiente navegación.
     router.refresh();
+    router.push('/setup');
   }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-vylta-black">
-      {/* ── Background decorativo (idéntico al login) ── */}
+      {/* ── Background decorativo ── */}
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
         <div className="absolute -top-32 -left-32 h-[600px] w-[600px] rounded-full bg-vylta-green/20 blur-[120px]" />
         <div className="absolute -bottom-32 -right-32 h-[500px] w-[500px] rounded-full bg-vylta-luxury/12 blur-[100px]" />
@@ -120,11 +134,11 @@ export function RegisterForm() {
         <div className="w-full max-w-md">
           {/* Logo + tagline */}
           <div className="mb-8 flex flex-col items-center animate-fade-in">
-            <VyltaLogo size={56} />
-            <h2 className="mt-4 text-2xl font-bold tracking-tightest text-vylta-bone">
+            <VyltaLogo size={64} />
+            <h2 className="mt-5 text-3xl font-bold tracking-tightest text-vylta-bone">
               VYLTA
             </h2>
-            <p className="mt-1 text-xs italic text-vylta-green">
+            <p className="mt-1 text-sm italic text-vylta-green">
               Cada cliente regresa.
             </p>
           </div>
@@ -133,14 +147,15 @@ export function RegisterForm() {
           <div className="animate-slide-up rounded-2xl border border-border bg-vylta-surface/80 p-7 shadow-card-lg backdrop-blur-xl">
             <div className="mb-6">
               <h1 className="text-xl font-bold tracking-tight text-vylta-bone">
-                Crea tu cuenta
+                Crear cuenta
               </h1>
               <p className="mt-1 text-sm text-vylta-muted">
-                Empecemos con lo básico. Configurarás tu negocio en el siguiente paso.
+                Empecemos con lo básico. Configuras tu negocio en el siguiente paso.
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Nombre */}
               <div className="space-y-1.5">
                 <Label htmlFor="name" className="text-xs font-semibold text-vylta-muted">
                   Tu nombre
@@ -154,6 +169,7 @@ export function RegisterForm() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     autoComplete="name"
+                    autoCapitalize="words"
                     required
                     disabled={loading}
                     maxLength={60}
@@ -162,9 +178,10 @@ export function RegisterForm() {
                 </div>
               </div>
 
+              {/* Email */}
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-xs font-semibold text-vylta-muted">
-                  Email
+                  Correo electrónico
                 </Label>
                 <div className="relative">
                   <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
@@ -175,6 +192,7 @@ export function RegisterForm() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
+                    autoCapitalize="none"
                     required
                     disabled={loading}
                     className="h-11 pl-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
@@ -182,6 +200,7 @@ export function RegisterForm() {
                 </div>
               </div>
 
+              {/* Password */}
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-xs font-semibold text-vylta-muted">
                   Contraseña
@@ -211,6 +230,7 @@ export function RegisterForm() {
                 </div>
               </div>
 
+              {/* CTA */}
               <Button
                 type="submit"
                 disabled={loading}
@@ -230,25 +250,37 @@ export function RegisterForm() {
                 )}
               </Button>
 
-              <p className="text-center text-xs leading-relaxed text-vylta-subtle">
-                Al continuar aceptas nuestros{' '}
-                <a href="https://vylta.lat/terminos" target="_blank" rel="noopener noreferrer" className="font-semibold text-vylta-green hover:text-vylta-green-light">
+              {/* Disclaimer */}
+              <p className="text-[11px] text-vylta-subtle text-center leading-relaxed pt-1">
+                Al crear tu cuenta aceptas nuestros{' '}
+                <a
+                  href="https://vylta.lat/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-vylta-green hover:text-vylta-green-light transition-colors font-medium"
+                >
                   Términos
                 </a>{' '}
                 y{' '}
-                <a href="https://vylta.lat/privacidad" target="_blank" rel="noopener noreferrer" className="font-semibold text-vylta-green hover:text-vylta-green-light">
+                <a
+                  href="https://vylta.lat/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-vylta-green hover:text-vylta-green-light transition-colors font-medium"
+                >
                   Aviso de Privacidad
-                </a>.
+                </a>
+                .
               </p>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-border text-center text-sm text-vylta-muted">
+            {/* Link a login */}
+            <div className="mt-5 pt-5 border-t border-border text-center text-sm text-vylta-muted">
               ¿Ya tienes cuenta?{' '}
               <Link
                 href="/login"
-                className="font-semibold text-vylta-green hover:text-vylta-green-light transition-colors inline-flex items-center gap-1"
+                className="font-semibold text-vylta-green hover:text-vylta-green-light transition-colors"
               >
-                <ArrowLeft className="h-3 w-3" />
                 Inicia sesión
               </Link>
             </div>
