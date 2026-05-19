@@ -1,38 +1,49 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   Loader2, ArrowRight, ArrowLeft, Building2, Scissors, Clock,
   CheckCircle2, Shield, Copy, ExternalLink, Phone, Sparkles,
-  Check,
+  Check, ChevronDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  BUSINESS_TYPES,
+  BUSINESS_TYPE_OTHER,
+  isCustomBusinessType,
+  validateCustomBusinessType,
+} from '@/lib/business-types';
+import { generateSlug, ensureUniqueSlug } from '@/lib/slug-generator';
 
 // ══════════════════════════════════════════════════════════════════════
 // Setup Wizard — Onboarding guiado de 4 pasos.
 //
-// Filosofía:
-//   • Cada paso captura LO MÍNIMO necesario para arrancar
-//   • Stepper visual arriba indica progreso (cabeza fría = sabes dónde
-//     estás)
-//   • Botón "Saltar" en cada paso permite ir directo al dashboard si
-//     el usuario prefiere configurar después
-//   • Validación en cada paso antes de avanzar
-//   • Guarda en Supabase al final del paso 3 (los pasos 1-3 se mantienen
-//     en estado local; al pasar a 4 se hacen 3 inserts atómicos)
+// ⚡ HOTFIX (May 19 2026): este componente fue reescrito para alinearse
+// exactamente con cómo la app móvil guarda los datos en Supabase. Los
+// bugs corregidos eran críticos: el primer commit fallaba en el upsert
+// porque usaba un schema incorrecto.
+//
+// FIXES APLICADOS:
+//   1. business_profiles: campo `phone` (no `business_phone`); eliminado
+//      el campo `slug` que no existe en esa tabla.
+//   2. booking_links: se inserta el slug en su tabla correcta usando
+//      ensureUniqueSlug() de lib/slug-generator.ts (manejaba colisiones).
+//   3. BUSINESS_TYPES: ahora usa la lista oficial de 32 tipos compartida
+//      con la app móvil (lib/business-types.ts). Antes era una lista
+//      hardcoded de solo 8 tipos con IDs distintos.
+//   4. Soporte completo para "Otro" con input de texto libre — match
+//      exacto con el comportamiento de la app móvil.
 //
 // Tablas afectadas (mismas que usa la app móvil):
-//   • business_profiles (paso 1)
-//   • services (paso 2)
-//   • business_hours (paso 3, 7 rows, uno por día de semana)
-//
-// Tipos de negocio: subset de los 31 que tiene la app móvil. Lista
-// curada para los más comunes en MX, mejorable después con más data.
+//   • business_profiles (paso 1, upsert)
+//   • booking_links (paso 1, insert si no existe)
+//   • services (paso 2, insert)
+//   • business_hours (paso 3, delete+insert de 7 filas)
 // ══════════════════════════════════════════════════════════════════════
 
 interface SetupWizardProps {
@@ -40,37 +51,15 @@ interface SetupWizardProps {
   userName: string;
 }
 
-const BUSINESS_TYPES = [
-  { id: 'salon',      label: 'Salón de belleza',  emoji: '💇' },
-  { id: 'barberia',   label: 'Barbería',          emoji: '💈' },
-  { id: 'spa',        label: 'Spa',               emoji: '🧖' },
-  { id: 'unas',       label: 'Estudio de uñas',   emoji: '💅' },
-  { id: 'estetica',   label: 'Clínica estética',  emoji: '✨' },
-  { id: 'masajes',    label: 'Masajes',           emoji: '💆' },
-  { id: 'consulta',   label: 'Consultorio',       emoji: '🩺' },
-  { id: 'otro',       label: 'Otro',              emoji: '🏷️' },
-];
-
 const DAYS_OF_WEEK = [
-  { id: 1, label: 'Lun' },
-  { id: 2, label: 'Mar' },
-  { id: 3, label: 'Mié' },
-  { id: 4, label: 'Jue' },
-  { id: 5, label: 'Vie' },
-  { id: 6, label: 'Sáb' },
-  { id: 0, label: 'Dom' },
+  { id: 0, label: 'Lun' },
+  { id: 1, label: 'Mar' },
+  { id: 2, label: 'Mié' },
+  { id: 3, label: 'Jue' },
+  { id: 4, label: 'Vie' },
+  { id: 5, label: 'Sáb' },
+  { id: 6, label: 'Dom' },
 ];
-
-// Slug a partir del nombre del negocio (lowercase, sin acentos, guiones)
-function slugify(s: string): string {
-  return s.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 50);
-}
 
 export function SetupWizard({ userId, userName }: SetupWizardProps) {
   const router = useRouter();
@@ -84,7 +73,9 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
 
   // Paso 1: Negocio
   const [businessName, setBusinessName] = useState('');
-  const [businessType, setBusinessType] = useState<string>('salon');
+  const [selectedType, setSelectedType] = useState<string>(''); // tipo oficial seleccionado
+  const [customType, setCustomType] = useState('');             // texto libre si se eligió "Otro"
+  const [showTypePicker, setShowTypePicker] = useState(false);
   const [businessPhone, setBusinessPhone] = useState('');
 
   // Paso 2: Primer servicio
@@ -92,15 +83,35 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
   const [serviceDuration, setServiceDuration] = useState('30');
   const [servicePrice, setServicePrice] = useState('');
 
-  // Paso 3: Horarios
-  // Días seleccionados (por defecto lun-vie); horario default 9-18.
-  const [activeDays, setActiveDays] = useState<Set<number>>(new Set([1, 2, 3, 4, 5]));
+  // Paso 3: Horarios — por defecto lun-sáb (matching app móvil)
+  const [activeDays, setActiveDays] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5]));
   const [openTime, setOpenTime] = useState('09:00');
-  const [closeTime, setCloseTime] = useState('18:00');
+  const [closeTime, setCloseTime] = useState('19:00');
 
-  // Paso 4: Link generado (computado)
-  const slug = useMemo(() => slugify(businessName || `vylta-${userId.slice(0, 6)}`), [businessName, userId]);
-  const publicLink = `https://book.vylta.lat/${slug}`;
+  // Paso 4: slug que se guardó en BD (no se computa en memoria; viene de booking_links)
+  const [savedSlug, setSavedSlug] = useState<string | null>(null);
+
+  // ──────────────────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────────────────
+
+  // Valor final a guardar en business_type:
+  //   - Si el usuario eligió "Otro" → guardar el customType (texto libre)
+  //   - En cualquier otro caso → guardar el selectedType tal cual
+  function getEffectiveBusinessType(): string {
+    if (selectedType === BUSINESS_TYPE_OTHER) {
+      return customType.trim();
+    }
+    return selectedType;
+  }
+
+  function getTypePickerDisplayText(): string {
+    if (!selectedType) return 'Seleccionar tipo de negocio';
+    if (selectedType === BUSINESS_TYPE_OTHER) {
+      return customType.trim() ? `Otro: ${customType.trim()}` : 'Otro (especifica abajo)';
+    }
+    return selectedType;
+  }
 
   // ──────────────────────────────────────────────────────────
   // Validaciones
@@ -108,7 +119,11 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
   function validateStep1(): string | null {
     if (!businessName.trim()) return 'Ingresa el nombre de tu negocio';
     if (businessName.trim().length < 2) return 'El nombre es muy corto';
-    if (!businessType) return 'Selecciona el tipo de negocio';
+    if (!selectedType) return 'Selecciona el tipo de negocio';
+    if (selectedType === BUSINESS_TYPE_OTHER) {
+      const v = validateCustomBusinessType(customType);
+      if (!v.valid) return v.error || 'Escribe tu tipo de negocio';
+    }
     return null;
   }
 
@@ -162,29 +177,74 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
 
   // ──────────────────────────────────────────────────────────
   // Persistencia: al terminar paso 3, guardar todo en BD.
+  //
+  // Orden de operaciones (espejo de la app móvil):
+  //   1. business_profiles (upsert) — el "negocio" propiamente dicho
+  //   2. booking_links (insert si no existe) — slug único + flags
+  //   3. services (insert) — primer servicio del negocio
+  //   4. business_hours (delete+insert 7 rows) — horarios por día
+  //
+  // Si CUALQUIER paso falla, el toast muestra qué tabla falló para que
+  // el usuario sepa qué pasó. No usamos transacciones porque Supabase
+  // no soporta multi-statement transactions desde el cliente; aceptamos
+  // la posibilidad de estado parcial en caso de error (raro).
   // ──────────────────────────────────────────────────────────
   async function handleFinish() {
     if (saving) return;
     setSaving(true);
 
     const supabase = createClient();
+    const finalBusinessType = getEffectiveBusinessType();
 
     try {
-      // 1. business_profile
+      // ── 1. business_profile (upsert) ─────────────────────
       const { error: profileError } = await supabase
         .from('business_profiles')
         .upsert({
           user_id: userId,
           business_name: businessName.trim(),
-          business_type: businessType,
-          business_phone: businessPhone.trim() || null,
-          slug,
+          business_type: finalBusinessType,
+          phone: businessPhone.trim() || null,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' });
 
       if (profileError) throw new Error(`Negocio: ${profileError.message}`);
 
-      // 2. service
+      // ── 2. booking_link (insert si no existe) ────────────
+      // Usa ensureUniqueSlug() para resolver colisiones automáticamente:
+      // "salon-bella" → si ya existe, intenta "salon-bella-2", "-3"... etc.
+      let finalSlug: string | null = null;
+      try {
+        const { data: existing } = await supabase
+          .from('booking_links')
+          .select('slug')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (existing?.slug) {
+          finalSlug = existing.slug;
+        } else {
+          const baseSlug = generateSlug(businessName.trim());
+          finalSlug = await ensureUniqueSlug(baseSlug, supabase);
+          const { error: linkError } = await supabase
+            .from('booking_links')
+            .insert({
+              user_id: userId,
+              slug: finalSlug,
+              is_active: true,
+              require_approval: false,
+              whatsapp_confirmation: true,
+            });
+          if (linkError) throw linkError;
+        }
+        setSavedSlug(finalSlug);
+      } catch (linkErr: any) {
+        // El link es importante pero no bloquea — el usuario puede crearlo
+        // después desde Ajustes. Solo loggeamos.
+        console.warn('[Setup] No se pudo crear booking_link:', linkErr?.message);
+      }
+
+      // ── 3. service (insert) ──────────────────────────────
       const { error: serviceError } = await supabase
         .from('services')
         .insert({
@@ -197,18 +257,23 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
 
       if (serviceError) throw new Error(`Servicio: ${serviceError.message}`);
 
-      // 3. business_hours (7 filas, una por día)
+      // ── 4. business_hours (delete+insert) ────────────────
+      // delete+insert en lugar de upsert porque la combinación
+      // (user_id, day_of_week) no siempre tiene constraint único en BD.
+      // El delete previo asegura idempotencia.
+      await supabase.from('business_hours').delete().eq('user_id', userId);
+
       const hoursRows = DAYS_OF_WEEK.map(d => ({
         user_id: userId,
         day_of_week: d.id,
+        start_time: openTime,
+        end_time: closeTime,
         is_open: activeDays.has(d.id),
-        start_time: activeDays.has(d.id) ? openTime : null,
-        end_time: activeDays.has(d.id) ? closeTime : null,
       }));
 
       const { error: hoursError } = await supabase
         .from('business_hours')
-        .upsert(hoursRows, { onConflict: 'user_id,day_of_week' });
+        .insert(hoursRows);
 
       if (hoursError) throw new Error(`Horarios: ${hoursError.message}`);
 
@@ -233,8 +298,7 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
     await supabase.from('business_profiles').upsert({
       user_id: userId,
       business_name: `Negocio de ${userName || 'tu cuenta'}`,
-      business_type: 'otro',
-      slug: `vylta-${userId.slice(0, 8)}`,
+      business_type: BUSINESS_TYPE_OTHER,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id' });
     router.push('/dashboard');
@@ -243,7 +307,10 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
   // ──────────────────────────────────────────────────────────
   // Acción del paso 4
   // ──────────────────────────────────────────────────────────
+  const publicLink = savedSlug ? `https://book.vylta.lat/${savedSlug}` : null;
+
   function copyLink() {
+    if (!publicLink) return;
     navigator.clipboard.writeText(publicLink);
     toast.success('Link copiado');
   }
@@ -337,34 +404,67 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
                   />
                 </div>
 
-                {/* Tipo de negocio (grid) */}
+                {/* Tipo de negocio (dropdown — usa BUSINESS_TYPES oficial de 32 tipos) */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-vylta-muted">Tipo de negocio</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {BUSINESS_TYPES.map(t => {
-                      const isSel = businessType === t.id;
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setBusinessType(t.id)}
-                          disabled={saving}
-                          className={`flex items-center gap-2.5 rounded-lg border-2 p-3 text-left transition-all ${
-                            isSel
-                              ? 'border-vylta-green bg-vylta-green/8 ring-2 ring-vylta-green/20'
-                              : 'border-border bg-vylta-card hover:border-vylta-green/40'
-                          }`}
-                        >
-                          <span className="text-xl">{t.emoji}</span>
-                          <span className={`text-sm font-medium flex-1 ${isSel ? 'text-vylta-bone' : 'text-vylta-muted'}`}>
-                            {t.label}
-                          </span>
-                          {isSel && <Check className="h-4 w-4 text-vylta-green" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTypePicker(!showTypePicker)}
+                    disabled={saving}
+                    className="w-full h-11 flex items-center justify-between rounded-md border border-border bg-vylta-card px-3 text-sm transition-colors hover:border-vylta-green/40"
+                  >
+                    <span className={selectedType ? 'text-vylta-bone' : 'text-vylta-subtle'}>
+                      {getTypePickerDisplayText()}
+                    </span>
+                    <ChevronDown className="h-4 w-4 text-vylta-subtle" />
+                  </button>
+
+                  {showTypePicker && (
+                    <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border bg-vylta-card">
+                      {BUSINESS_TYPES.map(type => {
+                        const isSel = selectedType === type;
+                        const isOther = type === BUSINESS_TYPE_OTHER;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              setSelectedType(type);
+                              setShowTypePicker(false);
+                              if (type !== BUSINESS_TYPE_OTHER) setCustomType('');
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-vylta-surface/80 ${
+                              isSel ? 'bg-vylta-green/10 text-vylta-green' : 'text-vylta-bone'
+                            } ${isOther ? 'border-t-2 border-vylta-luxury/30' : ''}`}
+                          >
+                            <span>{type}</span>
+                            {isSel && <Check className="h-4 w-4 text-vylta-green" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
+
+                {/* Input "Otro" — texto libre */}
+                {selectedType === BUSINESS_TYPE_OTHER && (
+                  <div className="space-y-1.5 rounded-lg border border-vylta-luxury/30 bg-vylta-luxury/5 p-3">
+                    <Label htmlFor="ct" className="text-xs font-semibold text-vylta-luxury">
+                      Especifica tu tipo de negocio
+                    </Label>
+                    <Input
+                      id="ct"
+                      placeholder="Ej. Acupuntura, Coaching ejecutivo..."
+                      value={customType}
+                      onChange={(e) => setCustomType(e.target.value)}
+                      autoCapitalize="sentences"
+                      maxLength={50}
+                      disabled={saving}
+                      className="h-10 bg-vylta-card border-border text-vylta-bone placeholder:text-vylta-subtle focus:border-vylta-green/50 focus:ring-2 focus:ring-vylta-green/15"
+                    />
+                    <p className="text-[10px] text-vylta-subtle text-right">{customType.length}/50</p>
+                  </div>
+                )}
 
                 {/* Teléfono (opcional) */}
                 <div className="space-y-1.5">
@@ -408,7 +508,7 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
                   </Label>
                   <Input
                     id="sn"
-                    placeholder="Ej. Corte de cabello"
+                    placeholder="Ej. Consulta Médica, Corte de cabello, Poligel"
                     value={serviceName}
                     onChange={(e) => setServiceName(e.target.value)}
                     autoCapitalize="sentences"
@@ -573,37 +673,39 @@ export function SetupWizard({ userId, userName }: SetupWizardProps) {
                 <div>
                   <h2 className="text-xl font-bold text-vylta-bone">¡{businessName}!</h2>
                   <p className="text-sm text-vylta-muted mt-1">
-                    Tu cuenta está lista. Aquí tienes el link público de tu negocio:
+                    Tu cuenta está lista.{publicLink ? ' Aquí tienes el link público de tu negocio:' : ''}
                   </p>
                 </div>
 
-                {/* Link público */}
-                <div className="rounded-xl border border-vylta-green/30 bg-vylta-green/5 p-4 text-left">
-                  <p className="text-xs font-semibold text-vylta-muted uppercase tracking-wider mb-2">
-                    Tu link de reservas
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs text-vylta-green font-mono truncate flex-1">
-                      {publicLink}
-                    </code>
-                    <button
-                      onClick={copyLink}
-                      className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
-                      aria-label="Copiar link"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </button>
-                    <a
-                      href={publicLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
-                      aria-label="Abrir link"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
+                {/* Link público — solo si se generó correctamente */}
+                {publicLink && (
+                  <div className="rounded-xl border border-vylta-green/30 bg-vylta-green/5 p-4 text-left">
+                    <p className="text-xs font-semibold text-vylta-muted uppercase tracking-wider mb-2">
+                      Tu link de reservas
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-vylta-green font-mono truncate flex-1">
+                        {publicLink}
+                      </code>
+                      <button
+                        onClick={copyLink}
+                        className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
+                        aria-label="Copiar link"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                      <a
+                        href={publicLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center h-8 w-8 rounded-md bg-vylta-card hover:bg-vylta-card/80 text-vylta-bone transition-colors"
+                        aria-label="Abrir link"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Lista de cosas que ya tiene listas */}
                 <div className="text-left rounded-xl bg-vylta-card/30 p-4 space-y-2">
