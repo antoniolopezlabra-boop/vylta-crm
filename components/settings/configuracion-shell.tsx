@@ -4,7 +4,6 @@ import Link from 'next/link';
 import {
   Building2,
   CreditCard,
-  MessageCircle,
   Link2,
   Sparkles,
   Shield,
@@ -18,21 +17,22 @@ import { PlanTab } from './tabs/plan-tab';
 import { BookingLinkTab } from './tabs/booking-link-tab';
 import { OverlapsTab } from './tabs/overlaps-tab';
 import { BlocksTab } from './tabs/blocks-tab';
-import { WhatsAppTab } from './tabs/whatsapp-tab';
 import { AccountTab } from './tabs/account-tab';
 import { HoursTab } from './tabs/hours-tab';
-import { hasPremiumAccess, hasLuxuryAccess, getPlanTier } from '@/lib/plan-labels';
+import { hasPremiumAccess, hasLuxuryAccess } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
 // ══════════════════════════════════════════════════════════════════════
 // Shell de Configuración — coordina las tabs.
 //
-// ⚡ ACTUALIZACIÓN (May 19 2026):
+// ⚡ ACTUALIZACIONES (May 19 2026):
 //   • Añadida pestaña "Horarios" para editar business_hours día por día
-//     (resuelve bug reportado: usuarios no podían modificar horarios
-//     post-wizard).
-//   • Posicionada entre "Negocio" y "Link público" porque conceptualmente
-//     se llena justo después del perfil del negocio.
+//     (commit 7b93b5d3+39dbb39d, resolvió bug post-wizard).
+//   • Quitada pestaña "WhatsApp": era puramente informativa (sin acciones
+//     configurables). El contenido se conserva en components/settings/
+//     tabs/whatsapp-tab.tsx por si se necesita restaurar después.
+//     Decisión del usuario (May 19 2026): "no le veo una funcionalidad
+//     clara, procedamos a esconderla".
 // ══════════════════════════════════════════════════════════════════════
 
 interface ConfigShellProps {
@@ -43,7 +43,6 @@ interface ConfigShellProps {
 }
 
 export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigShellProps) {
-  const planTier = getPlanTier(plan?.plan_type);
   const isPremiumOrAbove = hasPremiumAccess(plan?.plan_type);
   const isLuxury = hasLuxuryAccess(plan?.plan_type);
 
@@ -74,7 +73,6 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
             <ConfigTab value="link" icon={Link2} label="Link público" />
             <ConfigTab value="bloqueos" icon={Coffee} label="Bloqueos" />
             <ConfigTab value="overlaps" icon={Sparkles} label="Avanzado" />
-            <ConfigTab value="whatsapp" icon={MessageCircle} label="WhatsApp" />
             <ConfigTab value="cuenta" icon={Shield} label="Cuenta" />
           </TabsList>
         </div>
@@ -96,9 +94,6 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         </TabsContent>
         <TabsContent value="overlaps" className="focus-visible:outline-none">
           <OverlapsTab userId={user.id} profile={profile} isLuxury={isLuxury} />
-        </TabsContent>
-        <TabsContent value="whatsapp" className="focus-visible:outline-none">
-          <WhatsAppTab planTier={planTier} />
         </TabsContent>
         <TabsContent value="cuenta" className="focus-visible:outline-none">
           <AccountTab email={user.email} userId={user.id} />
