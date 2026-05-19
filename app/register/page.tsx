@@ -4,7 +4,7 @@ import { RegisterForm } from '@/components/register-form';
 
 export const metadata: Metadata = {
   title: 'Crear cuenta',
-  description: 'Regístrate en VYLTA y empieza a administrar tu negocio.',
+  description: 'Crea tu cuenta VYLTA y comienza a gestionar tu negocio.',
 };
 
 export default function RegisterPage() {
