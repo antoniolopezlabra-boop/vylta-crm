@@ -25,7 +25,20 @@ import { toast } from 'sonner';
 import { CommandPalette } from './command-palette';
 
 // ══════════════════════════════════════════════════════════════════════
-// Topbar — ahora con búsqueda global funcional (⌘K)
+// Topbar — búsqueda global (⌘K) + menú de usuario.
+//
+// ⚡ FIX (May 19 2026): los items "Mi perfil", "Configuración" y
+// "Ayuda" del avatar dropdown no navegaban al hacer click.
+//
+// CAUSA: Radix DropdownMenuItem dispara dos eventos relevantes:
+//   • onSelect: se ejecuta DESPUÉS del cierre del menú (lo que queremos)
+//   • onClick: corre ANTES del cierre, lo cual puede cancelar la
+//     navegación si el unmount del menú ocurre durante el push.
+//
+// SOLUCIÓN: usar onSelect en lugar de onClick. Es el patrón canónico
+// de Radix UI para acciones en items de menú.
+//
+// Ver: https://www.radix-ui.com/docs/primitives/components/dropdown-menu#item
 // ══════════════════════════════════════════════════════════════════════
 
 interface TopbarProps {
@@ -127,31 +140,35 @@ export function Topbar({ user }: TopbarProps) {
               </div>
             </div>
             <DropdownMenuSeparator className="bg-border" />
+            {/* ⚡ FIX (May 19 2026): onSelect en lugar de onClick.
+                Radix DropdownMenuItem ejecuta onSelect después del cierre
+                del menú, lo cual permite que router.push() funcione sin
+                ser cancelado por el unmount del menu. */}
             <DropdownMenuItem
-              onClick={() => router.push('/configuracion')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface"
+              onSelect={() => router.push('/configuracion')}
+              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
             >
               <UserIcon className="h-4 w-4" />
               Mi perfil
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => router.push('/configuracion')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface"
+              onSelect={() => router.push('/configuracion')}
+              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
             >
               <Settings className="h-4 w-4" />
               Configuración
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => window.open('https://vylta.lat#faq', '_blank')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface"
+              onSelect={() => window.open('https://vylta.lat#faq', '_blank')}
+              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
             >
               <HelpCircle className="h-4 w-4" />
               Ayuda
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem
-              onClick={handleLogout}
-              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              onSelect={handleLogout}
+              className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
               Cerrar sesión
