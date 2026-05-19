@@ -12,6 +12,15 @@ import { createClient } from '@/lib/supabase/client';
 //
 // Plan requerido: Premium (badge "Luxury" visible al usuario)
 // Límite: 5 colaboradores totales por negocio.
+//
+// ⚡ ACTUALIZACIÓN (May 19 2026):
+// Añadidos helpers createStaffAccount() y deleteStaffAccount() que
+// invocan Edge Functions de Supabase. Esto permite gestionar acceso a
+// la app móvil desde el CRM web (antes era exclusivo de la app móvil).
+//
+// SEGURIDAD: Las Edge Functions corren en el servidor con service_role
+// key y validan que organizationUserId matchee el usuario autenticado.
+// El JWT del browser se envía automáticamente vía supabase.functions.invoke.
 // ══════════════════════════════════════════════════════════════════════
 
 export const MAX_STAFF = 5;
@@ -272,4 +281,110 @@ export async function deleteStaffMember(id: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GESTIÓN DE ACCESO A LA APP MÓVIL (staff_accounts)
+//
+// Estos helpers invocan Edge Functions de Supabase porque requieren
+// service_role key para operar con el sistema de auth de Supabase.
+//
+// FLUJO:
+//   1. Browser invoca supabase.functions.invoke(...)
+//   2. Supabase incluye automáticamente el JWT del usuario en headers
+//   3. Edge Function valida que organizationUserId === auth.uid()
+//   4. Edge Function usa service_role key para crear/eliminar auth user
+//   5. Edge Function inserta/elimina row en staff_accounts
+//
+// REUTILIZAR las MISMAS Edge Functions que la app móvil:
+//   • create-staff-account
+//   • delete-staff-account
+//
+// Esto garantiza que cualquier mejora en la lógica (ej. validación de
+// password complejidad) impacte ambos clients sin código duplicado.
+// ══════════════════════════════════════════════════════════════════════
+
+export interface CreateStaffAccountInput {
+  staffMemberId: string;
+  email: string;
+  password: string;
+}
+
+export interface CreateStaffAccountResult {
+  email: string;
+  password: string;
+}
+
+/**
+ * Crea una cuenta de acceso a la app móvil para un colaborador.
+ *
+ * @returns Las credenciales creadas para mostrar al dueño (single-shot).
+ * @throws Error con mensaje legible si algo falla.
+ */
+export async function createStaffAccount(
+  input: CreateStaffAccountInput,
+): Promise<CreateStaffAccountResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  // Validaciones cliente para fallar rápido sin invocar la Edge Function
+  const email = input.email.trim().toLowerCase();
+  if (!email) throw new Error('Ingresa un correo electrónico');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('El correo no tiene formato válido');
+  }
+  if (input.password.length < 8) {
+    throw new Error('La contraseña debe tener al menos 8 caracteres');
+  }
+
+  const { data, error } = await supabase.functions.invoke('create-staff-account', {
+    body: {
+      staffMemberId: input.staffMemberId,
+      email,
+      password: input.password,
+      organizationUserId: user.id,
+    },
+  });
+
+  // Las Edge Functions de Supabase pueden devolver error en dos lugares:
+  // 1. `error` (network o fallo de invocación)
+  // 2. `data.error` (la función corrió pero devolvió error de negocio)
+  if (error) {
+    console.error('[createStaffAccount] invoke error:', error);
+    throw new Error(error.message || 'No se pudo crear el acceso');
+  }
+  if (data?.error) {
+    console.error('[createStaffAccount] business error:', data.error);
+    throw new Error(data.error);
+  }
+
+  return { email, password: input.password };
+}
+
+/**
+ * Revoca el acceso a la app móvil de un colaborador.
+ * El colaborador YA NO podrá iniciar sesión, pero sus citas históricas
+ * y la relación con staff_members se mantienen intactas.
+ */
+export async function deleteStaffAccount(staffMemberId: string): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('No autenticado');
+
+  const { data, error } = await supabase.functions.invoke('delete-staff-account', {
+    body: {
+      staffMemberId,
+      organizationUserId: user.id,
+    },
+  });
+
+  if (error) {
+    console.error('[deleteStaffAccount] invoke error:', error);
+    throw new Error(error.message || 'No se pudo revocar el acceso');
+  }
+  if (data?.error) {
+    console.error('[deleteStaffAccount] business error:', data.error);
+    throw new Error(data.error);
+  }
 }
