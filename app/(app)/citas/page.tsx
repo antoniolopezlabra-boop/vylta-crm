@@ -25,17 +25,24 @@ import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
 import { useAppointments, useActiveStaff } from '@/lib/queries/use-appointments';
+import { useNewAppointmentsTracker } from '@/lib/hooks/use-new-appointments-tracker';
 
 // ══════════════════════════════════════════════════════════════════════
-// Citas v4 — incluye fix #10 (warning si staff_id apunta a staff inactivo)
+// Citas v5 — incluye animación de cita nueva (May 19 2026)
 //
-// Bug #10: Si una colaboradora fue desactivada en /configuracion → staff_members,
+// NUEVA FEATURE (May 19 2026):
+//   Cuando entra un INSERT a appointments (vía realtime Supabase), la
+//   tarjeta correspondiente se anima con glow verde + ring expansivo +
+//   badge "NUEVA" durante 8 segundos. Esto avisa visualmente al usuario
+//   sin necesidad de notificación push o toast.
+//
+//   Hook: useNewAppointmentsTracker (lib/hooks/use-new-appointments-tracker.ts)
+//   CSS:  .animate-new-pulse (app/globals.css)
+//
+// Bug #10 anterior: Si una colaboradora fue desactivada en /configuracion → staff_members,
 // sus citas históricas siguen referenciando el id. Esto NO rompe el calendario
 // (los datos vienen del JOIN de Supabase), pero es bueno mostrar un warning
 // para que el dueño note la inconsistencia.
-//
-// Detección: si appointment.staff_id existe pero ningún staffList activo
-// matchea → mostrar dot ámbar + tooltip "Colaborador desactivado"
 // ══════════════════════════════════════════════════════════════════════
 
 const HOUR_HEIGHT = 60;
@@ -51,6 +58,9 @@ export default function CitasPage() {
   const [now, setNow] = useState(new Date());
   const [formOpen, setFormOpen] = useState(false);
   const [initialDate, setInitialDate] = useState<string | undefined>(undefined);
+
+  // Tracker de citas recién creadas — para animarlas visualmente
+  const { isNew } = useNewAppointmentsTracker();
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60000);
@@ -289,6 +299,7 @@ export default function CitasPage() {
                         key={apt.id}
                         appointment={apt}
                         isInactiveStaff={isInactiveStaff}
+                        isNewlyCreated={isNew(apt.id)}
                         onClick={() => router.push(`/citas/${apt.id}`)}
                       />
                     );
@@ -312,10 +323,12 @@ export default function CitasPage() {
 function AppointmentBlock({
   appointment,
   isInactiveStaff,
+  isNewlyCreated,
   onClick,
 }: {
   appointment: AppointmentWithMeta;
   isInactiveStaff: boolean;
+  isNewlyCreated: boolean;
   onClick: () => void;
 }) {
   const style = getApptStatusStyle(appointment.status);
@@ -338,9 +351,14 @@ function AppointmentBlock({
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className={cn('group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md text-left transition-all hover:z-10 hover:scale-[1.02] hover:shadow-card-lg hover:brightness-110', style.bg)}
+      className={cn(
+        'group absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md text-left transition-all hover:z-10 hover:scale-[1.02] hover:shadow-card-lg hover:brightness-110',
+        style.bg,
+        // ⚡ Animación cuando la cita es recién creada (May 19 2026)
+        isNewlyCreated && 'animate-new-pulse',
+      )}
       style={{ top: `${top}px`, height: `${Math.max(20, height - 1)}px`, borderLeft: `3px solid ${style.barColor}` }}
-      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}${appointment.staff ? ' · ' + appointment.staff.name : ''}${inactiveStaffTitle ? ' · ⚠️ ' + inactiveStaffTitle : ''}`}
+      title={`${appointment.displayClientName} · ${appointment.service_name} · ${appointment.start_time}${appointment.staff ? ' · ' + appointment.staff.name : ''}${inactiveStaffTitle ? ' · ⚠️ ' + inactiveStaffTitle : ''}${isNewlyCreated ? ' · ✨ Recién agendada' : ''}`}
     >
       <div className="flex h-full flex-col px-2 py-1.5">
         <div className="flex items-center justify-between gap-1.5">
