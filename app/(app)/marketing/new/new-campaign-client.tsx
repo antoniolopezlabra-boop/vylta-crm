@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -14,10 +14,10 @@ import {
   Send,
   Save,
   Loader2,
-  X,
   Sparkles,
   AlertCircle,
   CheckCircle2,
+  Pencil,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
@@ -35,26 +35,18 @@ import {
 } from '@/components/ui/dialog';
 
 // ══════════════════════════════════════════════════════════════════════
-// NewCampaignClient — Form para crear nueva campaña.
+// NewCampaignClient — Form para crear/editar/duplicar campaña.
 //
-// Estados:
-//   • form: { segment, subject, body }
-//   • recipientCount: conteo en vivo según segmento
-//   • loadingCount: spinner del contador
-//   • saving / sending: estados de los botones
-//   • previewOpen / confirmSendOpen: modales
+// ⚡ FASE 3 (May 19 2026):
+//   Ahora soporta 3 modos de entrada vía query params:
 //
-// Flujo de envío:
-//   1. Usuario completa form
-//   2. Click "Enviar ahora" → modal de confirmación
-//   3. Confirma → supabase.functions.invoke('send-campaign')
-//   4. Éxito → toast + redirect a /marketing
-//   5. Error → toast con error message
+//     1. CREAR (sin params): form vacío, segment='todos'
+//     2. EDITAR BORRADOR (?draftId=X&subject=Y&body=Z&segment=W):
+//        form precargado, los Save/Send hacen UPDATE en lugar de INSERT
+//     3. DUPLICAR (?subject=Y&body=Z&segment=W, sin draftId):
+//        form precargado pero el Save/Send hacen INSERT nuevo
 //
-// Flujo de borrador:
-//   1. Click "Guardar borrador"
-//   2. INSERT en email_campaigns con status='borrador'
-//   3. Éxito → toast + redirect a /marketing
+//   El flag isEditingDraft distingue 2 y 3.
 // ══════════════════════════════════════════════════════════════════════
 
 type Segment = 'todos' | 'activos' | 'inactivos';
@@ -85,9 +77,23 @@ export function NewCampaignClient({
   businessName: string;
 }) {
   const router = useRouter();
-  const [segment, setSegment] = useState<Segment>('todos');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
+  const searchParams = useSearchParams();
+
+  // Leer params (puede venir de "Continuar editando" o "Duplicar")
+  const draftId = searchParams.get('draftId') || '';
+  const initialSubject = searchParams.get('subject') || '';
+  const initialBody = searchParams.get('body') || '';
+  const initialSegRaw = searchParams.get('segment') || 'todos';
+  const initialSegment: Segment =
+    (['todos', 'activos', 'inactivos'].includes(initialSegRaw) ? initialSegRaw : 'todos') as Segment;
+
+  const isEditingDraft = !!draftId;
+  // isDuplicating: hay datos precargados pero no es borrador (es duplicado de enviada/fallida)
+  const isDuplicating = !draftId && (!!initialSubject || !!initialBody);
+
+  const [segment, setSegment] = useState<Segment>(initialSegment);
+  const [subject, setSubject] = useState(initialSubject);
+  const [body, setBody] = useState(initialBody);
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -114,7 +120,6 @@ export function NewCampaignClient({
       if (segment === 'activos') {
         query = query.eq('is_active', true);
       } else if (segment === 'inactivos') {
-        // 90 días atrás en formato YYYY-MM-DD
         const d = new Date();
         d.setDate(d.getDate() - 90);
         const yyyy = d.getFullYear();
@@ -140,7 +145,6 @@ export function NewCampaignClient({
     return () => { cancelled = true; };
   }, [segment, userId]);
 
-  // Preview con sustituciones demo ("María" como ejemplo)
   const previewSubject = useMemo(
     () => subject.replace(/\{\{nombre\}\}/g, 'María').replace(/\{\{negocio\}\}/g, businessName),
     [subject, businessName],
@@ -150,7 +154,6 @@ export function NewCampaignClient({
     [body, businessName],
   );
 
-  // Insertar variable en el body al hacer click en el chip
   function insertVariable(token: string) {
     setBody(prev => (prev ? prev + ' ' + token : token));
   }
@@ -164,7 +167,7 @@ export function NewCampaignClient({
     return null;
   }
 
-  // GUARDAR BORRADOR
+  // GUARDAR BORRADOR (INSERT o UPDATE)
   async function handleSaveDraft() {
     if (!subject.trim() && !body.trim()) {
       toast.error('Agrega al menos un asunto o contenido para guardar el borrador');
@@ -173,14 +176,34 @@ export function NewCampaignClient({
 
     setSaving(true);
     const supabase = createClient();
-    const { error } = await supabase.from('email_campaigns').insert({
-      user_id: userId,
-      subject: subject.trim() || '(Sin asunto)',
-      body: body.trim(),
-      segment,
-      status: 'borrador',
-      recipient_count: recipientCount || 0,
-    });
+
+    let error: any = null;
+    if (isEditingDraft) {
+      // UPDATE del borrador existente
+      const res = await supabase
+        .from('email_campaigns')
+        .update({
+          subject: subject.trim() || '(Sin asunto)',
+          body: body.trim(),
+          segment,
+          recipient_count: recipientCount || 0,
+        })
+        .eq('id', draftId)
+        .eq('user_id', userId);
+      error = res.error;
+    } else {
+      // INSERT nuevo borrador
+      const res = await supabase.from('email_campaigns').insert({
+        user_id: userId,
+        subject: subject.trim() || '(Sin asunto)',
+        body: body.trim(),
+        segment,
+        status: 'borrador',
+        recipient_count: recipientCount || 0,
+      });
+      error = res.error;
+    }
+
     setSaving(false);
 
     if (error) {
@@ -188,7 +211,7 @@ export function NewCampaignClient({
       return;
     }
 
-    toast.success('Borrador guardado');
+    toast.success(isEditingDraft ? 'Borrador actualizado' : 'Borrador guardado');
     router.push('/marketing');
     router.refresh();
   }
@@ -199,15 +222,32 @@ export function NewCampaignClient({
     setSending(true);
 
     const supabase = createClient();
-    const { data, error } = await supabase.functions.invoke('send-campaign', {
-      body: {
+
+    let payload: any;
+    if (isEditingDraft) {
+      // Primero actualizar el borrador para que send-campaign use el contenido más reciente
+      await supabase
+        .from('email_campaigns')
+        .update({
+          subject: subject.trim(),
+          body: body.trim(),
+          segment,
+          recipient_count: recipientCount || 0,
+        })
+        .eq('id', draftId)
+        .eq('user_id', userId);
+      payload = { campaignId: draftId };
+    } else {
+      payload = {
         userId,
         subject: subject.trim(),
         body: body.trim(),
         segment,
         recipientCount: recipientCount || 0,
-      },
-    });
+      };
+    }
+
+    const { data, error } = await supabase.functions.invoke('send-campaign', { body: payload });
 
     setSending(false);
 
@@ -251,6 +291,14 @@ export function NewCampaignClient({
 
   const canSend = !sending && !saving && recipientCount !== null && recipientCount > 0;
 
+  // Título y subtítulo según el modo
+  const pageTitle = isEditingDraft ? 'Editar borrador' : isDuplicating ? 'Duplicar campaña' : 'Nueva campaña';
+  const pageSubtitle = isEditingDraft
+    ? 'Continúa donde lo dejaste'
+    : isDuplicating
+      ? 'Crea una nueva campaña basada en una anterior'
+      : 'Envía un email a tus clientes';
+
   return (
     <div className="space-y-5 animate-fade-in">
       {/* HEADER */}
@@ -264,10 +312,8 @@ export function NewCampaignClient({
             <ArrowLeft className="h-5 w-5 text-vylta-muted" strokeWidth={2} />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tightest text-vylta-bone">Nueva campaña</h1>
-            <p className="text-sm text-vylta-muted">
-              Envía un email a tus clientes
-            </p>
+            <h1 className="text-2xl font-bold tracking-tightest text-vylta-bone">{pageTitle}</h1>
+            <p className="text-sm text-vylta-muted">{pageSubtitle}</p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -280,11 +326,25 @@ export function NewCampaignClient({
             {saving ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Guardando…</>
             ) : (
-              <><Save className="h-4 w-4" /> Guardar borrador</>
+              <><Save className="h-4 w-4" /> {isEditingDraft ? 'Guardar cambios' : 'Guardar borrador'}</>
             )}
           </Button>
         </div>
       </div>
+
+      {/* BANNER DE MODO */}
+      {isEditingDraft && (
+        <div className="flex items-center gap-2 rounded-lg border border-vylta-amber-500/30 bg-vylta-amber-500/10 px-3 py-2 text-sm text-vylta-amber-500">
+          <Pencil className="h-4 w-4 shrink-0" strokeWidth={2} />
+          <span>Estás editando un borrador existente. Los cambios sobrescribirán el borrador.</span>
+        </div>
+      )}
+      {isDuplicating && (
+        <div className="flex items-center gap-2 rounded-lg border border-vylta-green/30 bg-vylta-green/10 px-3 py-2 text-sm text-vylta-green">
+          <Sparkles className="h-4 w-4 shrink-0" strokeWidth={2} />
+          <span>Esta es una copia. Se creará una campaña nueva al enviar o guardar.</span>
+        </div>
+      )}
 
       {/* DESTINATARIOS */}
       <section className="space-y-3">
@@ -299,10 +359,7 @@ export function NewCampaignClient({
             />
           ))}
         </div>
-        <RecipientBanner
-          count={recipientCount}
-          loading={loadingCount}
-        />
+        <RecipientBanner count={recipientCount} loading={loadingCount} />
       </section>
 
       {/* ASUNTO */}
@@ -362,12 +419,7 @@ export function NewCampaignClient({
 
       {/* BOTÓN ENVIAR */}
       <div className="flex justify-end pt-2">
-        <Button
-          size="lg"
-          onClick={attemptSend}
-          disabled={!canSend}
-          className="min-w-[200px]"
-        >
+        <Button size="lg" onClick={attemptSend} disabled={!canSend} className="min-w-[200px]">
           {sending ? (
             <><Loader2 className="h-4 w-4 animate-spin" /> Enviando…</>
           ) : (
@@ -391,8 +443,6 @@ export function NewCampaignClient({
               Así se verá el email cuando lo envíes. El nombre “María” es solo un ejemplo.
             </DialogDescription>
           </DialogHeader>
-
-          {/* Frame del email simulado */}
           <div className="overflow-hidden rounded-xl border border-border bg-white">
             <div className="flex items-center gap-2.5 bg-vylta-green px-4 py-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-white/20">
@@ -410,12 +460,9 @@ export function NewCampaignClient({
               {previewBody || '(sin contenido)'}
             </div>
             <div className="border-t border-slate-200 bg-slate-50 px-4 py-2.5">
-              <p className="text-center text-[11px] text-slate-400">
-                Enviado con VYLTA
-              </p>
+              <p className="text-center text-[11px] text-slate-400">Enviado con VYLTA</p>
             </div>
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewOpen(false)}>
               Cerrar
@@ -440,7 +487,6 @@ export function NewCampaignClient({
               con email registrado. Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
-
           <div className="rounded-lg border border-border bg-vylta-card/40 p-3">
             <div className="flex items-start gap-2">
               <Mail className="h-4 w-4 shrink-0 text-vylta-green mt-0.5" />
@@ -454,7 +500,6 @@ export function NewCampaignClient({
               </div>
             </div>
           </div>
-
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setConfirmSendOpen(false)}>
               Cancelar
@@ -471,17 +516,9 @@ export function NewCampaignClient({
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// SegmentButton — botón de selección de segmento (radio visual)
-// ─────────────────────────────────────────────────────────────────────
 function SegmentButton({
-  option,
-  active,
-  onClick,
-}: {
-  option: SegmentOption;
-  active: boolean;
-  onClick: () => void;
-}) {
+  option, active, onClick,
+}: { option: SegmentOption; active: boolean; onClick: () => void }) {
   const Icon = option.icon;
   return (
     <button
@@ -506,29 +543,17 @@ function SegmentButton({
         <div className={cn('text-sm font-semibold', active ? 'text-vylta-bone' : 'text-vylta-muted')}>
           {option.label}
         </div>
-        <div className="text-[11px] text-vylta-subtle mt-0.5">
-          {option.description}
-        </div>
+        <div className="text-[11px] text-vylta-subtle mt-0.5">{option.description}</div>
       </div>
-      {active && (
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-vylta-green" />
-      )}
+      {active && <CheckCircle2 className="h-4 w-4 shrink-0 text-vylta-green" />}
     </button>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// RecipientBanner — muestra el conteo en vivo de destinatarios
-// ─────────────────────────────────────────────────────────────────────
 function RecipientBanner({
-  count,
-  loading,
-}: {
-  count: number | null;
-  loading: boolean;
-}) {
+  count, loading,
+}: { count: number | null; loading: boolean }) {
   const isZero = count === 0;
-
   return (
     <div
       className={cn(
@@ -559,9 +584,6 @@ function RecipientBanner({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// SectionLabel — etiqueta de sección (mismo patrón del CRM)
-// ─────────────────────────────────────────────────────────────────────
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <Label className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Megaphone,
   Mail,
@@ -13,6 +14,7 @@ import {
   Clock,
   Send,
   Inbox,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -20,22 +22,13 @@ import { Button } from '@/components/ui/button';
 // ══════════════════════════════════════════════════════════════════════
 // MarketingPageClient — UI del listado de campañas.
 //
-// Estado interno:
-//   • filter: 'todas' | 'enviadas' | 'borradores' | 'fallidas'
+// ⚡ FASE 3 (May 19 2026):
+//   Las filas ahora son clickeables y navegan a /marketing/[id]
+//   (donde el usuario puede editar/duplicar/eliminar la campaña).
 //
-// Diseño:
-//   Header con icono + título + stats inline (al estilo /clientes).
-//   Stats cards arriba de la tabla.
-//   Tabla con: Asunto, Segmento, Estado, Destinatarios, Fecha.
-//   Empty state si no hay campañas.
-//   Filter chips arriba de la tabla.
-//
-// ⚡ FECHAS (May 19 2026):
-//   sent_at y created_at vienen de Supabase como timestamps ISO completos
-//   (ej. "2026-05-04T15:30:00.000Z"). NO podemos usar formatShortDate de
-//   lib/date-utils porque espera formato YYYY-MM-DD y le concatena
-//   'T12:00:00' → resulta en "Invalid Date" para timestamps completos.
-//   Usamos un helper local formatTimestamp() que funciona con ambos.
+// FECHAS:
+//   sent_at/created_at son timestamps ISO. Usamos helper local que
+//   detecta si el string tiene 'T' (caso ISO) o no (caso YYYY-MM-DD).
 // ══════════════════════════════════════════════════════════════════════
 
 interface Campaign {
@@ -67,7 +60,6 @@ const FILTERS: { value: FilterValue; label: string }[] = [
 export function MarketingPageClient({ initialCampaigns }: { initialCampaigns: Campaign[] }) {
   const [filter, setFilter] = useState<FilterValue>('todas');
 
-  // Stats globales (independientes del filtro activo)
   const stats = useMemo(() => {
     const sent = initialCampaigns.filter(c => c.status === 'enviada');
     const drafts = initialCampaigns.filter(c => c.status === 'borrador');
@@ -80,7 +72,6 @@ export function MarketingPageClient({ initialCampaigns }: { initialCampaigns: Ca
     };
   }, [initialCampaigns]);
 
-  // Filtrado
   const filtered = useMemo(() => {
     if (filter === 'todas') return initialCampaigns;
     if (filter === 'enviadas') return initialCampaigns.filter(c => c.status === 'enviada');
@@ -115,30 +106,10 @@ export function MarketingPageClient({ initialCampaigns }: { initialCampaigns: Ca
 
       {/* STATS CARDS */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard
-          icon={Inbox}
-          label="Total"
-          value={stats.total}
-          accent="green"
-        />
-        <StatCard
-          icon={Send}
-          label="Enviadas"
-          value={stats.sent}
-          accent="green"
-        />
-        <StatCard
-          icon={Pencil}
-          label="Borradores"
-          value={stats.drafts}
-          accent="amber"
-        />
-        <StatCard
-          icon={Users}
-          label="Destinatarios"
-          value={stats.recipients}
-          accent="green"
-        />
+        <StatCard icon={Inbox} label="Total" value={stats.total} accent="green" />
+        <StatCard icon={Send} label="Enviadas" value={stats.sent} accent="green" />
+        <StatCard icon={Pencil} label="Borradores" value={stats.drafts} accent="amber" />
+        <StatCard icon={Users} label="Destinatarios" value={stats.recipients} accent="green" />
       </div>
 
       {/* FILTER CHIPS */}
@@ -173,6 +144,7 @@ export function MarketingPageClient({ initialCampaigns }: { initialCampaigns: Ca
                   <Th>Estado</Th>
                   <Th className="text-right">Destinatarios</Th>
                   <Th>Fecha</Th>
+                  <Th className="w-8" />
                 </tr>
               </thead>
               <tbody>
@@ -189,14 +161,18 @@ export function MarketingPageClient({ initialCampaigns }: { initialCampaigns: Ca
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// CampaignRow — fila de la tabla
+// CampaignRow — fila clickeable que navega al detalle
 // ─────────────────────────────────────────────────────────────────────
 function CampaignRow({ campaign }: { campaign: Campaign }) {
+  const router = useRouter();
   const statusMeta = STATUS_META[campaign.status] || STATUS_META.borrador;
   const StatusIcon = statusMeta.icon;
 
   return (
-    <tr className="group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/40">
+    <tr
+      onClick={() => router.push(`/marketing/${campaign.id}`)}
+      className="group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/40"
+    >
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-vylta-green/10 ring-1 ring-vylta-green/20">
@@ -237,31 +213,21 @@ function CampaignRow({ campaign }: { campaign: Campaign }) {
           {formatTimestamp(campaign.sent_at || campaign.created_at)}
         </span>
       </td>
+      <td className="px-2 py-3 text-right">
+        <ChevronRight className="h-4 w-4 text-vylta-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-vylta-bone" />
+      </td>
     </tr>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// StatCard — KPI card al estilo dashboard
-// ─────────────────────────────────────────────────────────────────────
 function StatCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: any;
-  label: string;
-  value: number;
-  accent: 'green' | 'amber';
-}) {
+  icon: Icon, label, value, accent,
+}: { icon: any; label: string; value: number; accent: 'green' | 'amber' }) {
   const accentClass =
     accent === 'amber'
       ? 'bg-vylta-amber-500/10 text-vylta-amber-500 ring-vylta-amber-500/20'
       : 'bg-vylta-green/10 text-vylta-green ring-vylta-green/20';
-
   const valueClass = accent === 'amber' ? 'text-vylta-amber-500' : 'text-vylta-bone';
-
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-vylta-surface p-4 shadow-card">
       <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1', accentClass)}>
@@ -269,17 +235,12 @@ function StatCard({
       </div>
       <div className="min-w-0">
         <div className={cn('text-2xl font-bold tabular-nums', valueClass)}>{value}</div>
-        <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-vylta-muted">
-          {label}
-        </div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-vylta-muted">{label}</div>
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Th — header de tabla (mismo patrón que /clientes)
-// ─────────────────────────────────────────────────────────────────────
 function Th({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <th className={cn('px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted', className)}>
@@ -288,11 +249,7 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// EmptyState
-// ─────────────────────────────────────────────────────────────────────
 function EmptyState({ hasFilter, hasAnyCampaigns }: { hasFilter: boolean; hasAnyCampaigns: boolean }) {
-  // Caso 1: hay campañas pero el filtro no matchea ninguna
   if (hasFilter && hasAnyCampaigns) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
@@ -306,8 +263,6 @@ function EmptyState({ hasFilter, hasAnyCampaigns }: { hasFilter: boolean; hasAny
       </div>
     );
   }
-
-  // Caso 2: no hay NINGUNA campaña aún
   return (
     <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-vylta-green/10 ring-1 ring-vylta-green/20">
@@ -330,34 +285,15 @@ function EmptyState({ hasFilter, hasAnyCampaigns }: { hasFilter: boolean; hasAny
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n).trim() + '…';
 }
 
-/**
- * Formatea un timestamp (ISO o YYYY-MM-DD) a "lun 4 may" o similar.
- *
- * Robusto a ambos formatos:
- *   • "2026-05-04T15:30:00.000Z" (timestamp ISO completo de Supabase)
- *   • "2026-05-04" (fecha plana de columnas date)
- *
- * NO usamos formatShortDate() de lib/date-utils porque siempre concatena
- * 'T12:00:00' y rompe con timestamps que ya tienen hora ("Invalid Date").
- */
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) return '—';
-
-  // Si tiene 'T' es ISO completo → usar directo.
-  // Si no, asumir YYYY-MM-DD y concatenar mediodía local para evitar
-  // saltos de día por UTC.
   const d = value.includes('T') ? new Date(value) : new Date(value + 'T12:00:00');
-
   if (isNaN(d.getTime())) return '—';
-
   return d.toLocaleDateString('es-MX', {
     weekday: 'short',
     day: 'numeric',
