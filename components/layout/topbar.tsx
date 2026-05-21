@@ -5,7 +5,6 @@ import { useState, useEffect } from 'react';
 import {
   Search,
   LogOut,
-  User as UserIcon,
   Settings,
   HelpCircle,
   ChevronDown,
@@ -39,6 +38,15 @@ import { CommandPalette } from './command-palette';
 // de Radix UI para acciones en items de menú.
 //
 // Ver: https://www.radix-ui.com/docs/primitives/components/dropdown-menu#item
+//
+// ⚡ UNIFICACIÓN MI PERFIL / CONFIGURACIÓN (May 19 2026):
+// Anteriormente "Mi perfil" y "Configuración" eran 2 items separados
+// pero ambos navegaban a /configuracion. El usuario lo reportó como
+// confuso. Se unificó en un solo item "Configuración" siguiendo el
+// patrón de UX moderna (Slack, Notion, Linear).
+//
+// La página /configuracion incluye perfil + cuenta + negocio +
+// suscripción, por lo que un único acceso es suficiente.
 // ══════════════════════════════════════════════════════════════════════
 
 interface TopbarProps {
@@ -143,14 +151,12 @@ export function Topbar({ user }: TopbarProps) {
             {/* ⚡ FIX (May 19 2026): onSelect en lugar de onClick.
                 Radix DropdownMenuItem ejecuta onSelect después del cierre
                 del menú, lo cual permite que router.push() funcione sin
-                ser cancelado por el unmount del menu. */}
-            <DropdownMenuItem
-              onSelect={() => router.push('/configuracion')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
-            >
-              <UserIcon className="h-4 w-4" />
-              Mi perfil
-            </DropdownMenuItem>
+                ser cancelado por el unmount del menu.
+
+                ⚡ UNIFICACIÓN (May 19 2026): se eliminó el item "Mi perfil"
+                porque navegaba al mismo lugar que "Configuración"
+                (/configuracion). Un solo acceso evita confusión y sigue
+                el patrón de UX moderna (Slack, Notion, Linear). */}
             <DropdownMenuItem
               onSelect={() => router.push('/configuracion')}
               className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
