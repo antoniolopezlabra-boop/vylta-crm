@@ -19,10 +19,20 @@ import { QueryProvider } from '@/components/providers/query-provider';
 // para evitar que cookies() se bundle al cliente.
 //
 // ⚡ FEATURE BRANDING DEL CLIENTE (May 19 2026):
-// El sidebar ahora muestra el LOGO + NOMBRE DEL NEGOCIO del cliente
-// (no la marca VYLTA), para que sientan que el sistema es parte de su
-// negocio. La marca VYLTA se mueve a un footer discreto del sidebar.
+// El sidebar muestra el LOGO + NOMBRE DEL NEGOCIO del cliente (no la
+// marca VYLTA), para que sientan que el sistema es parte de su negocio.
+// La marca VYLTA se mueve a un footer discreto del sidebar.
 // Pasamos businessName + logoUrl al Sidebar para que los renderice.
+//
+// ⚡ BUG FIX (May 19 2026):
+// La query original incluía 'owner_name' que NO existe en el schema
+// real de business_profiles. Esto causaba que Supabase fallara
+// silenciosamente y profile siempre fuera null, mostrando "Mi negocio"
+// como fallback aunque el usuario SÍ tuviera negocio configurado.
+//
+// Schema real (confirmado en components/settings/tabs/business-tab.tsx):
+//   business_name, business_type, address, phone, alternative_phone, logo_url
+// NO existe: description, business_email, owner_name
 // ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
@@ -45,16 +55,18 @@ export default async function AppLayout({
     redirect('/admin');
   }
 
+  // ⚡ Solo pedimos columnas que SÍ existen en el schema real.
+  // Antes incluíamos 'owner_name' (no existe) y eso rompía toda la query.
   const { data: profile } = await supabase
     .from('business_profiles')
-    .select('business_name, owner_name, logo_url')
+    .select('business_name, logo_url')
     .eq('user_id', user.id)
     .maybeSingle();
 
   const displayName =
     profile?.business_name ||
-    profile?.owner_name ||
     user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
     user.email?.split('@')[0] ||
     'Usuario';
 
