@@ -243,6 +243,11 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
 // Si hay logoUrl: muestra la imagen (Next/Image con optimización).
 // Si NO hay logoUrl: muestra un círculo con las iniciales del negocio
 // en color VYLTA, similar al avatar fallback de la app.
+//
+// ⚡ NOTA (May 19 2026): el dominio nhjmwmkaduiaifgztymi.supabase.co YA
+// está configurado en next.config.mjs (images.remotePatterns), así que
+// Next.js puede optimizar la imagen automáticamente. NO usar
+// unoptimized=true (mantiene calidad y reduce ancho de banda).
 // ══════════════════════════════════════════════════════════════════════
 function BusinessLogo({
   logoUrl,
@@ -259,16 +264,13 @@ function BusinessLogo({
         className="relative shrink-0 overflow-hidden rounded-xl ring-1 ring-vylta-green/20 bg-vylta-card"
         style={{ width: size, height: size }}
       >
-        {/* unoptimized=true porque las URLs vienen de Supabase Storage y
-            no están configuradas como dominio remoto en next.config.mjs.
-            En el futuro se podría agregar el dominio para optimización. */}
         <Image
           src={logoUrl}
           alt={businessName || 'Logo del negocio'}
-          width={size}
-          height={size}
-          unoptimized
+          width={size * 2}
+          height={size * 2}
           className="h-full w-full object-cover"
+          sizes="40px"
         />
       </div>
     );
