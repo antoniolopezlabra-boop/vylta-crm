@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import {
@@ -25,6 +26,16 @@ import { usePrefetchServices } from '@/lib/queries/use-services';
 
 // ══════════════════════════════════════════════════════════════════════
 // Sidebar premium + Optimistic UI + Prefetching predictivo
+//
+// ⚡ BRANDING DEL CLIENTE (May 19 2026):
+//   Header del sidebar ahora muestra logo + nombre del NEGOCIO del
+//   cliente (no la marca VYLTA). La marca VYLTA queda en un footer
+//   discreto al final del sidebar ("Powered by VYLTA"). Esto hace que
+//   el sistema se sienta como propio del negocio del cliente.
+//
+// FALLBACK SI NO HAY LOGO:
+//   Círculo con iniciales del nombre del negocio en verde VYLTA.
+//   Ejemplo: "Salón Karen" → "SK"
 //
 // NUEVO EN OPCIÓN 3:
 //   • onMouseEnter en items → precarga los datos antes del click
@@ -61,7 +72,14 @@ const NAV_BOTTOM: NavItem[] = [
   { href: '/configuracion', label: 'Configuración', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Nombre del negocio del cliente (null si aún no completó setup). */
+  businessName?: string | null;
+  /** URL del logo subido por el cliente (null si no tiene logo). */
+  logoUrl?: string | null;
+}
+
+export function Sidebar({ businessName, logoUrl }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
@@ -88,7 +106,6 @@ export function Sidebar() {
   function handlePrefetch(item: NavItem) {
     if (item.prefetchKey === 'clients') prefetchClients();
     else if (item.prefetchKey === 'services') prefetchServices();
-    // Para futuras: reports, etc.
   }
 
   return (
@@ -99,6 +116,7 @@ export function Sidebar() {
           collapsed ? 'w-[72px]' : 'w-64',
         )}
       >
+        {/* HEADER: Branding del NEGOCIO DEL CLIENTE (logo + nombre) */}
         <div className="flex h-16 items-center px-4">
           <Link
             href="/dashboard"
@@ -107,14 +125,18 @@ export function Sidebar() {
               e.preventDefault();
               handleNavigate('/dashboard');
             }}
-            className="flex items-center gap-2.5 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-vylta-green/50 focus-visible:ring-offset-2 focus-visible:ring-offset-vylta-surface rounded-lg"
-            aria-label="VYLTA — Inicio"
+            className="flex items-center gap-2.5 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-vylta-green/50 focus-visible:ring-offset-2 focus-visible:ring-offset-vylta-surface rounded-lg w-full"
+            aria-label={businessName ? `${businessName} — Inicio` : 'Inicio'}
           >
-            <VyltaLogo size={36} />
+            <BusinessLogo
+              logoUrl={logoUrl}
+              businessName={businessName}
+              size={collapsed ? 40 : 40}
+            />
             {!collapsed && (
-              <div className="flex flex-col animate-fade-in min-w-0">
-                <span className="text-base font-bold tracking-tight leading-none text-vylta-bone">
-                  VYLTA
+              <div className="flex flex-col animate-fade-in min-w-0 flex-1">
+                <span className="text-sm font-bold tracking-tight leading-tight text-vylta-bone truncate">
+                  {businessName || 'Mi negocio'}
                 </span>
                 <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-vylta-subtle mt-0.5">
                   CRM
@@ -175,12 +197,22 @@ export function Sidebar() {
             ))}
           </ul>
 
+          {/* FOOTER: Branding VYLTA discreto + botón colapsar */}
           {!collapsed ? (
             <div className="px-4 pb-3 pt-1 animate-fade-in">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] italic text-vylta-subtle truncate">
-                  Cada cliente regresa.
-                </p>
+                <a
+                  href="https://vylta.lat"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group flex items-center gap-1.5 min-w-0 transition-opacity hover:opacity-100 opacity-60"
+                  aria-label="VYLTA — Visitar sitio web"
+                >
+                  <VyltaLogo size={14} />
+                  <span className="text-[10px] text-vylta-subtle group-hover:text-vylta-bone transition-colors truncate">
+                    Powered by <span className="font-semibold">VYLTA</span>
+                  </span>
+                </a>
                 <button
                   onClick={() => setCollapsed(true)}
                   className="shrink-0 rounded-md p-1 text-vylta-subtle transition hover:bg-vylta-card hover:text-vylta-bone"
@@ -203,6 +235,73 @@ export function Sidebar() {
       </aside>
     </TooltipProvider>
   );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// BusinessLogo — Renderiza el logo del NEGOCIO DEL CLIENTE.
+//
+// Si hay logoUrl: muestra la imagen (Next/Image con optimización).
+// Si NO hay logoUrl: muestra un círculo con las iniciales del negocio
+// en color VYLTA, similar al avatar fallback de la app.
+// ══════════════════════════════════════════════════════════════════════
+function BusinessLogo({
+  logoUrl,
+  businessName,
+  size,
+}: {
+  logoUrl?: string | null;
+  businessName?: string | null;
+  size: number;
+}) {
+  if (logoUrl) {
+    return (
+      <div
+        className="relative shrink-0 overflow-hidden rounded-xl ring-1 ring-vylta-green/20 bg-vylta-card"
+        style={{ width: size, height: size }}
+      >
+        {/* unoptimized=true porque las URLs vienen de Supabase Storage y
+            no están configuradas como dominio remoto en next.config.mjs.
+            En el futuro se podría agregar el dominio para optimización. */}
+        <Image
+          src={logoUrl}
+          alt={businessName || 'Logo del negocio'}
+          width={size}
+          height={size}
+          unoptimized
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  // Fallback: círculo con iniciales del negocio en verde VYLTA
+  const initials = getBusinessInitials(businessName);
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center rounded-xl bg-vylta-green/15 ring-1 ring-vylta-green/30 text-vylta-green font-bold"
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      aria-hidden="true"
+    >
+      {initials}
+    </div>
+  );
+}
+
+// Helper: extrae iniciales del nombre del negocio (máx 2 letras).
+// Ejemplos:
+//   "Salón Karen"        → "SK"
+//   "Cris Barber"        → "CB"
+//   "Bella"              → "BE"
+//   "Beauty Studio"      → "BS"
+//   "Mi negocio"         → "MN"
+//   null                 → "V" (fallback VYLTA)
+function getBusinessInitials(name?: string | null): string {
+  if (!name || !name.trim()) return 'V';
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return (words[0][0] + words[1][0]).toUpperCase();
 }
 
 function isActiveItem(pathname: string, href: string, optimisticHref: string | null): boolean {
