@@ -15,7 +15,6 @@ import {
   Inbox,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatShortDate } from '@/lib/date-utils';
 import { Button } from '@/components/ui/button';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -30,6 +29,13 @@ import { Button } from '@/components/ui/button';
 //   Tabla con: Asunto, Segmento, Estado, Destinatarios, Fecha.
 //   Empty state si no hay campañas.
 //   Filter chips arriba de la tabla.
+//
+// ⚡ FECHAS (May 19 2026):
+//   sent_at y created_at vienen de Supabase como timestamps ISO completos
+//   (ej. "2026-05-04T15:30:00.000Z"). NO podemos usar formatShortDate de
+//   lib/date-utils porque espera formato YYYY-MM-DD y le concatena
+//   'T12:00:00' → resulta en "Invalid Date" para timestamps completos.
+//   Usamos un helper local formatTimestamp() que funciona con ambos.
 // ══════════════════════════════════════════════════════════════════════
 
 interface Campaign {
@@ -228,7 +234,7 @@ function CampaignRow({ campaign }: { campaign: Campaign }) {
       <td className="px-4 py-3 text-xs text-vylta-muted">
         <span className="inline-flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          {formatShortDate(campaign.sent_at || campaign.created_at)}
+          {formatTimestamp(campaign.sent_at || campaign.created_at)}
         </span>
       </td>
     </tr>
@@ -330,6 +336,33 @@ function EmptyState({ hasFilter, hasAnyCampaigns }: { hasFilter: boolean; hasAny
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, n).trim() + '…';
+}
+
+/**
+ * Formatea un timestamp (ISO o YYYY-MM-DD) a "lun 4 may" o similar.
+ *
+ * Robusto a ambos formatos:
+ *   • "2026-05-04T15:30:00.000Z" (timestamp ISO completo de Supabase)
+ *   • "2026-05-04" (fecha plana de columnas date)
+ *
+ * NO usamos formatShortDate() de lib/date-utils porque siempre concatena
+ * 'T12:00:00' y rompe con timestamps que ya tienen hora ("Invalid Date").
+ */
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return '—';
+
+  // Si tiene 'T' es ISO completo → usar directo.
+  // Si no, asumir YYYY-MM-DD y concatenar mediodía local para evitar
+  // saltos de día por UTC.
+  const d = value.includes('T') ? new Date(value) : new Date(value + 'T12:00:00');
+
+  if (isNaN(d.getTime())) return '—';
+
+  return d.toLocaleDateString('es-MX', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 const STATUS_META: Record<
