@@ -17,6 +17,12 @@ import { QueryProvider } from '@/components/providers/query-provider';
 //
 // NOTA: importamos getAdminUserServer desde admin-server.ts (no admin.ts)
 // para evitar que cookies() se bundle al cliente.
+//
+// ⚡ FEATURE BRANDING DEL CLIENTE (May 19 2026):
+// El sidebar ahora muestra el LOGO + NOMBRE DEL NEGOCIO del cliente
+// (no la marca VYLTA), para que sientan que el sistema es parte de su
+// negocio. La marca VYLTA se mueve a un footer discreto del sidebar.
+// Pasamos businessName + logoUrl al Sidebar para que los renderice.
 // ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
@@ -41,7 +47,7 @@ export default async function AppLayout({
 
   const { data: profile } = await supabase
     .from('business_profiles')
-    .select('business_name, owner_name')
+    .select('business_name, owner_name, logo_url')
     .eq('user_id', user.id)
     .maybeSingle();
 
@@ -52,12 +58,16 @@ export default async function AppLayout({
     user.email?.split('@')[0] ||
     'Usuario';
 
+  // Datos del branding para pasar al Sidebar
+  const businessName = profile?.business_name || null;
+  const logoUrl = profile?.logo_url || null;
+
   return (
     <QueryProvider>
       <div className="flex h-screen overflow-hidden bg-background">
         <RouteTransition />
 
-        <Sidebar />
+        <Sidebar businessName={businessName} logoUrl={logoUrl} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar
             user={{
