@@ -4,28 +4,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
 import { MapPin, Search, Maximize2, X, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═══════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v7 — Auto-refresh via TanStack Query polling, May 23 2026)
+// MexicoHeatmap (v8 — Tooltip ⓘ explicativo, May 23 2026)
 //
-// CAMBIOS EN v7:
-//   • Removida la subscripcion de Supabase Realtime a business_profiles.
-//   • Razon: el WAL polling de Realtime consumia ~557K queries en 24h y
-//     estaba saturando el Disk IO Budget del plan Free de Supabase.
-//   • El dashboard ahora usa polling cada 60s via TanStack Query
-//     (refetchInterval en useAdminDashboard). Tradeoff: hasta 60s de
-//     delay para ver un nuevo registro/eliminacion, pero cero consumo
-//     de WAL.
-//   • Removidos: pulses dorado/rojo, toasts "✨ Nuevo negocio en X",
-//     contadores addedCount/removedCount, prop onNewBusiness.
-//   • Mantenido: TODO el render visual del mapa, top 5, leyenda, expand.
-//   • Cambiado indicador del header: "Tiempo real" → "Auto-refresh 60s"
-//     para reflejar la realidad sin engañar al admin.
+// CAMBIOS EN v8:
+//   • Agregado tooltip DashboardInfo junto al titulo "Presencia nacional"
+//     y junto al subtitulo "Top 5 estados" para que Hugo y futuros admins
+//     entiendan el mapa de calor sin preguntar.
+//   • Sin cambios visuales en el mapa, leyenda ni modal expandido.
 //
-// HISTORIAL DE VERSIONES:
-//   • v6 (May 23 2026): INSERT + UPDATE + DELETE realtime con pulses
-//     diferenciados (dorado/rojo) y toasts personalizados. DEPRECATED.
-//   • v5 (May 22 2026): INSERT + UPDATE realtime. DEPRECATED.
+// HISTORIAL:
+//   v7 (May 23 2026): Removida la subscripcion de Supabase Realtime,
+//   polling cada 60s via TanStack Query.
 // ═══════════════════════════════════════════════════════════════════════
 
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
@@ -54,14 +46,10 @@ interface MexicoHeatmapProps {
   onStateClick?: (stateName: string) => void;
   /**
    * @deprecated v7 (May 23 2026): removida la suscripcion realtime.
-   * El refresh ahora viene de TanStack Query polling cada 60s.
-   * Se mantiene el prop como no-op para compatibilidad con app/admin/page.tsx
-   * mientras se hace el cleanup ahi.
    */
   onNewBusiness?: () => void;
 }
 
-// Esquema semaforizado solicitado por Antonio: gris/verde/amarillo/naranja/rojo
 function getHeatColor(count: number): {
   fill: string;
   stroke: string;
@@ -113,7 +101,6 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
     [data]
   );
 
-  // ESC para cerrar modal
   useEffect(() => {
     if (!isExpanded) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -220,6 +207,16 @@ function MapContent({
           <h3 className={cn('font-bold text-vylta-bone', isExpanded ? 'text-xl' : 'text-base')}>
             Presencia nacional
           </h3>
+          <DashboardInfo
+            title="Presencia nacional (mapa de calor)"
+            description="Mapa que muestra en qué estados de México tenemos negocios registrados. Los colores van de verde claro (pocos negocios) a rojo (muchos)."
+            metrics={[
+              { label: 'Hover sobre un estado', meaning: 'Te muestra el nombre, total de negocios, y cuántos se sumaron en los últimos 30 y 7 días.' },
+              { label: 'Top 5 estados', meaning: 'Lista de los 5 estados con más negocios y su porcentaje del total nacional.' },
+              { label: 'Densidad por estado', meaning: 'Leyenda con los rangos de colores: verde (1-5), amarillo (6-15), naranja (16-50), rojo (50+).' },
+            ]}
+            whyMatters="Nos dice dónde enfocar la publicidad. Si un estado está 'creciendo rápido', vale la pena meterle más marketing ahí. También nos muestra qué regiones todavía no conocemos."
+          />
           {/* v7: indicador honesto del modo de actualizacion */}
           <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.18em] text-vylta-gold/70 ml-2">
             <span className="relative flex h-1.5 w-1.5">
