@@ -2,27 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
-import { MapPin, Search, Maximize2, X, TrendingUp, Sparkles } from 'lucide-react';
+import { MapPin, Search, Maximize2, X, TrendingUp, Sparkles, UserMinus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
 // ═══════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v5 — Realtime pulse INSERT + UPDATE May 23 2026)
+// MexicoHeatmap (v6 — Realtime INSERT + UPDATE + DELETE May 23 2026)
 //
-// CAMBIOS EN v5:
-//   • Antes solo escuchaba INSERT en business_profiles.
-//   • Problema: el wizard de onboarding crea el row en el Paso 1 (negocio)
-//     y luego hace UPSERT en el Paso 2 (ubicacion). Como ya existe el row,
-//     el evento que dispara Postgres es UPDATE, no INSERT. Por eso el
-//     pulse nunca aparecia para usuarios nuevos del wizard.
-//   • Solucion: escuchar ambos eventos con `event: '*'` y detectar si el
-//     `state` cambio efectivamente (de NULL/vacio a un valor real, o de
-//     un valor a otro distinto). Asi cubrimos:
-//       a. Negocios nuevos que se crean con state directo (INSERT con state)
-//       b. Negocios que se crean sin state y luego se actualizan (UPDATE
-//          del Paso 2 del wizard)
-//       c. Usuarios existentes que cambian su ubicacion desde Mi Negocio
+// CAMBIOS EN v6:
+//   • v5 escuchaba INSERT y UPDATE pero IGNORABA DELETE explicitamente.
+//   • Antonio reporto: "cuando un usuario nuevo se crea, ahi si
+//     inmediatamente lo refleja en el mapa, pero si un usuario elimina su
+//     cuenta, no se refleja, tengo que utilizar la opcion de actualizar
+//     del CRM-web para que ahora si se vea como se desaparece"
+//   • Fix: manejar DELETE con un pulse visualmente distinto (rojo en lugar
+//     de dorado) por 10 segundos, mas toast "🗑️ Negocio eliminado de X"
+//     mas trigger del callback onNewBusiness para invalidar el cache.
+//   • REQUIERE: REPLICA IDENTITY FULL en business_profiles (ya configurado
+//     por Antonio en sesion anterior) para que payload.old traiga el state
+//     del row eliminado, no solo el id.
 // ═══════════════════════════════════════════════════════════════════════
 
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
@@ -49,7 +48,7 @@ export interface StateDataPoint {
 interface MexicoHeatmapProps {
   data: StateDataPoint[];
   onStateClick?: (stateName: string) => void;
-  /** Callback opcional cuando llega un nuevo negocio vía realtime — útil para invalidar caches */
+  /** Callback opcional cuando llega un nuevo negocio o se elimina uno vía realtime */
   onNewBusiness?: () => void;
 }
 
@@ -84,13 +83,16 @@ const LEGEND: { label: string; color: string; glow: boolean; range: string }[] =
   { label: 'Sin presencia', color: '#1F2937', glow: false, range: '0' },
 ];
 
+// ⚡ v6: Tipo de pulse — distinguimos entre "agregado/actualizado" y "eliminado"
+type PulseKind = 'added' | 'removed';
+
 export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatmapProps) {
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // ⚡ PULSE STATES: Set de nombres de estados que están parpadeando ahora
-  const [pulsingStates, setPulsingStates] = useState<Set<string>>(new Set());
+  // ⚡ PULSE STATES (v6): Map de estado → tipo de pulse para distinguir agregado vs eliminado
+  const [pulsingStates, setPulsingStates] = useState<Map<string, PulseKind>>(new Map());
   // Mantenemos un ref para que el subscriber siempre acceda a la versión más reciente
   const onNewBusinessRef = useRef(onNewBusiness);
   useEffect(() => { onNewBusinessRef.current = onNewBusiness; }, [onNewBusiness]);
@@ -112,19 +114,26 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
   );
 
   // ═══════════════════════════════════════════════════════════════════════
-  // SUPABASE REALTIME (v5): detectar nuevos negocios Y cambios de ubicacion
+  // SUPABASE REALTIME (v6): INSERT + UPDATE + DELETE
   //
-  // ANTES (v4): solo escuchaba INSERT. Eso fallaba para el wizard de
-  // onboarding porque crea el row en Paso 1 y hace UPSERT (=UPDATE) en
-  // Paso 2 con la ubicacion. El evento que llegaba era UPDATE, no INSERT,
-  // asi que el pulse nunca aparecia.
+  // Tres flujos manejados:
   //
-  // AHORA (v5): escucha `event: '*'` (INSERT + UPDATE + DELETE).
-  // Filtramos en el handler:
-  //   - INSERT con state lleno  → pulse + toast "Nuevo negocio en X"
-  //   - UPDATE donde state cambio de NULL/vacio a un valor  → mismo pulse
-  //   - UPDATE donde state cambio de un valor X a un valor Y  → pulse en Y
-  //   - DELETE  → ignorar (no es relevante para el dashboard live)
+  //   1. INSERT (nuevo negocio creado con state):
+  //      → pulse dorado en el estado por 10s
+  //      → toast "✨ Nuevo negocio en X"
+  //      → invalida cache del dashboard
+  //
+  //   2. UPDATE (cambio en business_profiles):
+  //      → si el state cambio → pulse dorado en el estado nuevo + invalida cache
+  //      → si solo cambio otro campo (logo, telefono) → ignorar
+  //
+  //   3. DELETE (cuenta eliminada / negocio borrado):
+  //      → pulse ROJO en el estado donde estaba el negocio
+  //      → toast "🗑️ Negocio eliminado de X"
+  //      → invalida cache del dashboard para que se actualice el contador
+  //
+  // REQUERIMIENTO: business_profiles debe tener REPLICA IDENTITY FULL
+  // (ya configurado en sesion anterior) para que payload.old traiga el state.
   // ═══════════════════════════════════════════════════════════════════════
   useEffect(() => {
     const supabase = createClient();
@@ -138,18 +147,61 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
           table: 'business_profiles',
         },
         (payload) => {
-          // Solo nos interesan eventos INSERT y UPDATE
-          if (payload.eventType !== 'INSERT' && payload.eventType !== 'UPDATE') return;
-
           const newRow = payload.new as { state?: string; business_name?: string };
-          const oldRow = payload.old as { state?: string };
+          const oldRow = payload.old as { state?: string; business_name?: string };
+
+          // ═══ MANEJO DE DELETE ═══
+          if (payload.eventType === 'DELETE') {
+            // Si REPLICA IDENTITY FULL esta configurado, oldRow trae todos los campos viejos.
+            // Si no esta configurado, oldRow solo trae el id. En ese caso, no podemos
+            // saber en que estado parpadear, pero AUN asi invalidamos el cache para que
+            // el conteo del dashboard se actualice.
+            if (!oldRow?.state) {
+              // No tenemos info del estado eliminado, solo invalidar cache.
+              onNewBusinessRef.current?.();
+              toast.info('🗑️ Un negocio fue eliminado', {
+                description: 'El conteo del dashboard se actualizó',
+                duration: 6000,
+              });
+              return;
+            }
+
+            const stateName = normalizeStateName(oldRow.state);
+
+            // Pulse rojo en ese estado
+            setPulsingStates((prev) => {
+              const next = new Map(prev);
+              next.set(stateName, 'removed');
+              return next;
+            });
+
+            toast.error(`🗑️ Negocio eliminado de ${stateName}`, {
+              description: oldRow.business_name || 'Se eliminó un negocio de este estado',
+              duration: 8000,
+            });
+
+            // Invalidar cache del dashboard para actualizar conteos
+            onNewBusinessRef.current?.();
+
+            // Quitar el pulse después de 10 segundos
+            setTimeout(() => {
+              setPulsingStates((prev) => {
+                const next = new Map(prev);
+                next.delete(stateName);
+                return next;
+              });
+            }, 10_000);
+
+            return;
+          }
+
+          // ═══ MANEJO DE INSERT / UPDATE ═══
+          if (payload.eventType !== 'INSERT' && payload.eventType !== 'UPDATE') return;
 
           // Si el row nuevo no tiene state, no hay nada que mostrar en el mapa
           if (!newRow.state) return;
 
           // En UPDATE solo disparar pulse si el state cambio efectivamente.
-          // Esto evita pulses cuando se actualizan otros campos (logo, telefono)
-          // sin cambiar la ubicacion.
           if (payload.eventType === 'UPDATE') {
             const oldState = oldRow?.state || null;
             const newState = newRow.state || null;
@@ -158,14 +210,14 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
 
           const stateName = normalizeStateName(newRow.state);
 
-          // Añadir a pulsingStates
+          // Añadir a pulsingStates con kind 'added'
           setPulsingStates((prev) => {
-            const next = new Set(prev);
-            next.add(stateName);
+            const next = new Map(prev);
+            next.set(stateName, 'added');
             return next;
           });
 
-          // Toast notification — diferenciamos lenguaje segun tipo de evento
+          // Toast diferenciado segun tipo de evento
           const isNew = payload.eventType === 'INSERT' || !oldRow?.state;
           toast.success(
             isNew
@@ -183,7 +235,7 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
           // Quitar el pulse después de 10 segundos
           setTimeout(() => {
             setPulsingStates((prev) => {
-              const next = new Set(prev);
+              const next = new Map(prev);
               next.delete(stateName);
               return next;
             });
@@ -213,6 +265,16 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
 
   const hoveredData = hoveredState ? dataByState.get(hoveredState) : null;
 
+  // ⚡ v6: contadores de pulses para el header
+  const addedCount = useMemo(
+    () => Array.from(pulsingStates.values()).filter(k => k === 'added').length,
+    [pulsingStates]
+  );
+  const removedCount = useMemo(
+    () => Array.from(pulsingStates.values()).filter(k => k === 'removed').length,
+    [pulsingStates]
+  );
+
   return (
     <>
       <MapContent
@@ -229,6 +291,8 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
         onStateClick={onStateClick}
         onExpand={() => setIsExpanded(true)}
         pulsingStates={pulsingStates}
+        addedCount={addedCount}
+        removedCount={removedCount}
       />
 
       {isExpanded && (
@@ -262,15 +326,17 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
                 onStateClick={onStateClick}
                 onExpand={() => {}}
                 pulsingStates={pulsingStates}
+                addedCount={addedCount}
+                removedCount={removedCount}
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* CSS de la animación pulse — inline para no depender de tailwind config */}
+      {/* CSS de las animaciones de pulse — inline para no depender de tailwind config */}
       <style jsx global>{`
-        @keyframes vylta-state-pulse {
+        @keyframes vylta-state-pulse-added {
           0%, 100% {
             filter: drop-shadow(0 0 6px #FBBF24) drop-shadow(0 0 12px #F59E0B);
           }
@@ -278,8 +344,19 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
             filter: drop-shadow(0 0 16px #FBBF24) drop-shadow(0 0 30px #F59E0B);
           }
         }
-        .state-pulse path {
-          animation: vylta-state-pulse 0.8s ease-in-out infinite;
+        @keyframes vylta-state-pulse-removed {
+          0%, 100% {
+            filter: drop-shadow(0 0 6px #F87171) drop-shadow(0 0 12px #EF4444);
+          }
+          50% {
+            filter: drop-shadow(0 0 16px #F87171) drop-shadow(0 0 30px #EF4444);
+          }
+        }
+        .state-pulse-added path {
+          animation: vylta-state-pulse-added 0.8s ease-in-out infinite;
+        }
+        .state-pulse-removed path {
+          animation: vylta-state-pulse-removed 0.8s ease-in-out infinite;
         }
       `}</style>
     </>
@@ -300,6 +377,8 @@ function MapContent({
   onStateClick,
   onExpand,
   pulsingStates,
+  addedCount,
+  removedCount,
 }: {
   isExpanded: boolean;
   data: StateDataPoint[];
@@ -313,12 +392,14 @@ function MapContent({
   hoveredData: StateDataPoint | undefined | null;
   onStateClick?: (s: string) => void;
   onExpand: () => void;
-  pulsingStates: Set<string>;
+  pulsingStates: Map<string, PulseKind>;
+  addedCount: number;
+  removedCount: number;
 }) {
   return (
     <div className="relative">
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <MapPin className="h-5 w-5 text-vylta-gold" />
           <h3 className={cn('font-bold text-vylta-bone', isExpanded ? 'text-xl' : 'text-base')}>
             Presencia nacional
@@ -330,10 +411,16 @@ function MapContent({
             </span>
             Tiempo real
           </span>
-          {pulsingStates.size > 0 && (
+          {addedCount > 0 && (
             <span className="inline-flex items-center gap-1 text-xs font-bold text-vylta-gold animate-pulse">
               <Sparkles className="h-3.5 w-3.5" />
-              {pulsingStates.size} nuevo{pulsingStates.size > 1 ? 's' : ''}
+              {addedCount} nuevo{addedCount > 1 ? 's' : ''}
+            </span>
+          )}
+          {removedCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-vylta-rose animate-pulse">
+              <UserMinus className="h-3.5 w-3.5" />
+              {removedCount} eliminado{removedCount > 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -402,18 +489,30 @@ function MapContent({
                     const stateData = dataByState.get(stateName);
                     const count = stateData?.total_businesses || 0;
                     const heat = getHeatColor(count);
-                    const isPulsing = pulsingStates.has(stateName);
+                    const pulseKind = pulsingStates.get(stateName);
+                    const isPulsingAdded = pulseKind === 'added';
+                    const isPulsingRemoved = pulseKind === 'removed';
+                    const isPulsing = isPulsingAdded || isPulsingRemoved;
+
+                    // Color del pulse: dorado para agregados, rojo para eliminados
+                    const pulseFill = isPulsingAdded ? '#FBBF24' : isPulsingRemoved ? '#EF4444' : heat.fill;
+                    const pulseStroke = isPulsingAdded ? '#F59E0B' : isPulsingRemoved ? '#B91C1C' : heat.stroke;
+                    const pulseClassName = isPulsingAdded
+                      ? 'state-pulse-added'
+                      : isPulsingRemoved
+                        ? 'state-pulse-removed'
+                        : '';
 
                     return (
-                      <g key={geo.rsmKey} className={isPulsing ? 'state-pulse' : ''}>
+                      <g key={geo.rsmKey} className={pulseClassName}>
                         <Geography
                           geography={geo}
                           onMouseEnter={() => setHoveredState(stateName)}
                           onClick={() => onStateClick?.(stateName)}
                           style={{
                             default: {
-                              fill: isPulsing ? '#FBBF24' : heat.fill,
-                              stroke: isPulsing ? '#F59E0B' : heat.stroke,
+                              fill: isPulsing ? pulseFill : heat.fill,
+                              stroke: isPulsing ? pulseStroke : heat.stroke,
                               strokeWidth: isPulsing ? 2.5 : 0.6,
                               outline: 'none',
                               filter: !isPulsing && heat.glow
@@ -422,8 +521,8 @@ function MapContent({
                               transition: 'all 0.2s ease-out',
                             },
                             hover: {
-                              fill: isPulsing ? '#FBBF24' : heat.fill,
-                              stroke: '#FBBF24',
+                              fill: isPulsing ? pulseFill : heat.fill,
+                              stroke: isPulsingRemoved ? '#EF4444' : '#FBBF24',
                               strokeWidth: 2.2,
                               outline: 'none',
                               cursor: 'pointer',
