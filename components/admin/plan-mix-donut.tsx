@@ -2,12 +2,17 @@
 
 import { Gem, Crown, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═══════════════════════════════════════════════════════════════════════
 // PlanMixDonut — Donut chart de distribución de planes
 //
 // Muestra la proporcion de negocios en cada plan (Básico/Premium/Luxury).
 // SVG nativo — zero dependencies, performance perfecta.
+//
+// ⓘ ACTUALIZACIÓN (May 23 2026):
+// Agregado tooltip explicativo junto al titulo para que Hugo entienda
+// que es la distribucion de planes y por que importa.
 // ═══════════════════════════════════════════════════════════════════════
 
 interface PlanMixDonutProps {
@@ -38,12 +43,11 @@ export function PlanMixDonut({ premiumCount, luxuryCount, basicoCount }: PlanMix
     { label: 'Luxury',  count: luxuryCount,  color: '#A78BFA', icon: Crown, price: 799 },
   ];
 
-  // Calcular angulos para cada segmento
   const radius = 60;
   const innerRadius = 40;
   const center = 75;
 
-  let currentAngle = -Math.PI / 2; // start at top
+  let currentAngle = -Math.PI / 2;
   const paths = segments.map((seg) => {
     const pct = seg.count / total;
     const angle = pct * 2 * Math.PI;
@@ -78,8 +82,20 @@ export function PlanMixDonut({ premiumCount, luxuryCount, basicoCount }: PlanMix
     <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
       <div className="mb-4 flex items-center gap-2">
         <div className="w-0.5 h-10 rounded-full bg-vylta-gold" />
-        <div>
-          <h3 className="text-sm font-bold text-vylta-bone">Distribución de planes</h3>
+        <div className="flex-1">
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-sm font-bold text-vylta-bone">Distribución de planes</h3>
+            <DashboardInfo
+              title="Distribución de planes"
+              description="Gráfica circular que muestra qué porcentaje de los negocios está en cada plan: Básico (gratis), Premium o Luxury."
+              metrics={[
+                { label: 'Básico', meaning: 'Plan gratuito con funciones básicas. Hasta 10 citas/mes.' },
+                { label: 'Premium', meaning: 'Plan pagado a $399/mes. Citas ilimitadas + WhatsApp + reportes.' },
+                { label: 'Luxury', meaning: 'Plan premium a $799/mes. Todo lo de Premium + multi-staff + agente AI.' },
+              ]}
+              whyMatters="Nos dice si VYLTA está logrando que la gente pague. Lo ideal es que Premium y Luxury juntos sean más de la mitad. Si la mayoría está en gratis, hay que mejorar las razones para pagar."
+            />
+          </div>
           <p className="text-[11px] text-vylta-muted mt-0.5">{total} negocios en total</p>
         </div>
       </div>
@@ -98,7 +114,6 @@ export function PlanMixDonut({ premiumCount, luxuryCount, basicoCount }: PlanMix
                 style={{ filter: `drop-shadow(0 0 4px ${p.color}40)` }}
               />
             ))}
-            {/* Texto central con total */}
             <text x={75} y={70} textAnchor="middle" fontSize={20} fontWeight={800} fill="#F1F5F9">
               {total}
             </text>
