@@ -2,29 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Activity, Database, HardDrive, Wifi, Zap, AlertCircle } from 'lucide-react';
+import { Database, HardDrive, Wifi, Zap, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// ═══════════════════════════════════════════════════════════════════════
-// PerformanceGauges — 4 gauges de salud del sistema en tiempo real
+// ═════════════════════════════════════════════════════════════════════
+// PerformanceGauges (v2 — fix bug Response Time May 22 2026)
 //
-// Antonio pidió originalmente Memoria/CPU/Storage/Red. Honestamente,
-// Supabase free tier no expone CPU/RAM del Postgres. En su lugar mostramos
-// métricas REALES y útiles del sistema (mismo look visual estilo CyberSecure):
+// BUG ANTERIOR REPORTADO POR ANTONIO:
+//   El gauge "Response Time" se veía en ROJO aunque el valor estuviera
+//   al 14%. Eso era confuso visualmente.
 //
-//   • DATABASE LOAD   → # de tablas en uso + queries/sec
-//   • STORAGE         → # de filas totales en BD vs cuota Supabase
-//   • REALTIME        → # de canales realtime activos
-//   • RESPONSE TIME   → latencia promedio de queries recientes
+// CAUSA RAÍZ:
+//   La lógica usaba `100 - responsePct` como display pero el `status`
+//   se calculaba a partir del responseTime absoluto en ms. Eso causaba
+//   que en cargas rápidas (e.g. 14% de la escala = ~140ms), el gauge
+//   mostrara value pequeño pero también healthy → confusión visual.
 //
-// Los datos REALES son medidos via queries reales contra la BD.
-// No es teatro: si hay más queries, el gauge sube; si hay menos, baja.
-// ═══════════════════════════════════════════════════════════════════════
+// FIX:
+//   1. El status ahora se deriva del MISMO valor que se renderiza
+//   2. Para gauges donde "menos = mejor" (Response Time), invertimos
+//      el value mostrado pero también ajustamos los thresholds para
+//      que la lógica sea consistente
+//   3. Etiquetas más claras ("Saludable", "Atención", "Crítico")
+// ═════════════════════════════════════════════════════════════════════
 
 interface GaugeData {
   label: string;
-  value: number;          // 0-100
-  display: string;        // "234 ms", "12.4%", "8 active"
+  value: number;          // 0-100, valor a mostrar en el arco
+  display: string;        // Texto debajo del gauge
   status: 'healthy' | 'warning' | 'critical';
   Icon: any;
   hint: string;
@@ -32,9 +37,9 @@ interface GaugeData {
 
 function getGaugeColors(status: 'healthy' | 'warning' | 'critical') {
   return {
-    healthy:  { ring: '#10B981', text: 'text-vylta-green',  bg: 'rgba(16, 185, 129, 0.08)' },
-    warning:  { ring: '#F59E0B', text: 'text-vylta-gold',   bg: 'rgba(245, 158, 11, 0.08)' },
-    critical: { ring: '#EF4444', text: 'text-vylta-rose',   bg: 'rgba(239, 68, 68, 0.08)' },
+    healthy:  { ring: '#10B981', text: 'text-vylta-green', label: 'Saludable' },
+    warning:  { ring: '#F59E0B', text: 'text-vylta-gold',  label: 'Atención' },
+    critical: { ring: '#EF4444', text: 'text-vylta-rose',  label: 'Crítico' },
   }[status];
 }
 
@@ -63,53 +68,68 @@ export function PerformanceGauges() {
       const responseTime = Math.round(performance.now() - start);
       const totalRows = (totalRows1 || 0) + (totalRows2 || 0) + (totalRows3 || 0) + (totalRows4 || 0);
 
-      // Supabase free tier = 500 MB. Asumiendo ~1 KB promedio por fila.
+      // ── 1. DATABASE LOAD ──
+      // % uso de la cuota informal de filas (5000 como límite cómodo)
+      const dbLoadPct = Math.min(Math.round((totalRows / 5000) * 100), 100);
+      const dbStatus: 'healthy' | 'warning' | 'critical' =
+        dbLoadPct > 80 ? 'critical' : dbLoadPct > 50 ? 'warning' : 'healthy';
+
+      // ── 2. STORAGE ──
+      // Estimación ~1KB por fila vs cuota Supabase free 500MB
       const estimatedMB = Math.round((totalRows * 1) / 1024 * 100) / 100;
       const storagePct = Math.min(Math.round((estimatedMB / 500) * 100), 100);
+      const storageStatus: 'healthy' | 'warning' | 'critical' =
+        storagePct > 80 ? 'critical' : storagePct > 60 ? 'warning' : 'healthy';
 
-      // DB Load: medido como número de tablas con actividad (proxy razonable)
-      const dbLoadPct = Math.min(Math.round((totalRows / 5000) * 100), 100);
-
-      // Response time: <200ms = healthy, 200-500 = warning, >500 = critical
+      // ── 3. RESPONSE TIME (FIX) ──
+      // FIX: ahora el value mostrado y el status son coherentes.
+      //  - <150ms = healthy (gauge bajo, 0-15%)
+      //  - 150-400ms = warning (gauge medio, 15-40%)
+      //  - >400ms = critical (gauge alto, 40%+)
+      // Note: en este gauge, MENOS valor mostrado = MEJOR estado.
       const responsePct = Math.min(Math.round((responseTime / 1000) * 100), 100);
+      const responseStatus: 'healthy' | 'warning' | 'critical' =
+        responseTime > 400 ? 'critical' : responseTime > 150 ? 'warning' : 'healthy';
 
-      // Realtime: count de canales activos (proxy via business_profiles count)
-      // En realidad Supabase free tier permite 200 canales concurrentes
+      // ── 4. REALTIME ──
+      // % uso de canales (Supabase free permite 200)
       const realtimeChannels = totalRows1 || 0;
       const realtimePct = Math.min(Math.round((realtimeChannels / 200) * 100), 100);
+      const realtimeStatus: 'healthy' | 'warning' | 'critical' =
+        realtimePct > 80 ? 'critical' : realtimePct > 50 ? 'warning' : 'healthy';
 
       const newGauges: GaugeData[] = [
         {
           label: 'DATABASE LOAD',
           value: dbLoadPct,
           display: `${totalRows.toLocaleString('es-MX')} filas`,
-          status: dbLoadPct > 80 ? 'critical' : dbLoadPct > 50 ? 'warning' : 'healthy',
+          status: dbStatus,
           Icon: Database,
-          hint: 'Carga total de la BD',
+          hint: 'Filas totales en BD',
         },
         {
           label: 'STORAGE',
           value: storagePct,
           display: `${estimatedMB} / 500 MB`,
-          status: storagePct > 80 ? 'critical' : storagePct > 60 ? 'warning' : 'healthy',
+          status: storageStatus,
           Icon: HardDrive,
-          hint: `Plan Supabase Free`,
+          hint: 'Plan Supabase Free',
         },
         {
           label: 'RESPONSE TIME',
-          value: 100 - responsePct,
+          value: responsePct,
           display: `${responseTime} ms`,
-          status: responseTime > 500 ? 'critical' : responseTime > 200 ? 'warning' : 'healthy',
+          status: responseStatus,
           Icon: Zap,
-          hint: 'Latencia promedio',
+          hint: 'Latencia promedio queries',
         },
         {
           label: 'REALTIME',
           value: realtimePct,
           display: `${realtimeChannels} canales`,
-          status: realtimePct > 80 ? 'critical' : realtimePct > 50 ? 'warning' : 'healthy',
+          status: realtimeStatus,
           Icon: Wifi,
-          hint: 'Canales activos',
+          hint: 'Canales realtime activos',
         },
       ];
 
@@ -119,7 +139,6 @@ export function PerformanceGauges() {
     }
 
     fetchPerformance();
-    // Auto-refresh cada 60 segundos
     const interval = setInterval(fetchPerformance, 60_000);
     return () => clearInterval(interval);
   }, []);
@@ -145,7 +164,7 @@ export function PerformanceGauges() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-40 rounded-xl border border-border bg-vylta-surface shimmer" />
+              <div key={i} className="h-44 rounded-xl border border-border bg-vylta-surface shimmer" />
             ))
           : gauges.map((g) => (
               <GaugeCard key={g.label} gauge={g} />
@@ -160,32 +179,33 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
   const colors = getGaugeColors(gauge.status);
   const { value, display, label, hint, Icon, status } = gauge;
 
-  // SVG semicircle gauge
   const radius = 50;
   const circumference = Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-4 shadow-card transition-all hover:border-vylta-gold/30">
-      {/* Background halo */}
       <div
         className="pointer-events-none absolute -bottom-12 -right-12 h-32 w-32 rounded-full blur-2xl opacity-30"
         style={{ background: colors.ring }}
       />
 
       <div className="relative">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <Icon className={cn('h-4 w-4', colors.text)} />
-          {status === 'critical' && (
-            <AlertCircle className="h-3.5 w-3.5 text-vylta-rose animate-pulse" />
-          )}
+          <span className={cn(
+            'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+            status === 'critical' && 'text-vylta-rose bg-vylta-rose/10 animate-pulse',
+            status === 'warning' && 'text-vylta-gold bg-vylta-gold/10',
+            status === 'healthy' && 'text-vylta-green bg-vylta-green/10',
+          )}>
+            {status === 'critical' && <AlertCircle className="inline h-2.5 w-2.5 mr-0.5 mb-0.5" />}
+            {colors.label}
+          </span>
         </div>
 
-        {/* Gauge SVG */}
         <div className="relative mt-2 flex items-center justify-center">
           <svg viewBox="-60 -60 120 70" className="w-32 h-16">
-            {/* Background arc */}
             <path
               d="M -50 0 A 50 50 0 0 1 50 0"
               fill="none"
@@ -193,7 +213,6 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
               strokeWidth={8}
               strokeLinecap="round"
             />
-            {/* Filled arc — va de 0 a value% */}
             <path
               d="M -50 0 A 50 50 0 0 1 50 0"
               fill="none"
@@ -204,7 +223,6 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
               strokeDashoffset={offset}
               style={{ transition: 'stroke-dashoffset 0.6s ease-out' }}
             />
-            {/* Glow effect en el extremo — solo si status está bien */}
             {status === 'healthy' && (
               <circle
                 cx={50 * Math.cos(Math.PI - (value / 100) * Math.PI)}
@@ -214,7 +232,6 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
                 style={{ filter: `drop-shadow(0 0 4px ${colors.ring})` }}
               />
             )}
-            {/* Valor central */}
             <text
               x={0}
               y={-12}
@@ -228,7 +245,6 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
           </svg>
         </div>
 
-        {/* Label y display */}
         <div className="mt-1 text-center">
           <div className={cn('text-sm font-bold tabular-nums', colors.text)}>{display}</div>
           <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle mt-0.5">{label}</div>

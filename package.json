@@ -31,6 +31,7 @@
     "@tanstack/react-query-devtools": "^5.100.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-geo": "^3.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.460.0",
     "next": "^15.5.18",
@@ -38,6 +39,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.2",
+    "react-simple-maps": "^3.0.0",
     "recharts": "^2.13.3",
     "sonner": "^1.7.0",
     "tailwind-merge": "^2.5.4",
@@ -45,9 +47,11 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
     "@types/node": "^22.9.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/react-simple-maps": "^3.0.6",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.15.0",
     "eslint-config-next": "^15.5.18",
