@@ -9,22 +9,19 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═══════════════════════════════════════════════════════════════════════
 // UserSupportPanel — Soporte rapido a usuarios desde el Control Center
 //
 // PERMITE AL ADMIN:
-//   1. Buscar a un usuario por email (autocomplete)
-//   2. Ver detalles basicos: negocio, plan, ultima sesion
-//   3. Acciones rapidas:
-//      • Resetear password (dispara email de Supabase)
-//      • Contactar via email
-//      • Acceder al detalle completo del tenant
+//   1. Buscar a un usuario por email/nombre de negocio
+//   2. Resetear password (dispara email de Supabase)
+//   3. Acceder al detalle completo del tenant
 //
-// IMPLEMENTACION INICIAL:
-//   El reset de password usa supabase.auth.resetPasswordForEmail() que
-//   funciona desde el cliente. Para acciones mas sensibles (suspender,
-//   eliminar) se necesitan Edge Functions admin-only (Fase 3-2).
+// ⓘ ACTUALIZACIÓN (May 23 2026):
+// Agregado DashboardInfo al titulo "Soporte a usuarios" para que Hugo
+// entienda que se puede hacer desde este panel.
 // ═══════════════════════════════════════════════════════════════════════
 
 interface SearchResult {
@@ -42,13 +39,6 @@ async function searchUsers(query: string): Promise<SearchResult[]> {
 
   const supabase = createClient();
 
-  // Buscar en business_profiles join con auth (via RPC o vista admin)
-  // Como auth.users no es accesible directo, usamos business_profiles
-  // que tiene business_name y user_id. Para email necesitamos un RPC
-  // admin que lea de auth.users con SECURITY DEFINER.
-  //
-  // Implementacion inicial: buscar por business_name (que el admin
-  // suele conocer del usuario que reporta el ticket).
   const { data, error } = await supabase
     .from('business_profiles')
     .select('user_id, business_name, state, city')
@@ -62,7 +52,7 @@ async function searchUsers(query: string): Promise<SearchResult[]> {
 
   return (data || []).map(r => ({
     user_id: r.user_id,
-    email: '—',           // sin acceso directo a auth.users desde el cliente
+    email: '—',
     business_name: r.business_name,
     plan_type: null,
     last_sign_in_at: null,
@@ -111,6 +101,15 @@ export function UserSupportPanel() {
         <h2 className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-muted">
           Soporte a usuarios
         </h2>
+        <DashboardInfo
+          title="Soporte a usuarios"
+          description="Panel para ayudar a los usuarios cuando reportan problemas. Buscas el negocio por nombre y le mandas un reset de contraseña, todo sin salir del CRM."
+          metrics={[
+            { label: 'Buscar negocio', meaning: 'Escribes el nombre del negocio (mínimo 3 letras) y aparecen los que coinciden, con su ciudad y estado.' },
+            { label: 'Reset de contraseña', meaning: 'Captura el email del usuario y le llega un link para crear nueva contraseña. El link dura 60 minutos.' },
+          ]}
+          whyMatters="Es la forma rápida de resolver el problema más común que reporta cualquier usuario: 'olvidé mi contraseña'. En lugar de mandarlos a un formulario externo, se lo resolvemos en segundos."
+        />
         <div className="h-px flex-1 bg-border" />
       </div>
 
