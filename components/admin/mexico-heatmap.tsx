@@ -6,34 +6,40 @@ import { MapPin, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ═════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v2 PROFESIONAL — May 22 2026)
+// MexicoHeatmap (v2.1 PROFESIONAL — May 22 2026)
 //
-// REEMPLAZO de la versión SVG manual anterior. Usa react-simple-maps
-// con TopoJSON oficial INEGI de los 32 estados de México.
+// Usa react-simple-maps con GeoJSON oficial de los 32 estados de México.
 //
-// MEJORAS vs v1:
-//   • Geometría REAL (cada estado se ve como en Google Maps)
-//   • Proyección geographic correcta (Albers México)
-//   • Resolución alta sin pesar mucho (TopoJSON optimizado)
-//   • Hover state nativo con animaciones suaves
-//   • Layer system: base + heatmap + labels (separados)
+// ⚡ FIX CRÍTICO (May 22 2026 - v2.1):
+//   El bug "todos los estados en gris" se debía a que el código buscaba
+//   `geo.properties.name` o `geo.properties.NAME_1`, pero el GeoJSON que
+//   estamos usando expone los nombres en la propiedad `state_name`.
+//   Por eso ningún estado matcheaba en el dataByState y todo se pintaba
+//   como "Sin presencia" (gris).
 //
-// FUENTE TOPOJSON:
-//   Servido desde un CDN público (datasets.io) con la geometría
-//   oficial del INEGI. Caché del navegador 24h.
+// FUENTE GEOJSON:
+//   https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson
+//   Estructura confirmada:
+//     features[].properties = { id, state_code, state_name }
+//
+// NOMBRES VALIDADOS contra el GeoJSON real (32 estados):
+//   Distrito Federal, Guerrero, México, Morelos, Sinaloa, Baja California,
+//   Sonora, Baja California Sur, Zacatecas, Durango, Chihuahua, Colima,
+//   Nayarit, Michoacán de Ocampo, Jalisco, Chiapas, Tabasco, Oaxaca,
+//   Guanajuato, Aguascalientes, Querétaro, San Luis Potosí, Tlaxcala,
+//   Puebla, Hidalgo, Veracruz de Ignacio de la Llave, Nuevo León,
+//   Coahuila de Zaragoza, Tamaulipas, Yucatán, Campeche, Quintana Roo
 // ═════════════════════════════════════════════════════════════════════
 
-// TopoJSON público con los 32 estados de México (CDN unpkg)
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
 
-// Mapeo de nombres del GeoJSON ↔ nombres en nuestra BD
-// El GeoJSON usa nombres oficiales en español; ajustamos los que
-// difieren para que el join funcione perfecto.
+// Mapeo de nombres del GeoJSON ↔ nombres en nuestra BD.
+// Los nombres oficiales largos los normalizamos al formato común de uso.
 const NAME_MAP: Record<string, string> = {
-  'México':                 'Estado de México',
-  'Distrito Federal':       'Ciudad de México',
-  'Coahuila de Zaragoza':   'Coahuila',
-  'Michoacán de Ocampo':    'Michoacán',
+  'México':                          'Estado de México',
+  'Distrito Federal':                'Ciudad de México',
+  'Coahuila de Zaragoza':            'Coahuila',
+  'Michoacán de Ocampo':             'Michoacán',
   'Veracruz de Ignacio de la Llave': 'Veracruz',
 };
 
@@ -53,17 +59,15 @@ interface MexicoHeatmapProps {
   onStateClick?: (stateName: string) => void;
 }
 
-// Color scale por densidad de negocios.
 function getHeatColor(count: number, maxCount: number): {
   fill: string;
   stroke: string;
-  intensity: number; // 0-1 para opacity overlay
+  intensity: number;
   label: string;
 } {
   if (count === 0) {
     return { fill: '#0F1424', stroke: '#1F2937', intensity: 0, label: 'Sin presencia' };
   }
-  // Calculamos la intensidad relativa al max del país (no a un valor fijo)
   const intensity = Math.min(count / Math.max(maxCount, 5), 1);
 
   if (intensity < 0.25) return { fill: '#064E3B', stroke: '#065F46', intensity, label: 'Baja' };
@@ -101,7 +105,6 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
 
   return (
     <div className="relative">
-      {/* Stats globales arriba */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MapPin className="h-4 w-4 text-vylta-gold" />
@@ -139,7 +142,6 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
             setMousePos(null);
           }}
         >
-          {/* Halos decorativos */}
           <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.04]" />
           <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-green/8 blur-[100px]" />
           <div className="pointer-events-none absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
@@ -158,12 +160,17 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
               <Geographies geography={MEXICO_TOPO_JSON}>
                 {({ geographies }: { geographies: any[] }) =>
                   geographies.map((geo) => {
-                    const rawName = geo.properties.name || geo.properties.NAME_1 || '';
+                    // ⚡ FIX v2.1: el GeoJSON expone los nombres en `state_name`,
+                    // NO en `name` ni `NAME_1`. Por eso antes todo salía gris.
+                    const rawName =
+                      geo.properties.state_name ||
+                      geo.properties.name ||
+                      geo.properties.NAME_1 ||
+                      '';
                     const stateName = normalizeStateName(rawName);
                     const stateData = dataByState.get(stateName);
                     const count = stateData?.total_businesses || 0;
                     const heat = getHeatColor(count, maxCount);
-                    const isHovered = hoveredState === stateName;
 
                     return (
                       <Geography
@@ -203,7 +210,6 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
             </ComposableMap>
           </div>
 
-          {/* Tooltip flotante */}
           {hoveredState && mousePos && (
             <div
               className="pointer-events-none absolute z-10 rounded-lg border border-vylta-gold/40 bg-vylta-card/95 px-3 py-2 shadow-card-lg backdrop-blur-sm"
@@ -239,9 +245,7 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
           )}
         </div>
 
-        {/* Panel lateral */}
         <div className="flex flex-col gap-4">
-          {/* Top 5 */}
           <div className="rounded-xl border border-border bg-vylta-surface p-4">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted mb-3 flex items-center gap-1.5">
               <Search className="h-3 w-3" />
@@ -280,7 +284,6 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
             )}
           </div>
 
-          {/* Leyenda de densidad */}
           <div className="rounded-xl border border-border bg-vylta-surface p-4">
             <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted mb-3">
               Densidad
