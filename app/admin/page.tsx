@@ -22,24 +22,25 @@ import {
 import { cn } from '@/lib/utils';
 import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
 import { MexicoHeatmap } from '@/components/admin/mexico-heatmap';
+import { PerformanceGauges } from '@/components/admin/performance-gauges';
+import { VendorPaymentsTable } from '@/components/admin/vendor-payments-table';
+import { PlanMixDonut } from '@/components/admin/plan-mix-donut';
+import { UserSupportPanel } from '@/components/admin/user-support-panel';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center Dashboard — VYLTA Admin (REDISEÑADO May 22 2026)
+// Control Center Dashboard — VYLTA Admin (FASE 2 COMPLETA May 22 2026)
 //
-// Estilo: "CyberSecure" — dashboard ejecutivo de alto valor con:
-//   • KPI grid superior con metricas globales del negocio
-//   • Mapa de calor interactivo de la Republica Mexicana
-//   • Hero MRR con detalles de planes
-//   • Charts de actividad reciente
-//   • Quick actions a las secciones admin
-//
-// ESTRUCTURA VISUAL:
-//   1. Header con "live" indicator + boton de refresh
+// ESTRUCTURA VISUAL (de arriba hacia abajo):
+//   1. Header con live indicator + boton refresh
 //   2. KPI top: 4 metricas core (Clientes, Suscriptores, Citas 14d, Nuevos)
-//   3. Hero MRR: numero grande + breakdown de planes
-//   4. MAPA DE MÉXICO HEATMAP — signature feature
-//   5. Charts: serie 14d citas + serie 8 semanas negocios
-//   6. Quick actions: links a secciones admin
+//   3. MAPA DE MÉXICO HEATMAP — signature feature
+//   4. Performance gauges (4): DB Load, Storage, Response Time, Realtime
+//   5. Hero MRR + breakdown de planes
+//   6. Plan Mix Donut + Indicadores operacionales
+//   7. Charts: 14d citas + 8 semanas negocios
+//   8. Pagos a proveedores (tabla)
+//   9. Soporte a usuarios (buscar + reset password)
+//   10. Quick actions a secciones admin
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
@@ -67,7 +68,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-7 animate-fade-in">
-      {/* ═══ HEADER CON LIVE INDICATOR ═══ */}
+      {/* HEADER */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -94,58 +95,36 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* ═══ 4 KPIs CORE (lo que pidió Antonio) ═══ */}
+      {/* 4 KPIs CORE */}
       <section>
         <SectionHeader label="Vista global del negocio" />
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <KpiCard
-            label="Clientes"
-            value={data.totalClients}
-            hint="Capturados en VYLTA"
-            Icon={Users}
-            accent="green"
-          />
-          <KpiCard
-            label="Suscriptores"
-            value={data.activeSubscribers}
-            hint="Planes pagados activos"
-            Icon={Sparkles}
-            accent="gold"
-            pulse
-          />
-          <KpiCard
-            label="Citas 14d"
-            value={data.last14DaysAppointments}
-            hint="Últimos 14 días"
-            Icon={CalendarCheck}
-            accent="luxury"
-          />
-          <KpiCard
-            label="Nuevos"
-            value={`+${data.newBusinessesThisWeek}`}
-            hint="Negocios esta semana"
-            Icon={UserPlus}
-            accent="blue"
-            pulse={data.newBusinessesThisWeek > 0}
-          />
+          <KpiCard label="Clientes" value={data.totalClients} hint="Capturados en VYLTA" Icon={Users} accent="green" />
+          <KpiCard label="Suscriptores" value={data.activeSubscribers} hint="Planes pagados activos" Icon={Sparkles} accent="gold" pulse />
+          <KpiCard label="Citas 14d" value={data.last14DaysAppointments} hint="Últimos 14 días" Icon={CalendarCheck} accent="luxury" />
+          <KpiCard label="Nuevos" value={`+${data.newBusinessesThisWeek}`} hint="Negocios esta semana" Icon={UserPlus} accent="blue" pulse={data.newBusinessesThisWeek > 0} />
         </div>
       </section>
 
-      {/* ═══ MAPA DE CALOR DE MÉXICO — signature feature ═══ */}
+      {/* MAPA DE MÉXICO */}
       <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
         <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
         <div className="relative">
           <MexicoHeatmap
             data={data.stateData}
             onStateClick={(state) => {
-              // Drill-down futuro: navegar a /admin/tenants?state=<state>
               console.log('[ControlCenter] Click en estado:', state);
             }}
           />
         </div>
       </section>
 
-      {/* ═══ MRR HERO ═══ */}
+      {/* PERFORMANCE GAUGES — NUEVO Fase 2 */}
+      <section>
+        <PerformanceGauges />
+      </section>
+
+      {/* MRR HERO */}
       <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
         <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
         <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.08]" />
@@ -178,18 +157,22 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* ═══ INDICADORES SECUNDARIOS ═══ */}
-      <section>
-        <SectionHeader label="Indicadores operacionales" />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <KpiCard label="Negocios totales" value={data.totalTenants} hint="Registrados en VYLTA" Icon={Building2} accent="green" href="/admin/tenants" />
+      {/* PLAN MIX DONUT + INDICADORES OPERACIONALES */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <PlanMixDonut
+          premiumCount={data.basicCount}
+          luxuryCount={data.premiumCount}
+          basicoCount={data.gratuitoCount}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <KpiCard label="Negocios totales" value={data.totalTenants} hint="Registrados" Icon={Building2} accent="green" href="/admin/tenants" />
           <KpiCard label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
           <KpiCard label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
           <KpiCard label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
         </div>
-      </section>
+      </div>
 
-      {/* ═══ CHARTS ═══ */}
+      {/* CHARTS */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
           title="Citas últimos 14 días"
@@ -207,31 +190,23 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      {/* ═══ QUICK ACTIONS ═══ */}
+      {/* PAGOS A PROVEEDORES — NUEVO Fase 2 */}
+      <section>
+        <VendorPaymentsTable />
+      </section>
+
+      {/* SOPORTE A USUARIOS — NUEVO Fase 3 */}
+      <section>
+        <UserSupportPanel />
+      </section>
+
+      {/* QUICK ACTIONS */}
       <section>
         <SectionHeader label="Acciones rápidas" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <ActionCard
-            href="/admin/tenants"
-            Icon={Building2}
-            title="Negocios"
-            description="Ver y administrar todos los negocios registrados"
-            color="green"
-          />
-          <ActionCard
-            href="/admin/promo-codes"
-            Icon={Ticket}
-            title="Códigos promo"
-            description="Crear y administrar códigos de descuento"
-            color="gold"
-          />
-          <ActionCard
-            href="/admin/admins"
-            Icon={ShieldCheck}
-            title="Administradores"
-            description="Gestionar usuarios con acceso al Control Center"
-            color="luxury"
-          />
+          <ActionCard href="/admin/tenants" Icon={Building2} title="Negocios" description="Ver y administrar todos los negocios registrados" color="green" />
+          <ActionCard href="/admin/promo-codes" Icon={Ticket} title="Códigos promo" description="Crear y administrar códigos de descuento" color="gold" />
+          <ActionCard href="/admin/admins" Icon={ShieldCheck} title="Administradores" description="Gestionar usuarios con acceso al Control Center" color="luxury" />
         </div>
       </section>
     </div>
@@ -248,11 +223,7 @@ function SectionHeader({ label }: { label: string }) {
   );
 }
 
-function PlanCount({
-  label, count, price, color, Icon,
-}: {
-  label: string; count: number; price: number; color: string; Icon: any;
-}) {
+function PlanCount({ label, count, price, color, Icon }: { label: string; count: number; price: number; color: string; Icon: any; }) {
   return (
     <div className="text-center">
       <Icon className={cn('mx-auto h-4 w-4 mb-1.5', color)} />
@@ -268,13 +239,8 @@ function PlanCount({
 function KpiCard({
   label, value, hint, Icon, accent, pulse, href,
 }: {
-  label: string;
-  value: number | string;
-  hint: string;
-  Icon: any;
-  accent: 'green' | 'blue' | 'gold' | 'luxury';
-  pulse?: boolean;
-  href?: string;
+  label: string; value: number | string; hint: string; Icon: any;
+  accent: 'green' | 'blue' | 'gold' | 'luxury'; pulse?: boolean; href?: string;
 }) {
   const colorMap = {
     green: { text: 'text-vylta-green', halo: '#10B981' },
@@ -298,14 +264,8 @@ function KpiCard({
           <div className={cn('text-3xl font-bold tabular-nums tracking-tightest', colorMap.text)}>{value}</div>
           {pulse && (
             <span className="relative flex h-2 w-2 mt-2">
-              <span
-                className="absolute inset-0 animate-ping rounded-full opacity-50"
-                style={{ background: colorMap.halo }}
-              />
-              <span
-                className="relative inline-flex h-2 w-2 rounded-full"
-                style={{ background: colorMap.halo }}
-              />
+              <span className="absolute inset-0 animate-ping rounded-full opacity-50" style={{ background: colorMap.halo }} />
+              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: colorMap.halo }} />
             </span>
           )}
         </div>
@@ -322,9 +282,7 @@ function KpiCard({
   return href ? <Link href={href} prefetch>{inner}</Link> : inner;
 }
 
-function ChartCard({
-  title, subtitle, accentColor, data, gradientId,
-}: {
+function ChartCard({ title, subtitle, accentColor, data, gradientId }: {
   title: string; subtitle: string; accentColor: string;
   data: { label: string; value: number }[]; gradientId: string;
 }) {
@@ -383,9 +341,7 @@ function ChartCard({
   );
 }
 
-function ActionCard({
-  href, Icon, title, description, color,
-}: {
+function ActionCard({ href, Icon, title, description, color }: {
   href: string; Icon: any; title: string; description: string;
   color: 'green' | 'gold' | 'luxury';
 }) {
@@ -396,11 +352,7 @@ function ActionCard({
   }[color];
 
   return (
-    <Link
-      href={href}
-      prefetch
-      className={cn('group relative overflow-hidden rounded-xl border p-5 shadow-card transition-all hover:-translate-y-0.5', colorMap)}
-    >
+    <Link href={href} prefetch className={cn('group relative overflow-hidden rounded-xl border p-5 shadow-card transition-all hover:-translate-y-0.5', colorMap)}>
       <div className="flex items-start gap-3">
         <Icon className="h-6 w-6 shrink-0" strokeWidth={2} />
         <div className="flex-1">
