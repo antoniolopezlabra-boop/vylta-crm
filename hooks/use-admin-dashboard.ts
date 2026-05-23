@@ -14,6 +14,14 @@ import { createClient } from '@/lib/supabase/client';
 //   • newBusinessesThisWeek → negocios nuevos en los últimos 7 días
 //   • stateData → data agregada para el mapa de calor de México
 //
+// 🔒 ACTUALIZACIÓN SEGURIDAD (May 23 2026):
+// Reemplazada la view 'business_profiles_by_state' por la función RPC
+// 'get_business_profiles_by_state'. La view original tenia SECURITY DEFINER
+// con grants a anon, lo que permitia que cualquier visitante de la landing
+// (con anon key publica) pudiera consultar la distribucion geografica de
+// los negocios de VYLTA. La funcion RPC verifica internamente que el caller
+// esté en vylta_admins con is_active=true antes de devolver datos.
+//
 // OPTIMIZADO con TanStack Query:
 //   • Cache de 30s: volver al dashboard <30s = instantáneo
 //   • Stale-while-revalidate: hasta 5min muestra cache + refresca silente
@@ -90,8 +98,10 @@ async function fetchDashboardData(): Promise<DashboardData> {
     supabase.from('appointments').select('date').gte('date', fourteenAgoStr).order('date'),
     supabase.from('business_profiles').select('created_at').gte('created_at', fiftySixAgo.toISOString()).order('created_at'),
     supabase.rpc('get_all_subscription_plans'),
-    // ⚡ NEW: data del mapa de calor agregada por estado
-    supabase.from('business_profiles_by_state').select('*'),
+    // ⚡ 🔒 NEW (May 23 2026): data del mapa de calor agregada por estado.
+    // Antes: supabase.from('business_profiles_by_state').select('*') — view publica vulnerable.
+    // Ahora: RPC que verifica internamente vylta_admins.is_active=true.
+    supabase.rpc('get_business_profiles_by_state'),
   ]);
 
   if (plansError) console.error('[Admin Dashboard] Plans RPC error:', plansError);
