@@ -28,19 +28,17 @@ import { PlanMixDonut } from '@/components/admin/plan-mix-donut';
 import { UserSupportPanel } from '@/components/admin/user-support-panel';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center Dashboard — VYLTA Admin (FASE 2 COMPLETA May 22 2026)
+// Control Center Dashboard — VYLTA Admin (v3 May 22 2026)
 //
-// ESTRUCTURA VISUAL (de arriba hacia abajo):
-//   1. Header con live indicator + boton refresh
-//   2. KPI top: 4 metricas core (Clientes, Suscriptores, Citas 14d, Nuevos)
-//   3. MAPA DE MÉXICO HEATMAP — signature feature
-//   4. Performance gauges (4): DB Load, Storage, Response Time, Realtime
-//   5. Hero MRR + breakdown de planes
-//   6. Plan Mix Donut + Indicadores operacionales
-//   7. Charts: 14d citas + 8 semanas negocios
-//   8. Pagos a proveedores (tabla)
-//   9. Soporte a usuarios (buscar + reset password)
-//   10. Quick actions a secciones admin
+// ⚡ ACTUALIZACIÓN (May 22 2026 - v3):
+// Separados los KPIs "Clientes" en DOS distintos para evitar confusión:
+//   • NEGOCIOS         (17)  — business_profiles registrados
+//   • CLIENTES FINALES (37)  — personas registradas en tabla clients
+//
+// Antes había un solo KPI "Clientes" mostrando 37 que se confundía con
+// el listado de 17 negocios. Ahora son claramente diferentes:
+//   - Negocios = nuestros clientes (los que pagan VYLTA)
+//   - Clientes finales = clientes de nuestros clientes (los que reservan citas)
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
@@ -95,14 +93,48 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* 4 KPIs CORE */}
+      {/* 5 KPIs CORE — separados Negocios vs Clientes finales para claridad */}
       <section>
         <SectionHeader label="Vista global del negocio" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <KpiCard label="Clientes" value={data.totalClients} hint="Capturados en VYLTA" Icon={Users} accent="green" />
-          <KpiCard label="Suscriptores" value={data.activeSubscribers} hint="Planes pagados activos" Icon={Sparkles} accent="gold" pulse />
-          <KpiCard label="Citas 14d" value={data.last14DaysAppointments} hint="Últimos 14 días" Icon={CalendarCheck} accent="luxury" />
-          <KpiCard label="Nuevos" value={`+${data.newBusinessesThisWeek}`} hint="Negocios esta semana" Icon={UserPlus} accent="blue" pulse={data.newBusinessesThisWeek > 0} />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <KpiCard
+            label="Negocios"
+            value={data.totalTenants}
+            hint="Suscritos a VYLTA"
+            Icon={Building2}
+            accent="green"
+            href="/admin/tenants"
+          />
+          <KpiCard
+            label="Clientes finales"
+            value={data.totalClients}
+            hint="Capturados por negocios"
+            Icon={Users}
+            accent="luxury"
+          />
+          <KpiCard
+            label="Suscriptores"
+            value={data.activeSubscribers}
+            hint="Planes pagados activos"
+            Icon={Sparkles}
+            accent="gold"
+            pulse
+          />
+          <KpiCard
+            label="Citas 14d"
+            value={data.last14DaysAppointments}
+            hint="Últimos 14 días"
+            Icon={CalendarCheck}
+            accent="blue"
+          />
+          <KpiCard
+            label="Nuevos"
+            value={`+${data.newBusinessesThisWeek}`}
+            hint="Negocios esta semana"
+            Icon={UserPlus}
+            accent="gold"
+            pulse={data.newBusinessesThisWeek > 0}
+          />
         </div>
       </section>
 
@@ -119,7 +151,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* PERFORMANCE GAUGES — NUEVO Fase 2 */}
+      {/* PERFORMANCE GAUGES */}
       <section>
         <PerformanceGauges />
       </section>
@@ -157,15 +189,14 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* PLAN MIX DONUT + INDICADORES OPERACIONALES */}
+      {/* PLAN MIX DONUT + INDICADORES OPERACIONALES (sin "Negocios totales" porque ya está arriba) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <PlanMixDonut
           premiumCount={data.basicCount}
           luxuryCount={data.premiumCount}
           basicoCount={data.gratuitoCount}
         />
-        <div className="grid grid-cols-2 gap-3">
-          <KpiCard label="Negocios totales" value={data.totalTenants} hint="Registrados" Icon={Building2} accent="green" href="/admin/tenants" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <KpiCard label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
           <KpiCard label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
           <KpiCard label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
@@ -190,12 +221,12 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      {/* PAGOS A PROVEEDORES — NUEVO Fase 2 */}
+      {/* PAGOS A PROVEEDORES */}
       <section>
         <VendorPaymentsTable />
       </section>
 
-      {/* SOPORTE A USUARIOS — NUEVO Fase 3 */}
+      {/* SOPORTE A USUARIOS */}
       <section>
         <UserSupportPanel />
       </section>
@@ -360,7 +391,7 @@ function ActionCard({ href, Icon, title, description, color }: {
             <h3 className="text-sm font-bold">{title}</h3>
             <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />
           </div>
-          <p className="text-[11px] text-vylta-muted mt-1">{description}</p>
+          <p className="text-[11px] text-vylta-muted mt-1" >{description}</p>
         </div>
       </div>
     </Link>
