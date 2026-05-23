@@ -6,55 +6,101 @@
    VYLTA CRM — Sistema de diseño oficial (Brand Kit v1.0 · Mayo 2026)
 
    PALETA EXACTA según brand guidelines:
-     • Negro VYLTA  #0A0E1A → background principal
-     • Surface     #0F1424 → cards
-     • Card         #161B2E → cards elevados / popovers
-     • Verde VYLTA  #10B981 → acento principal (CTA, marca, éxito)
+     • Negro VYLTA  #0A0E1A → background principal (dark mode)
+     • Surface     #0F1424 → cards (dark mode)
+     • Card         #161B2E → cards elevados / popovers (dark mode)
+     • Verde VYLTA  #10B981 → acento principal (CTA, marca, éxito) — ambos modos
      • Verde claro  #3ECF8E → hover, highlights
      • Verde WA     #25D366 → SOLO íconos WhatsApp
      • Morado Luxury#A78BFA → SOLO plan Luxury
-     • Blanco hueso #F1F5F9 → texto principal
+     • Blanco hueso #F1F5F9 → texto principal (dark mode)
      • Texto muted  #94A3B8 → subtítulos, descripciones
      • Texto sutil  #64748B → labels, copy secundario
-     • Borde        #1F2937 → bordes sutiles
+     • Borde        #1F2937 → bordes sutiles (dark mode)
 
-   Dark mode permanente — la marca VYLTA es dark-first.
+   Dark mode es el default por marca (VYLTA es dark-first),
+   pero el usuario puede cambiar a light mode con el toggle del topbar.
    ══════════════════════════════════════════════════════════════════════ */
 
 @layer base {
+  /* ── LIGHT MODE (no es default pero está soportado) ──
+     Backgrounds claros, texto oscuro, manteniendo verde VYLTA como acento.
+     Diseñado para ser limpio, profesional y fácil de leer en oficinas
+     con buena luz. */
   :root {
-    /* Aunque solo soportemos dark, mantenemos las mismas variables.
-       Esto evita romper componentes que esperan estas keys.            */
+    /* Background principal — blanco puro para máximo contraste */
+    --background: 0 0% 100%;
+    /* Foreground = slate-900 #0F172A */
+    --foreground: 222 47% 11%;
 
-    /* Negro VYLTA #0A0E1A = hsl(225, 44%, 7%)  */
-    --background: 225 44% 7%;
-    /* Blanco hueso #F1F5F9 = hsl(210, 40%, 96%) */
-    --foreground: 210 40% 96%;
+    /* Cards — slate-50 #F8FAFC (sutil, no es blanco pero casi) */
+    --card: 210 40% 98%;
+    --card-foreground: 222 47% 11%;
 
-    /* Card sobre el background (Surface #0F1424 = hsl(226, 41%, 10%)) */
-    --card: 226 41% 10%;
-    --card-foreground: 210 40% 96%;
+    /* Popover — blanco para destacar sobre cards */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
 
-    /* Popover ligeramente más elevado (#161B2E = hsl(228, 35%, 14%)) */
-    --popover: 228 35% 14%;
-    --popover-foreground: 210 40% 96%;
-
-    /* Verde VYLTA #10B981 = hsl(160, 84%, 39%) */
+    /* Primary se MANTIENE — verde VYLTA es identidad de marca en ambos modos */
     --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
 
-    /* Secondary = surface + 1 paso (entre card y border) */
+    /* Secondary — slate-100 #F1F5F9 */
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    /* Muted — slate-100 background, slate-500 #64748B foreground */
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Destructive — red-500 #EF4444 */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders — slate-200 #E2E8F0 (sutil sobre blanco) */
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.75rem;
+
+    /* Modo claro del navegador (selects nativos, scrollbars del SO, etc) */
+    color-scheme: light;
+  }
+
+  /* ── DARK MODE (default brand-aligned) ──
+     Paleta original VYLTA dark-first. Esta era la única paleta que existía
+     antes; ahora coexiste con light. */
+  .dark {
+    /* Negro VYLTA #0A0E1A = hsl(225, 44%, 7%) */
+    --background: 225 44% 7%;
+    /* Blanco hueso #F1F5F9 */
+    --foreground: 210 40% 96%;
+
+    /* Surface #0F1424 = hsl(226, 41%, 10%) */
+    --card: 226 41% 10%;
+    --card-foreground: 210 40% 96%;
+
+    /* Card elevado #161B2E = hsl(228, 35%, 14%) */
+    --popover: 228 35% 14%;
+    --popover-foreground: 210 40% 96%;
+
+    /* Verde VYLTA — mismo valor que light (consistencia de marca) */
+    --primary: 160 84% 39%;
+    --primary-foreground: 0 0% 100%;
+
     --secondary: 226 30% 13%;
     --secondary-foreground: 210 40% 96%;
 
     --muted: 226 30% 13%;
-    /* Texto muted #94A3B8 = hsl(215, 20%, 65%) */
     --muted-foreground: 215 20% 65%;
 
     --accent: 160 84% 39%;
     --accent-foreground: 0 0% 100%;
 
-    /* Rojo destructive — sobrio sobre dark */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
@@ -63,30 +109,7 @@
     --input: 217 19% 17%;
     --ring: 160 84% 39%;
 
-    --radius: 0.75rem;
-  }
-
-  /* .dark hereda los mismos valores — ya somos dark-first */
-  .dark {
-    --background: 225 44% 7%;
-    --foreground: 210 40% 96%;
-    --card: 226 41% 10%;
-    --card-foreground: 210 40% 96%;
-    --popover: 228 35% 14%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 160 84% 39%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 226 30% 13%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 226 30% 13%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 160 84% 39%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217 19% 17%;
-    --input: 217 19% 17%;
-    --ring: 160 84% 39%;
+    color-scheme: dark;
   }
 }
 
@@ -98,22 +121,24 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /* Asegura que el navegador renderice tonalidades coherentes con dark */
-    color-scheme: dark;
   }
   body {
     @apply bg-background text-foreground font-sans;
     font-feature-settings: 'rlig' 1, 'calt' 1, 'ss01' 1;
+    background: hsl(var(--background));
+    background-attachment: fixed;
+  }
+
+  /* Halos decorativos VYLTA — solo visibles en dark (en light se verían sucios) */
+  .dark body {
     background:
-      /* Halo verde sutil arriba a la izquierda (signature VYLTA) */
       radial-gradient(ellipse 1200px 600px at 0% -10%, hsl(160 84% 39% / 0.08), transparent 60%),
-      /* Halo morado sutil abajo a la derecha (luxury accent) */
       radial-gradient(ellipse 800px 400px at 100% 110%, hsl(258 90% 76% / 0.05), transparent 60%),
       hsl(var(--background));
     background-attachment: fixed;
   }
 
-  /* Scrollbar custom estilo Linear/Vercel sobre dark */
+  /* Scrollbar custom — colores se adaptan automaticamente via tokens */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
@@ -128,13 +153,13 @@
     border: 2px solid transparent;
   }
 
-  /* Selección de texto — verde VYLTA */
+  /* Selección de texto — verde VYLTA en ambos modos */
   ::selection {
     background: hsl(160 84% 39% / 0.3);
-    color: hsl(210 40% 96%);
+    color: hsl(var(--foreground));
   }
 
-  /* Inputs con autofill — quitar el amarillo horrible de Chrome sobre dark */
+  /* Inputs con autofill — adaptados a ambos modos */
   input:-webkit-autofill,
   input:-webkit-autofill:hover,
   input:-webkit-autofill:focus,
@@ -143,6 +168,20 @@
     -webkit-box-shadow: 0 0 0 30px hsl(var(--card)) inset !important;
     -webkit-text-fill-color: hsl(var(--foreground)) !important;
     caret-color: hsl(var(--foreground));
+  }
+
+  /* Transicion suave al cambiar de tema (evita flash brusco) */
+  html,
+  html * {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+  }
+  /* PERO: no aplicar transicion en elementos interactivos para no
+     interferir con hover states que ya tienen sus propias transiciones. */
+  html *:hover,
+  html *:focus,
+  html button,
+  html a {
+    transition: none;
   }
 }
 
@@ -165,7 +204,7 @@
   /* ── Card elevado con borde sutil verde para hero/featured ── */
   .card-hero {
     background:
-      linear-gradient(135deg, hsl(var(--card)) 0%, hsl(226 35% 11%) 100%);
+      linear-gradient(135deg, hsl(var(--card)) 0%, hsl(var(--secondary)) 100%);
     border: 1px solid hsl(var(--border));
     box-shadow:
       0 1px 0 hsl(0 0% 100% / 0.04) inset,
@@ -231,32 +270,15 @@
   }
 
   /* ══════════════════════════════════════════════════════════════
-     ── NUEVA CITA — Animación de glow + ring + pulse (May 19 2026)
-     ──
-     ── Aplicada al recibir un INSERT en `appointments` via realtime.
-     ── Duración total: 8s sincronizada con NEW_APPT_TTL_MS del hook.
-     ──
-     ── Combina 3 efectos para máxima visibilidad sin ser molesta:
-     ──   1. Glow exterior verde pulsante (4 ciclos de 1.6s c/u)
-     ──   2. Border verde brillante que late
-     ──   3. Ring exterior que se expande y desvanece (señala atención)
-     ── ══════════════════════════════════════════════════════════════ */
+     NUEVA CITA — Animacion sin cambios (funciona en ambos modos)
+     ══════════════════════════════════════════════════════════════ */
   .animate-new-pulse {
-    /* Anclamos position relative para que ::before/::after se posicionen
-       desde la tarjeta. Si la tarjeta ya tiene position:absolute (como
-       AppointmentBlock en el grid de citas), el efecto sigue funcionando
-       porque no sobreescribimos el position aquí. */
     animation: vylta-new-glow 1.6s ease-in-out 0s 5;
-    /* z-index alto para que la tarjeta animada quede arriba del resto
-       y el ring no quede cortado por bloques vecinos. */
     z-index: 20 !important;
-    /* Borde verde brillante permanente durante la animación */
     box-shadow:
       0 0 0 2px hsl(160 84% 39% / 0.8),
       0 0 24px 4px hsl(160 84% 39% / 0.45);
   }
-
-  /* Pulse principal: glow exterior que late (4 ciclos × 1.6s = 6.4s) */
   @keyframes vylta-new-glow {
     0%   {
       box-shadow:
@@ -278,8 +300,6 @@
       filter: brightness(1);
     }
   }
-
-  /* Ring exterior que se expande — pseudo-elemento para no afectar layout */
   .animate-new-pulse::before {
     content: '';
     position: absolute;
@@ -291,17 +311,9 @@
     opacity: 0;
   }
   @keyframes vylta-new-ring {
-    0%   {
-      transform: scale(1);
-      opacity: 0.9;
-    }
-    100% {
-      transform: scale(1.25);
-      opacity: 0;
-    }
+    0%   { transform: scale(1); opacity: 0.9; }
+    100% { transform: scale(1.25); opacity: 0; }
   }
-
-  /* Badge "Nueva" en esquina superior derecha — aparece y se oculta */
   .animate-new-pulse::after {
     content: 'NUEVA';
     position: absolute;
@@ -328,19 +340,9 @@
     100% { transform: scale(0.8) translateY(-4px); opacity: 0; }
   }
 
-  /* Respeto a usuarios que prefieren menos movimiento (accesibilidad) */
   @media (prefers-reduced-motion: reduce) {
-    .animate-new-pulse {
-      animation: none;
-      box-shadow:
-        0 0 0 2px hsl(160 84% 39% / 0.8),
-        0 0 16px 2px hsl(160 84% 39% / 0.4);
-    }
+    .animate-new-pulse { animation: none; box-shadow: 0 0 0 2px hsl(160 84% 39% / 0.8), 0 0 16px 2px hsl(160 84% 39% / 0.4); }
     .animate-new-pulse::before { animation: none; opacity: 0; }
-    .animate-new-pulse::after {
-      animation: none;
-      opacity: 1;
-      transform: scale(1);
-    }
+    .animate-new-pulse::after { animation: none; opacity: 1; transform: scale(1); }
   }
 }

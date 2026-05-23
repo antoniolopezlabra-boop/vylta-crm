@@ -13,6 +13,11 @@ import './globals.css';
 //   500 Medium    → captions, labels
 //   600 SemiBold  → UI elements, botones, headings secundarios
 //   700 Bold      → display, headings principales
+//
+// THEME (May 22 2026):
+// El CRM Web ahora soporta light + dark mode. Dark sigue siendo el
+// default (alineado con brand kit), pero el usuario puede cambiar via
+// el toggle en el topbar. La preferencia se persiste en localStorage.
 // ══════════════════════════════════════════════════════════════════════
 const inter = Inter({
   subsets: ['latin'],
@@ -39,13 +44,12 @@ export const metadata: Metadata = {
     siteName: 'VYLTA',
   },
   robots: {
-    index: false, // CRM privado
+    index: false,
     follow: false,
   },
 };
 
 export const viewport: Viewport = {
-  // Theme color = Negro VYLTA oficial (#0A0E1A)
   themeColor: '#0A0E1A',
   width: 'device-width',
   initialScale: 1,
@@ -60,30 +64,22 @@ export default function RootLayout({
     <html
       lang="es-MX"
       suppressHydrationWarning
-      // Forzamos dark mode permanente para matchear identidad VYLTA dark-first.
-      // El `dark` aquí + `forcedTheme` en el provider hacen imposible que
-      // accidentalmente se renderice en light en SSR.
-      className={`${inter.variable} dark`}
-      style={{ colorScheme: 'dark' }}
+      className={inter.variable}
     >
       <body className="min-h-screen bg-background font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          forcedTheme="dark"
-          enableSystem={false}
+          enableSystem
           disableTransitionOnChange
         >
           {children}
           <Toaster
             position="top-right"
-            theme="dark"
+            theme="system"
             toastOptions={{
               style: {
                 fontFamily: 'var(--font-inter)',
-                background: 'hsl(228 35% 14%)',
-                border: '1px solid hsl(217 19% 17%)',
-                color: 'hsl(210 40% 96%)',
               },
             }}
           />

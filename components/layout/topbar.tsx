@@ -22,31 +22,16 @@ import {
 import { getInitials } from '@/lib/utils';
 import { toast } from 'sonner';
 import { CommandPalette } from './command-palette';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 // ══════════════════════════════════════════════════════════════════════
-// Topbar — búsqueda global (⌘K) + menú de usuario.
+// Topbar — búsqueda global (⌘K) + theme toggle + menú de usuario.
 //
-// ⚡ FIX (May 19 2026): los items "Mi perfil", "Configuración" y
-// "Ayuda" del avatar dropdown no navegaban al hacer click.
+// ⚡ FIX (May 19 2026): los items del avatar dropdown ahora usan onSelect
+// en lugar de onClick para que Radix navegue correctamente.
 //
-// CAUSA: Radix DropdownMenuItem dispara dos eventos relevantes:
-//   • onSelect: se ejecuta DESPUÉS del cierre del menú (lo que queremos)
-//   • onClick: corre ANTES del cierre, lo cual puede cancelar la
-//     navegación si el unmount del menú ocurre durante el push.
-//
-// SOLUCIÓN: usar onSelect en lugar de onClick. Es el patrón canónico
-// de Radix UI para acciones en items de menú.
-//
-// Ver: https://www.radix-ui.com/docs/primitives/components/dropdown-menu#item
-//
-// ⚡ UNIFICACIÓN MI PERFIL / CONFIGURACIÓN (May 19 2026):
-// Anteriormente "Mi perfil" y "Configuración" eran 2 items separados
-// pero ambos navegaban a /configuracion. El usuario lo reportó como
-// confuso. Se unificó en un solo item "Configuración" siguiendo el
-// patrón de UX moderna (Slack, Notion, Linear).
-//
-// La página /configuracion incluye perfil + cuenta + negocio +
-// suscripción, por lo que un único acceso es suficiente.
+// ⚡ THEME TOGGLE (May 22 2026): agregado <ThemeToggle /> entre Bell y
+// Avatar para permitir al usuario cambiar entre modo claro y oscuro.
 // ══════════════════════════════════════════════════════════════════════
 
 interface TopbarProps {
@@ -89,24 +74,27 @@ export function Topbar({ user }: TopbarProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-vylta-black/80 px-5 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-5 backdrop-blur-xl">
         {/* Search trigger — abre el command palette */}
         <button
           onClick={() => setPaletteOpen(true)}
           className="relative flex-1 max-w-md group"
         >
-          <div className="relative h-9 w-full rounded-lg border border-border bg-vylta-card/60 pl-9 pr-14 text-left transition-all hover:border-vylta-green/30">
+          <div className="relative h-9 w-full rounded-lg border border-border bg-card/60 pl-9 pr-14 text-left transition-all hover:border-vylta-green/30">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
             <span className="flex h-full items-center text-sm text-vylta-subtle">
               Buscar citas, clientes...
             </span>
-            <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden h-5 -translate-y-1/2 select-none items-center gap-0.5 rounded border border-border bg-vylta-surface px-1.5 font-mono text-[10px] font-semibold text-vylta-muted sm:inline-flex">
+            <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden h-5 -translate-y-1/2 select-none items-center gap-0.5 rounded border border-border bg-secondary px-1.5 font-mono text-[10px] font-semibold text-vylta-muted sm:inline-flex">
               ⌘K
             </kbd>
           </div>
         </button>
 
         <div className="flex-1" />
+
+        {/* ⚡ NEW (May 22 2026): Toggle de tema claro/oscuro */}
+        <ThemeToggle />
 
         <button
           className="relative flex h-9 w-9 items-center justify-center rounded-lg text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone"
@@ -128,7 +116,7 @@ export function Topbar({ user }: TopbarProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-60 bg-vylta-card border-border"
+            className="w-60 bg-popover border-border"
           >
             <div className="px-2 py-2.5">
               <div className="flex items-center gap-2.5">
@@ -138,7 +126,7 @@ export function Topbar({ user }: TopbarProps) {
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate text-vylta-bone">
+                  <div className="text-sm font-semibold truncate text-foreground">
                     {displayName}
                   </div>
                   <div className="text-xs text-vylta-muted truncate">
@@ -148,25 +136,16 @@ export function Topbar({ user }: TopbarProps) {
               </div>
             </div>
             <DropdownMenuSeparator className="bg-border" />
-            {/* ⚡ FIX (May 19 2026): onSelect en lugar de onClick.
-                Radix DropdownMenuItem ejecuta onSelect después del cierre
-                del menú, lo cual permite que router.push() funcione sin
-                ser cancelado por el unmount del menu.
-
-                ⚡ UNIFICACIÓN (May 19 2026): se eliminó el item "Mi perfil"
-                porque navegaba al mismo lugar que "Configuración"
-                (/configuracion). Un solo acceso evita confusión y sigue
-                el patrón de UX moderna (Slack, Notion, Linear). */}
             <DropdownMenuItem
               onSelect={() => router.push('/configuracion')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
+              className="text-vylta-muted focus:text-vylta-bone focus:bg-secondary cursor-pointer"
             >
               <Settings className="h-4 w-4" />
               Configuración
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => window.open('https://vylta.lat#faq', '_blank')}
-              className="text-vylta-muted focus:text-vylta-bone focus:bg-vylta-surface cursor-pointer"
+              className="text-vylta-muted focus:text-vylta-bone focus:bg-secondary cursor-pointer"
             >
               <HelpCircle className="h-4 w-4" />
               Ayuda
