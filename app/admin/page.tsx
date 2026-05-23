@@ -26,16 +26,21 @@ import { VendorPaymentsTable } from '@/components/admin/vendor-payments-table';
 import { PlanMixDonut } from '@/components/admin/plan-mix-donut';
 import { UserSupportPanel } from '@/components/admin/user-support-panel';
 import { KpiCardWithSparkline } from '@/components/admin/kpi-card-with-sparkline';
+import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center v5 — Fixes de feedback de Antonio (May 22 2026)
+// Control Center v6 — Tooltips informativos (May 23 2026)
 //
 // CAMBIOS:
-//   1️⃣ Quitado KPI "Clientes finales" (no aportaba valor ejecutivo)
-//   2️⃣ Quitado header duplicado "Centro de operaciones" (ya esta en AdminTabs)
-//   3️⃣ Quitado SectionHeader externo de Soporte (el componente trae el propio)
-//   4️⃣ Quitado SectionHeader externo de Pagos a proveedores (puro componente)
-//   5️⃣ Realtime pulse en mapa al detectar nuevo negocio
+//   1️⃣ Agregado DashboardInfo (icono ⓘ) en cada KPI y seccion para que
+//      Hugo (co-founder no-tecnico) pueda entender que mide cada visual.
+//   2️⃣ Textos escritos en lenguaje sencillo: "ingreso anual estimado"
+//      en lugar de "ARR", "los que pagan" en lugar de "suscriptores", etc.
+//   3️⃣ Sin cambios visuales en KPIs, mapa, MRR, donut, tablas. Solo se
+//      agrego ⓘ junto a cada titulo de seccion y cada KPI.
+//
+// HISTORIAL:
+//   v5 (May 22 2026): Quitado KPI Clientes finales, headers limpios.
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
@@ -77,7 +82,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* HEADER LIMPIO (sin titulo "Centro de operaciones", ya esta en AdminTabs) */}
+      {/* HEADER LIMPIO */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -101,9 +106,17 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* 3 KPIs EJECUTIVOS (sin Clientes finales) */}
+      {/* 3 KPIs EJECUTIVOS */}
       <section>
-        <SectionHeader label="Vista global del negocio" />
+        <SectionHeader
+          label="Vista global del negocio"
+          info={
+            <DashboardInfo
+              title="Vista global del negocio"
+              description="Los 3 números más importantes para saber cómo va VYLTA en este momento. Pásate por cada uno para entender qué mide."
+            />
+          }
+        />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <KpiCardWithSparkline
             label="Negocios"
@@ -115,6 +128,13 @@ export default function AdminDashboardPage() {
             series={data.weeklyNegocios}
             deltaLabel={negociosDelta !== 0 ? `${negociosDelta > 0 ? '+' : ''}${negociosDelta} esta semana` : 'sin cambios'}
             deltaDirection={negociosDeltaDir}
+            info={
+              <DashboardInfo
+                title="Negocios"
+                description="Cuántos negocios se han registrado en VYLTA desde el primer día. Incluye los que usan el plan gratis y los que pagan."
+                whyMatters="Es el tamaño total de la comunidad VYLTA. Sube cuando alguien crea su cuenta, baja si alguien la elimina."
+              />
+            }
           />
           <KpiCardWithSparkline
             label="Suscriptores"
@@ -123,6 +143,13 @@ export default function AdminDashboardPage() {
             Icon={Sparkles}
             accent="gold"
             pulse
+            info={
+              <DashboardInfo
+                title="Suscriptores"
+                description="Negocios que están pagando un plan ($399 al mes Premium o $799 al mes Luxury). No cuenta a los que están en el plan gratis."
+                whyMatters="Es la métrica del dinero real. Si 'Negocios' crece pero 'Suscriptores' no, significa que la gente prueba VYLTA pero no termina pagando."
+              />
+            }
           />
           <KpiCardWithSparkline
             label="Citas 14 días"
@@ -133,11 +160,18 @@ export default function AdminDashboardPage() {
             series={data.dailyCitas}
             deltaLabel={citasDelta !== 0 ? `${citasDelta > 0 ? '+' : ''}${citasDelta} vs ayer` : 'sin cambios'}
             deltaDirection={citasDeltaDir}
+            info={
+              <DashboardInfo
+                title="Citas 14 días"
+                description="Cuántas citas se han agendado en los últimos 14 días en toda la plataforma, sumando a todos los negocios."
+                whyMatters="Nos dice si los negocios realmente están usando VYLTA. Si baja, hay que investigar por qué dejaron de agendar."
+              />
+            }
           />
         </div>
       </section>
 
-      {/* MAPA DE CALOR con realtime pulse */}
+      {/* MAPA DE CALOR */}
       <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
         <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
         <div className="relative">
@@ -147,7 +181,6 @@ export default function AdminDashboardPage() {
               console.log('[ControlCenter] Click en estado:', state);
             }}
             onNewBusiness={() => {
-              // Refrescar dashboard cuando se detecte un nuevo negocio vía realtime
               queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] });
             }}
           />
@@ -161,7 +194,16 @@ export default function AdminDashboardPage() {
 
       {/* SALUD FINANCIERA */}
       <section>
-        <SectionHeader label="Salud financiera" />
+        <SectionHeader
+          label="Salud financiera"
+          info={
+            <DashboardInfo
+              title="Salud financiera"
+              description="El dinero que entra a VYLTA cada mes y cómo se distribuye entre los diferentes planes."
+              whyMatters="Si los ingresos crecen más rápido que los costos, VYLTA se vuelve rentable. Si no, hay que pisar el acelerador en ventas o ajustar precios."
+            />
+          }
+        />
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[2fr_1.2fr]">
           <div className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
             <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
@@ -174,6 +216,14 @@ export default function AdminDashboardPage() {
                   <span className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-gold">
                     Ingresos Recurrentes Mensuales
                   </span>
+                  <DashboardInfo
+                    title="Ingresos Recurrentes Mensuales (MRR)"
+                    description="El dinero que VYLTA recibe cada mes de los negocios que pagan suscripción. Es predecible: se repite todos los meses mientras no cancelen."
+                    metrics={[
+                      { label: 'Cómo se calcula', meaning: '(Negocios Premium × $399) + (Negocios Luxury × $799). Los planes anuales VIP se reparten entre 12 meses.' },
+                    ]}
+                    whyMatters="Es el indicador más importante de qué tan sano está el negocio. Multiplícalo por 12 y tienes el ingreso anual estimado. Esto es lo que los inversionistas y bancos quieren ver primero."
+                  />
                 </div>
                 <span className="text-xs text-vylta-muted tabular-nums">
                   {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -205,21 +255,78 @@ export default function AdminDashboardPage() {
 
       {/* INDICADORES OPERACIONALES */}
       <section>
-        <SectionHeader label="Indicadores operacionales" />
+        <SectionHeader
+          label="Indicadores operacionales"
+          info={
+            <DashboardInfo
+              title="Indicadores operacionales"
+              description="Métricas del día a día que nos dicen si los negocios siguen usando VYLTA y si están agendando citas con regularidad."
+              whyMatters="Si la retención cae o las citas bajan, es señal de que algo no está funcionando aunque el ingreso (MRR) no haya cambiado todavía."
+            />
+          }
+        />
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          <MiniKpi label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
-          <MiniKpi label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
-          <MiniKpi label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
+          <MiniKpi
+            label="Activos 30d"
+            value={data.activeTenants}
+            hint="Con sesión reciente"
+            Icon={Activity}
+            accent="blue"
+            info={
+              <DashboardInfo
+                title="Activos 30 días"
+                description="Negocios que han entrado a VYLTA al menos una vez en los últimos 30 días."
+                whyMatters="Indica cuántos negocios siguen usando el producto. Diferente a 'Suscriptores' (los que pagan) — un negocio puede pagar y no entrar."
+              />
+            }
+          />
+          <MiniKpi
+            label="Retención"
+            value={`${data.retentionRate}%`}
+            hint="Activos / Total"
+            Icon={TrendingUp}
+            accent="gold"
+            info={
+              <DashboardInfo
+                title="Retención"
+                description="Porcentaje de negocios que siguen activos del total registrado. Por ejemplo: si tenemos 100 negocios y 70 entraron este mes, la retención es 70%."
+                whyMatters="Si menos de la mitad usa VYLTA, hay un problema serio: o no encuentran el valor, o el onboarding está fallando."
+              />
+            }
+          />
+          <MiniKpi
+            label="Citas mes"
+            value={data.monthAppointments}
+            hint={`Histórico: ${data.totalAppointments}`}
+            Icon={CalendarCheck}
+            accent="luxury"
+            info={
+              <DashboardInfo
+                title="Citas mes"
+                description="Todas las citas que se han agendado desde el día 1 del mes actual, sumando a todos los negocios."
+                whyMatters="Junto al histórico total, permite ver si el mes actual está superando el promedio mensual o si vamos por debajo."
+              />
+            }
+          />
         </div>
       </section>
 
-      {/* PAGOS A PROVEEDORES — editable inline (sin SectionHeader externo) */}
+      {/* PAGOS A PROVEEDORES */}
       <section>
-        <SectionHeader label="Pagos a proveedores" />
+        <SectionHeader
+          label="Pagos a proveedores"
+          info={
+            <DashboardInfo
+              title="Pagos a proveedores"
+              description="Lista de los gastos fijos que VYLTA tiene cada mes: Supabase (base de datos), Vercel (hosting), 360dialog (WhatsApp), etc."
+              whyMatters="Nos muestra cuánto cuesta operar VYLTA. Cuando los ingresos (MRR) sean mucho mayores que estos gastos, el negocio será rentable."
+            />
+          }
+        />
         <VendorPaymentsTable />
       </section>
 
-      {/* SOPORTE A USUARIOS — sin SectionHeader externo (el componente trae el propio) */}
+      {/* SOPORTE A USUARIOS */}
       <section>
         <UserSupportPanel />
       </section>
@@ -237,11 +344,12 @@ export default function AdminDashboardPage() {
   );
 }
 
-function SectionHeader({ label }: { label: string }) {
+function SectionHeader({ label, info }: { label: string; info?: React.ReactNode }) {
   return (
     <div className="mb-4 flex items-center gap-2">
       <div className="h-px w-5 bg-vylta-gold/40" />
       <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-muted">{label}</h2>
+      {info}
       <div className="h-px flex-1 bg-border" />
     </div>
   );
@@ -261,10 +369,11 @@ function PlanCount({ label, count, price, color, Icon }: { label: string; count:
 }
 
 function MiniKpi({
-  label, value, hint, Icon, accent,
+  label, value, hint, Icon, accent, info,
 }: {
   label: string; value: number | string; hint: string; Icon: any;
   accent: 'green' | 'blue' | 'gold' | 'luxury';
+  info?: React.ReactNode;
 }) {
   const colorMap = {
     green: { text: 'text-vylta-green', halo: '#10B981' },
@@ -281,7 +390,10 @@ function MiniKpi({
       />
       <div className="relative">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</span>
+            {info}
+          </div>
           <Icon className={cn('h-4 w-4', colorMap.text)} />
         </div>
         <div className={cn('mt-3 text-3xl font-bold tabular-nums tracking-tightest', colorMap.text)}>{value}</div>
