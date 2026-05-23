@@ -1,40 +1,34 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
-import { MapPin, Search } from 'lucide-react';
+import { MapPin, Search, Maximize2, X, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// ═════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v2.1 PROFESIONAL — May 22 2026)
+// ═══════════════════════════════════════════════════════════════════════
+// MexicoHeatmap (v3 — Ejecutivo May 22 2026)
 //
-// Usa react-simple-maps con GeoJSON oficial de los 32 estados de México.
+// REDISEÑO COMPLETO basado en feedback de Antonio:
 //
-// ⚡ FIX CRÍTICO (May 22 2026 - v2.1):
-//   El bug "todos los estados en gris" se debía a que el código buscaba
-//   `geo.properties.name` o `geo.properties.NAME_1`, pero el GeoJSON que
-//   estamos usando expone los nombres en la propiedad `state_name`.
-//   Por eso ningún estado matcheaba en el dataByState y todo se pintaba
-//   como "Sin presencia" (gris).
+//   1️⃣ ESQUEMA DE COLORES SEMAFORIZADO (5 niveles):
+//      - Gris    → sin presencia
+//      - Verde   → primeros usuarios (1-5)
+//      - Amarillo → un poco más (6-15)
+//      - Naranja → carga considerable (16-50)
+//      - Rojo    → muchos clientes (50+)
 //
-// FUENTE GEOJSON:
-//   https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson
-//   Estructura confirmada:
-//     features[].properties = { id, state_code, state_name }
+//   2️⃣ VISTA COMPACTA + MODAL EXPANDIBLE (estilo Google Ads):
+//      - Vista compacta: mapa al ~60% del tamaño anterior
+//      - Botón "Expandir" en esquina superior derecha
+//      - Modal full-screen con mapa grande + tabla completa + detalles
 //
-// NOMBRES VALIDADOS contra el GeoJSON real (32 estados):
-//   Distrito Federal, Guerrero, México, Morelos, Sinaloa, Baja California,
-//   Sonora, Baja California Sur, Zacatecas, Durango, Chihuahua, Colima,
-//   Nayarit, Michoacán de Ocampo, Jalisco, Chiapas, Tabasco, Oaxaca,
-//   Guanajuato, Aguascalientes, Querétaro, San Luis Potosí, Tlaxcala,
-//   Puebla, Hidalgo, Veracruz de Ignacio de la Llave, Nuevo León,
-//   Coahuila de Zaragoza, Tamaulipas, Yucatán, Campeche, Quintana Roo
-// ═════════════════════════════════════════════════════════════════════
+//   3️⃣ TIPOGRAFÍA EJECUTIVA:
+//      - Densidad / Top 5: text-xs en lugar de text-[10px]
+//      - Labels más grandes y legibles
+// ═══════════════════════════════════════════════════════════════════════
 
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
 
-// Mapeo de nombres del GeoJSON ↔ nombres en nuestra BD.
-// Los nombres oficiales largos los normalizamos al formato común de uso.
 const NAME_MAP: Record<string, string> = {
   'México':                          'Estado de México',
   'Distrito Federal':                'Ciudad de México',
@@ -59,26 +53,43 @@ interface MexicoHeatmapProps {
   onStateClick?: (stateName: string) => void;
 }
 
-function getHeatColor(count: number, maxCount: number): {
+// ── ESQUEMA SEMAFORIZADO (Antonio's pedido) ──
+// Gris → Verde → Amarillo → Naranja → Rojo
+// Umbrales absolutos (esquema A): 0 / 1-5 / 6-15 / 16-50 / 50+
+function getHeatColor(count: number): {
   fill: string;
   stroke: string;
-  intensity: number;
+  level: 0 | 1 | 2 | 3 | 4;
   label: string;
+  glow: boolean;
 } {
   if (count === 0) {
-    return { fill: '#0F1424', stroke: '#1F2937', intensity: 0, label: 'Sin presencia' };
+    return { fill: '#1F2937', stroke: '#374151', level: 0, label: 'Sin presencia', glow: false };
   }
-  const intensity = Math.min(count / Math.max(maxCount, 5), 1);
-
-  if (intensity < 0.25) return { fill: '#064E3B', stroke: '#065F46', intensity, label: 'Baja' };
-  if (intensity < 0.50) return { fill: '#047857', stroke: '#059669', intensity, label: 'Media' };
-  if (intensity < 0.75) return { fill: '#10B981', stroke: '#34D399', intensity, label: 'Alta' };
-  return { fill: '#6EE7B7', stroke: '#A7F3D0', intensity, label: 'Crítica' };
+  if (count <= 5) {
+    return { fill: '#10B981', stroke: '#34D399', level: 1, label: 'Primeros (1-5)', glow: false };
+  }
+  if (count <= 15) {
+    return { fill: '#F59E0B', stroke: '#FBBF24', level: 2, label: 'Crecimiento (6-15)', glow: true };
+  }
+  if (count <= 50) {
+    return { fill: '#F97316', stroke: '#FB923C', level: 3, label: 'Carga alta (16-50)', glow: true };
+  }
+  return { fill: '#EF4444', stroke: '#F87171', level: 4, label: 'Saturado (50+)', glow: true };
 }
+
+const LEGEND: { label: string; color: string; glow: boolean; range: string }[] = [
+  { label: 'Saturado',    color: '#EF4444', glow: true,  range: '50+' },
+  { label: 'Carga alta',  color: '#F97316', glow: true,  range: '16-50' },
+  { label: 'Crecimiento', color: '#F59E0B', glow: true,  range: '6-15' },
+  { label: 'Primeros',    color: '#10B981', glow: false, range: '1-5' },
+  { label: 'Sin presencia', color: '#1F2937', glow: false, range: '0' },
+];
 
 export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const dataByState = useMemo(() => {
     const map = new Map<string, StateDataPoint>();
@@ -91,42 +102,156 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
     [data]
   );
 
-  const maxCount = useMemo(
-    () => Math.max(...data.map(d => d.total_businesses), 1),
-    [data]
-  );
-
   const top5 = useMemo(
     () => [...data].sort((a, b) => b.total_businesses - a.total_businesses).slice(0, 5),
     [data]
   );
 
+  // ESC para cerrar modal
+  useEffect(() => {
+    if (!isExpanded) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsExpanded(false);
+    };
+    window.addEventListener('keydown', handleKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = '';
+    };
+  }, [isExpanded]);
+
   const hoveredData = hoveredState ? dataByState.get(hoveredState) : null;
 
   return (
+    <>
+      <MapContent
+        isExpanded={false}
+        data={data}
+        dataByState={dataByState}
+        totalNationwide={totalNationwide}
+        top5={top5}
+        hoveredState={hoveredState}
+        setHoveredState={setHoveredState}
+        mousePos={mousePos}
+        setMousePos={setMousePos}
+        hoveredData={hoveredData}
+        onStateClick={onStateClick}
+        onExpand={() => setIsExpanded(true)}
+      />
+
+      {/* MODAL FULL-SCREEN — vista expandida */}
+      {isExpanded && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setIsExpanded(false)}
+        >
+          <div
+            className="relative max-w-[1400px] w-full max-h-[95vh] overflow-y-auto rounded-2xl border border-vylta-gold/30 bg-vylta-admin-bg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setIsExpanded(false)}
+              className="absolute top-4 right-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-vylta-card/80 text-vylta-muted transition hover:border-vylta-rose/40 hover:bg-vylta-rose/10 hover:text-vylta-rose"
+              title="Cerrar (Esc)"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="p-8">
+              <MapContent
+                isExpanded={true}
+                data={data}
+                dataByState={dataByState}
+                totalNationwide={totalNationwide}
+                top5={top5}
+                hoveredState={hoveredState}
+                setHoveredState={setHoveredState}
+                mousePos={mousePos}
+                setMousePos={setMousePos}
+                hoveredData={hoveredData}
+                onStateClick={onStateClick}
+                onExpand={() => {}}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MapContent — contenido del mapa (reutilizado en vista normal y modal)
+// ═══════════════════════════════════════════════════════════════════════
+
+function MapContent({
+  isExpanded,
+  data,
+  dataByState,
+  totalNationwide,
+  top5,
+  hoveredState,
+  setHoveredState,
+  mousePos,
+  setMousePos,
+  hoveredData,
+  onStateClick,
+  onExpand,
+}: {
+  isExpanded: boolean;
+  data: StateDataPoint[];
+  dataByState: Map<string, StateDataPoint>;
+  totalNationwide: number;
+  top5: StateDataPoint[];
+  hoveredState: string | null;
+  setHoveredState: (s: string | null) => void;
+  mousePos: { x: number; y: number } | null;
+  setMousePos: (p: { x: number; y: number } | null) => void;
+  hoveredData: StateDataPoint | undefined | null;
+  onStateClick?: (s: string) => void;
+  onExpand: () => void;
+}) {
+  return (
     <div className="relative">
-      <div className="mb-4 flex items-center justify-between">
+      {/* HEADER */}
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-vylta-gold" />
-          <h3 className="text-sm font-bold text-vylta-bone">Presencia nacional</h3>
-          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-gold/70 ml-2">
+          <MapPin className="h-5 w-5 text-vylta-gold" />
+          <h3 className={cn('font-bold text-vylta-bone', isExpanded ? 'text-xl' : 'text-base')}>
+            Presencia nacional
+          </h3>
+          <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.18em] text-vylta-gold/80 ml-2">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inset-0 animate-ping rounded-full bg-vylta-gold/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-vylta-gold" />
+            </span>
             Tiempo real
           </span>
         </div>
-        <div className="flex items-center gap-3 text-[10px] font-bold text-vylta-muted">
+        <div className="flex items-center gap-4 text-xs font-bold text-vylta-muted">
           <span>
-            <span className="text-vylta-gold tabular-nums">{totalNationwide}</span>{' '}
-            negocios totales
+            <span className="text-vylta-gold tabular-nums text-base">{totalNationwide}</span>{' '}
+            negocios
           </span>
           <span>•</span>
           <span>
-            <span className="text-vylta-green tabular-nums">{data.length}</span>{' '}
-            estados activos
+            <span className="text-vylta-green tabular-nums text-base">{data.length}</span>{' '}
+            de 32 estados
           </span>
+          {!isExpanded && (
+            <button
+              onClick={onExpand}
+              className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-vylta-gold/30 bg-vylta-gold/5 px-2.5 py-1.5 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10"
+              title="Vista ampliada"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Expandir
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="relative grid grid-cols-1 gap-4 lg:grid-cols-[1fr_240px]">
+      <div className={cn('grid gap-4', isExpanded ? 'lg:grid-cols-[1fr_320px]' : 'lg:grid-cols-[1fr_260px]')}>
         {/* MAPA */}
         <div
           className="relative overflow-hidden rounded-xl border border-border bg-vylta-admin-bg shadow-card-lg"
@@ -143,25 +268,23 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
           }}
         >
           <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.04]" />
-          <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-green/8 blur-[100px]" />
-          <div className="pointer-events-none absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
+          <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
+          <div className="pointer-events-none absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-vylta-rose/6 blur-[100px]" />
 
           <div className="relative">
             <ComposableMap
               projection="geoMercator"
               projectionConfig={{
-                scale: 1100,
+                scale: isExpanded ? 1500 : 1050,
                 center: [-102, 23.5],
               }}
               width={800}
-              height={500}
+              height={isExpanded ? 600 : 420}
               style={{ width: '100%', height: 'auto', display: 'block' }}
             >
               <Geographies geography={MEXICO_TOPO_JSON}>
                 {({ geographies }: { geographies: any[] }) =>
                   geographies.map((geo) => {
-                    // ⚡ FIX v2.1: el GeoJSON expone los nombres en `state_name`,
-                    // NO en `name` ni `NAME_1`. Por eso antes todo salía gris.
                     const rawName =
                       geo.properties.state_name ||
                       geo.properties.name ||
@@ -170,7 +293,7 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
                     const stateName = normalizeStateName(rawName);
                     const stateData = dataByState.get(stateName);
                     const count = stateData?.total_businesses || 0;
-                    const heat = getHeatColor(count, maxCount);
+                    const heat = getHeatColor(count);
 
                     return (
                       <Geography
@@ -184,21 +307,21 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
                             stroke: heat.stroke,
                             strokeWidth: 0.6,
                             outline: 'none',
-                            filter: heat.intensity > 0.5 ? `drop-shadow(0 0 6px ${heat.fill}80)` : 'none',
+                            filter: heat.glow ? `drop-shadow(0 0 8px ${heat.fill}90)` : 'none',
                             transition: 'all 0.2s ease-out',
                           },
                           hover: {
                             fill: heat.fill,
-                            stroke: '#F59E0B',
-                            strokeWidth: 2,
+                            stroke: '#FBBF24',
+                            strokeWidth: 2.2,
                             outline: 'none',
                             cursor: 'pointer',
-                            filter: `drop-shadow(0 0 12px ${heat.fill}cc)`,
+                            filter: `drop-shadow(0 0 14px ${heat.fill}cc)`,
                           },
                           pressed: {
                             fill: heat.fill,
-                            stroke: '#F59E0B',
-                            strokeWidth: 2,
+                            stroke: '#FBBF24',
+                            strokeWidth: 2.2,
                             outline: 'none',
                           },
                         }}
@@ -210,73 +333,76 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
             </ComposableMap>
           </div>
 
+          {/* TOOLTIP FLOTANTE */}
           {hoveredState && mousePos && (
             <div
-              className="pointer-events-none absolute z-10 rounded-lg border border-vylta-gold/40 bg-vylta-card/95 px-3 py-2 shadow-card-lg backdrop-blur-sm"
+              className="pointer-events-none absolute z-10 rounded-lg border border-vylta-gold/40 bg-vylta-card/95 px-4 py-3 shadow-card-lg backdrop-blur-sm"
               style={{
-                left: Math.min(mousePos.x + 12, 600),
-                top: Math.max(mousePos.y - 60, 8),
+                left: Math.min(mousePos.x + 14, isExpanded ? 900 : 600),
+                top: Math.max(mousePos.y - 70, 8),
               }}
             >
-              <div className="text-[11px] font-bold text-vylta-bone">{hoveredState}</div>
+              <div className="text-sm font-bold text-vylta-bone">{hoveredState}</div>
               {hoveredData ? (
                 <>
-                  <div className="mt-1 flex items-center gap-2 text-[10px]">
-                    <span className="text-vylta-gold tabular-nums font-bold">
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <span className="text-vylta-gold tabular-nums font-bold text-lg">
                       {hoveredData.total_businesses}
                     </span>
-                    <span className="text-vylta-muted">negocios totales</span>
+                    <span className="text-xs text-vylta-muted">negocios</span>
                   </div>
                   {hoveredData.new_last_30d > 0 && (
-                    <div className="text-[10px] text-vylta-green tabular-nums">
+                    <div className="text-xs text-vylta-green tabular-nums mt-1">
                       +{hoveredData.new_last_30d} en últimos 30 días
                     </div>
                   )}
                   {hoveredData.new_last_7d > 0 && (
-                    <div className="text-[10px] text-vylta-sky tabular-nums">
+                    <div className="text-xs text-vylta-sky tabular-nums">
                       +{hoveredData.new_last_7d} en últimos 7 días
                     </div>
                   )}
                 </>
               ) : (
-                <div className="text-[10px] text-vylta-subtle italic mt-0.5">Sin presencia aún</div>
+                <div className="text-xs text-vylta-subtle italic mt-1">Sin presencia aún</div>
               )}
             </div>
           )}
         </div>
 
+        {/* PANEL LATERAL */}
         <div className="flex flex-col gap-4">
-          <div className="rounded-xl border border-border bg-vylta-surface p-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted mb-3 flex items-center gap-1.5">
-              <Search className="h-3 w-3" />
-              Top 5 estados
+          {/* TOP 5 — con tipografia mas grande */}
+          <div className="rounded-xl border border-border bg-vylta-surface p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="h-4 w-4 text-vylta-gold" />
+              <h4 className="text-sm font-bold text-vylta-bone">Top 5 estados</h4>
             </div>
             {top5.length === 0 ? (
-              <div className="text-[11px] text-vylta-subtle italic py-2">
+              <div className="text-sm text-vylta-subtle italic py-4 text-center">
                 Aún no hay negocios con ubicación
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {top5.map((s, i) => {
-                  const heat = getHeatColor(s.total_businesses, maxCount);
+                  const heat = getHeatColor(s.total_businesses);
                   const pct = totalNationwide > 0
                     ? Math.round((s.total_businesses / totalNationwide) * 100)
                     : 0;
                   return (
-                    <div key={s.state} className="group flex items-center gap-2 text-[11px]">
-                      <span className="text-[10px] text-vylta-subtle tabular-nums w-3">{i + 1}.</span>
+                    <div key={s.state} className="group flex items-center gap-2.5">
+                      <span className="text-xs text-vylta-subtle tabular-nums w-4">{i + 1}.</span>
                       <div
-                        className="h-2 w-2 rounded-full shrink-0"
+                        className="h-3 w-3 rounded-full shrink-0"
                         style={{
                           background: heat.fill,
-                          boxShadow: heat.intensity > 0.5 ? `0 0 6px ${heat.fill}` : undefined,
+                          boxShadow: heat.glow ? `0 0 8px ${heat.fill}` : undefined,
                         }}
                       />
-                      <span className="flex-1 truncate text-vylta-bone group-hover:text-vylta-gold transition">
+                      <span className="flex-1 truncate text-sm text-vylta-bone group-hover:text-vylta-gold transition font-medium">
                         {s.state}
                       </span>
-                      <span className="text-vylta-gold tabular-nums font-bold">{s.total_businesses}</span>
-                      <span className="text-[9px] text-vylta-subtle tabular-nums w-7 text-right">{pct}%</span>
+                      <span className="text-vylta-gold tabular-nums font-bold text-sm">{s.total_businesses}</span>
+                      <span className="text-[11px] text-vylta-subtle tabular-nums w-9 text-right">{pct}%</span>
                     </div>
                   );
                 })}
@@ -284,31 +410,61 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-vylta-surface p-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-vylta-muted mb-3">
-              Densidad
+          {/* LEYENDA — esquema semaforizado */}
+          <div className="rounded-xl border border-border bg-vylta-surface p-5">
+            <div className="text-sm font-bold text-vylta-bone mb-4">
+              Densidad por estado
             </div>
-            <div className="space-y-1.5">
-              {[
-                { label: 'Crítica',  color: '#6EE7B7', glow: true },
-                { label: 'Alta',     color: '#10B981', glow: true },
-                { label: 'Media',    color: '#047857', glow: false },
-                { label: 'Baja',     color: '#064E3B', glow: false },
-                { label: 'Sin presencia', color: '#0F1424', glow: false },
-              ].map((legend) => (
-                <div key={legend.label} className="flex items-center gap-2 text-[10px]">
+            <div className="space-y-2">
+              {LEGEND.map((legend) => (
+                <div key={legend.label} className="flex items-center gap-2.5">
                   <div
-                    className="h-2.5 w-2.5 rounded-sm shrink-0"
+                    className="h-3.5 w-3.5 rounded shrink-0"
                     style={{
                       background: legend.color,
-                      boxShadow: legend.glow ? `0 0 6px ${legend.color}` : undefined,
+                      boxShadow: legend.glow ? `0 0 8px ${legend.color}` : undefined,
                     }}
                   />
-                  <span className="text-vylta-muted">{legend.label}</span>
+                  <span className="flex-1 text-sm text-vylta-bone">{legend.label}</span>
+                  <span className="text-xs text-vylta-muted tabular-nums font-bold">
+                    {legend.range}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* TABLA COMPLETA solo en vista expandida */}
+          {isExpanded && (
+            <div className="rounded-xl border border-border bg-vylta-surface p-5">
+              <div className="text-sm font-bold text-vylta-bone mb-3">
+                Todos los estados con presencia
+              </div>
+              <div className="max-h-[400px] overflow-y-auto pr-2 space-y-1.5">
+                {[...data]
+                  .sort((a, b) => b.total_businesses - a.total_businesses)
+                  .map((s) => {
+                    const heat = getHeatColor(s.total_businesses);
+                    return (
+                      <div key={s.state} className="flex items-center gap-2.5 text-sm">
+                        <div
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ background: heat.fill }}
+                        />
+                        <span className="flex-1 text-vylta-bone">{s.state}</span>
+                        <span className="text-vylta-gold tabular-nums font-bold">{s.total_businesses}</span>
+                      </div>
+                    );
+                  })
+                }
+                {data.length === 0 && (
+                  <div className="text-sm text-vylta-subtle italic text-center py-4">
+                    Sin datos aún
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

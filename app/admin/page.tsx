@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import {
   Building2,
   Users,
@@ -9,8 +8,6 @@ import {
   Activity,
   Crown,
   Gem,
-  Coins,
-  ArrowRight,
   Loader2,
   Ticket,
   ShieldCheck,
@@ -18,7 +15,10 @@ import {
   Sparkles,
   UserPlus,
   Wallet,
+  ArrowRight,
+  Briefcase,
 } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
 import { MexicoHeatmap } from '@/components/admin/mexico-heatmap';
@@ -26,19 +26,33 @@ import { PerformanceGauges } from '@/components/admin/performance-gauges';
 import { VendorPaymentsTable } from '@/components/admin/vendor-payments-table';
 import { PlanMixDonut } from '@/components/admin/plan-mix-donut';
 import { UserSupportPanel } from '@/components/admin/user-support-panel';
+import { KpiCardWithSparkline } from '@/components/admin/kpi-card-with-sparkline';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center Dashboard — VYLTA Admin (v3 May 22 2026)
+// Control Center v4 — Refactor para eliminar redundancias (May 22 2026)
 //
-// ⚡ ACTUALIZACIÓN (May 22 2026 - v3):
-// Separados los KPIs "Clientes" en DOS distintos para evitar confusión:
-//   • NEGOCIOS         (17)  — business_profiles registrados
-//   • CLIENTES FINALES (37)  — personas registradas en tabla clients
+// ANTONIO PIDIÓ:
+//   "hay cosas en las que necesito un mayor detalle no el numero grueso
+//    de resultado, por ejemplo: Tengo un dashboard al inicio que dice
+//    Negocios 17 y tengo abajo una grafica que dice Nuevos negocios
+//    (8 semanas). ambos recuadros me los puedes juntar en uno solo.
+//    quiero algo ejecutivo a nivel direccion."
 //
-// Antes había un solo KPI "Clientes" mostrando 37 que se confundía con
-// el listado de 17 negocios. Ahora son claramente diferentes:
-//   - Negocios = nuestros clientes (los que pagan VYLTA)
-//   - Clientes finales = clientes de nuestros clientes (los que reservan citas)
+// CAMBIOS:
+//   1️⃣ Cards consolidados: KPI numerico + mini sparkline en mismo card
+//      • Negocios + serie 8 semanas → 1 card
+//      • Citas 14d + serie diaria → 1 card
+//
+//   2️⃣ Eliminadas graficas duplicadas redundantes
+//
+//   3️⃣ Layout reorganizado para sentirse ejecutivo:
+//      - Fila 1: 4 KPIs consolidados con sparklines
+//      - Fila 2: Mapa de calor (con botón expandir)
+//      - Fila 3: Performance gauges
+//      - Fila 4: MRR Hero + Plan Mix donut + Indicadores (en triple grid)
+//      - Fila 5: Pagos a proveedores (tabla con tipografia grande)
+//      - Fila 6: Soporte usuarios
+//      - Fila 7: Quick actions
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
@@ -49,7 +63,7 @@ export default function AdminDashboardPage() {
       <div className="flex items-center justify-center py-32">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
-          <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-vylta-muted">
+          <span className="text-xs font-bold uppercase tracking-[0.3em] text-vylta-muted">
             Cargando Control Center
           </span>
         </div>
@@ -64,9 +78,22 @@ export default function AdminDashboardPage() {
     year: 'numeric',
   });
 
+  // Calcular deltas para los cards consolidados
+  const lastWeekValue = data.weeklyNegocios[data.weeklyNegocios.length - 2]?.value || 0;
+  const thisWeekValue = data.weeklyNegocios[data.weeklyNegocios.length - 1]?.value || 0;
+  const negociosDelta = thisWeekValue - lastWeekValue;
+  const negociosDeltaDir: 'up' | 'down' | 'flat' =
+    negociosDelta > 0 ? 'up' : negociosDelta < 0 ? 'down' : 'flat';
+
+  const yesterdayCitas = data.dailyCitas[data.dailyCitas.length - 2]?.value || 0;
+  const todayCitas = data.dailyCitas[data.dailyCitas.length - 1]?.value || 0;
+  const citasDelta = todayCitas - yesterdayCitas;
+  const citasDeltaDir: 'up' | 'down' | 'flat' =
+    citasDelta > 0 ? 'up' : citasDelta < 0 ? 'down' : 'flat';
+
   return (
-    <div className="space-y-7 animate-fade-in">
-      {/* HEADER */}
+    <div className="space-y-8 animate-fade-in">
+      {/* ═══ HEADER ═══ */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -74,7 +101,7 @@ export default function AdminDashboardPage() {
               <span className="absolute inset-0 animate-ping rounded-full bg-vylta-gold/60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-vylta-gold" />
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-vylta-gold">
+            <span className="text-xs font-bold uppercase tracking-[0.3em] text-vylta-gold">
               VYLTA Control Center · LIVE
             </span>
           </div>
@@ -86,33 +113,36 @@ export default function AdminDashboardPage() {
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="inline-flex items-center gap-1.5 self-start rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 self-start rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
         >
-          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+          <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
           {isFetching ? 'Actualizando...' : 'Actualizar'}
         </button>
       </div>
 
-      {/* 5 KPIs CORE — separados Negocios vs Clientes finales para claridad */}
+      {/* ═══ 4 KPIs EJECUTIVOS CONSOLIDADOS (con sparklines) ═══ */}
       <section>
         <SectionHeader label="Vista global del negocio" />
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-          <KpiCard
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+          <KpiCardWithSparkline
             label="Negocios"
             value={data.totalTenants}
             hint="Suscritos a VYLTA"
             Icon={Building2}
             accent="green"
             href="/admin/tenants"
+            series={data.weeklyNegocios}
+            deltaLabel={negociosDelta !== 0 ? `${negociosDelta > 0 ? '+' : ''}${negociosDelta} esta semana` : 'sin cambios'}
+            deltaDirection={negociosDeltaDir}
           />
-          <KpiCard
+          <KpiCardWithSparkline
             label="Clientes finales"
             value={data.totalClients}
-            hint="Capturados por negocios"
+            hint="Capturados por los negocios"
             Icon={Users}
             accent="luxury"
           />
-          <KpiCard
+          <KpiCardWithSparkline
             label="Suscriptores"
             value={data.activeSubscribers}
             hint="Planes pagados activos"
@@ -120,25 +150,20 @@ export default function AdminDashboardPage() {
             accent="gold"
             pulse
           />
-          <KpiCard
-            label="Citas 14d"
+          <KpiCardWithSparkline
+            label="Citas 14 días"
             value={data.last14DaysAppointments}
-            hint="Últimos 14 días"
+            hint="Reservaciones recientes"
             Icon={CalendarCheck}
             accent="blue"
-          />
-          <KpiCard
-            label="Nuevos"
-            value={`+${data.newBusinessesThisWeek}`}
-            hint="Negocios esta semana"
-            Icon={UserPlus}
-            accent="gold"
-            pulse={data.newBusinessesThisWeek > 0}
+            series={data.dailyCitas}
+            deltaLabel={citasDelta !== 0 ? `${citasDelta > 0 ? '+' : ''}${citasDelta} vs ayer` : 'sin cambios'}
+            deltaDirection={citasDeltaDir}
           />
         </div>
       </section>
 
-      {/* MAPA DE MÉXICO */}
+      {/* ═══ MAPA DE CALOR (con botón expandir) ═══ */}
       <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
         <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
         <div className="relative">
@@ -151,87 +176,80 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* PERFORMANCE GAUGES */}
+      {/* ═══ PERFORMANCE GAUGES ═══ */}
       <section>
         <PerformanceGauges />
       </section>
 
-      {/* MRR HERO */}
-      <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
-        <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
-        <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.08]" />
+      {/* ═══ SALUD FINANCIERA: MRR HERO + DONUT + INDICADORES ═══ */}
+      <section>
+        <SectionHeader label="Salud financiera" />
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[2fr_1.2fr]">
+          {/* MRR HERO */}
+          <div className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
+            <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
+            <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.08]" />
 
-        <div className="relative flex flex-col gap-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-vylta-gold" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-gold">
-                Ingresos Recurrentes Mensuales
-              </span>
+            <div className="relative flex flex-col gap-5 h-full">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-vylta-gold" />
+                  <span className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-gold">
+                    Ingresos Recurrentes Mensuales
+                  </span>
+                </div>
+                <span className="text-xs text-vylta-muted tabular-nums">
+                  {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              </div>
+
+              <div>
+                <div className="text-7xl font-bold tabular-nums tracking-tightest text-vylta-gold">
+                  ${data.mrr.toLocaleString('es-MX')}
+                </div>
+                <div className="mt-2 text-sm text-vylta-muted font-semibold">MXN / mes</div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 border-t border-border pt-5 mt-auto">
+                <PlanCount label="Premium" count={data.basicCount} price={399} color="text-vylta-green" Icon={Gem} />
+                <PlanCount label="Luxury" count={data.premiumCount} price={799} color="text-vylta-luxury" Icon={Crown} />
+                <PlanCount label="Básico" count={data.gratuitoCount} price={0} color="text-vylta-subtle" Icon={Users} />
+              </div>
             </div>
-            <span className="text-[10px] text-vylta-muted tabular-nums">
-              {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
-            </span>
           </div>
 
-          <div>
-            <div className="text-7xl font-bold tabular-nums tracking-tightest text-vylta-gold">
-              ${data.mrr.toLocaleString('es-MX')}
-            </div>
-            <div className="mt-2 text-sm text-vylta-muted font-semibold">MXN / mes</div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 border-t border-border pt-5">
-            <PlanCount label="Premium" count={data.basicCount} price={399} color="text-vylta-green" Icon={Gem} />
-            <PlanCount label="Luxury" count={data.premiumCount} price={799} color="text-vylta-luxury" Icon={Crown} />
-            <PlanCount label="Básico" count={data.gratuitoCount} price={0} color="text-vylta-subtle" Icon={Users} />
-          </div>
+          {/* DONUT */}
+          <PlanMixDonut
+            premiumCount={data.basicCount}
+            luxuryCount={data.premiumCount}
+            basicoCount={data.gratuitoCount}
+          />
         </div>
       </section>
 
-      {/* PLAN MIX DONUT + INDICADORES OPERACIONALES (sin "Negocios totales" porque ya está arriba) */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <PlanMixDonut
-          premiumCount={data.basicCount}
-          luxuryCount={data.premiumCount}
-          basicoCount={data.gratuitoCount}
-        />
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <KpiCard label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
-          <KpiCard label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
-          <KpiCard label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
-        </div>
-      </div>
-
-      {/* CHARTS */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ChartCard
-          title="Citas últimos 14 días"
-          subtitle={`${data.totalAppointments} citas históricas totales`}
-          accentColor="#A78BFA"
-          data={data.dailyCitas}
-          gradientId="citasGrad"
-        />
-        <ChartCard
-          title="Nuevos negocios (8 semanas)"
-          subtitle={`${data.totalTenants} negocios en total`}
-          accentColor="#10B981"
-          data={data.weeklyNegocios}
-          gradientId="negociosGrad"
-        />
-      </div>
-
-      {/* PAGOS A PROVEEDORES */}
+      {/* ═══ INDICADORES OPERACIONALES ═══ */}
       <section>
+        <SectionHeader label="Indicadores operacionales" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          <MiniKpi label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
+          <MiniKpi label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
+          <MiniKpi label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
+        </div>
+      </section>
+
+      {/* ═══ PAGOS A PROVEEDORES — tipografia grande ═══ */}
+      <section>
+        <SectionHeader label="Pagos a proveedores" />
         <VendorPaymentsTable />
       </section>
 
-      {/* SOPORTE A USUARIOS */}
+      {/* ═══ SOPORTE A USUARIOS ═══ */}
       <section>
+        <SectionHeader label="Soporte a usuarios" />
         <UserSupportPanel />
       </section>
 
-      {/* QUICK ACTIONS */}
+      {/* ═══ ACCIONES RÁPIDAS ═══ */}
       <section>
         <SectionHeader label="Acciones rápidas" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -246,9 +264,9 @@ export default function AdminDashboardPage() {
 
 function SectionHeader({ label }: { label: string }) {
   return (
-    <div className="mb-3 flex items-center gap-2">
+    <div className="mb-4 flex items-center gap-2">
       <div className="h-px w-5 bg-vylta-gold/40" />
-      <h2 className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-muted">{label}</h2>
+      <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-muted">{label}</h2>
       <div className="h-px flex-1 bg-border" />
     </div>
   );
@@ -257,21 +275,21 @@ function SectionHeader({ label }: { label: string }) {
 function PlanCount({ label, count, price, color, Icon }: { label: string; count: number; price: number; color: string; Icon: any; }) {
   return (
     <div className="text-center">
-      <Icon className={cn('mx-auto h-4 w-4 mb-1.5', color)} />
+      <Icon className={cn('mx-auto h-5 w-5 mb-2', color)} />
       <div className={cn('text-3xl font-bold tabular-nums', color)}>{count}</div>
-      <div className="text-[10px] font-bold uppercase tracking-wider text-vylta-muted mt-1">{label}</div>
-      <div className="text-[10px] text-vylta-subtle mt-0.5 tabular-nums">
+      <div className="text-xs font-bold uppercase tracking-wider text-vylta-muted mt-1">{label}</div>
+      <div className="text-xs text-vylta-subtle mt-0.5 tabular-nums">
         {price > 0 ? `$${price}/mes` : 'Gratis'}
       </div>
     </div>
   );
 }
 
-function KpiCard({
-  label, value, hint, Icon, accent, pulse, href,
+function MiniKpi({
+  label, value, hint, Icon, accent,
 }: {
   label: string; value: number | string; hint: string; Icon: any;
-  accent: 'green' | 'blue' | 'gold' | 'luxury'; pulse?: boolean; href?: string;
+  accent: 'green' | 'blue' | 'gold' | 'luxury';
 }) {
   const colorMap = {
     green: { text: 'text-vylta-green', halo: '#10B981' },
@@ -280,94 +298,20 @@ function KpiCard({
     luxury: { text: 'text-vylta-luxury', halo: '#A78BFA' },
   }[accent];
 
-  const inner = (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-4 shadow-card transition-all hover:border-vylta-gold/30 hover:-translate-y-0.5">
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-5 shadow-card transition-all hover:border-vylta-gold/30">
       <div
-        className="pointer-events-none absolute -top-10 -right-10 h-32 w-32 rounded-full blur-2xl opacity-25 transition-opacity group-hover:opacity-40"
+        className="pointer-events-none absolute -top-10 -right-10 h-32 w-32 rounded-full blur-2xl opacity-25"
         style={{ background: colorMap.halo }}
       />
       <div className="relative">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</span>
+          <span className="text-xs font-bold uppercase tracking-[0.15em] text-vylta-subtle">{label}</span>
           <Icon className={cn('h-4 w-4', colorMap.text)} />
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <div className={cn('text-3xl font-bold tabular-nums tracking-tightest', colorMap.text)}>{value}</div>
-          {pulse && (
-            <span className="relative flex h-2 w-2 mt-2">
-              <span className="absolute inset-0 animate-ping rounded-full opacity-50" style={{ background: colorMap.halo }} />
-              <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: colorMap.halo }} />
-            </span>
-          )}
-        </div>
-        <div className="mt-1 text-[11px] text-vylta-muted">{hint}</div>
-        {href && (
-          <div className="mt-2 text-[10px] font-bold text-vylta-muted group-hover:text-vylta-bone flex items-center gap-0.5">
-            Ver detalle <ArrowRight className="h-2.5 w-2.5" />
-          </div>
-        )}
+        <div className={cn('mt-3 text-3xl font-bold tabular-nums tracking-tightest', colorMap.text)}>{value}</div>
+        <div className="mt-1 text-sm text-vylta-muted">{hint}</div>
       </div>
-    </div>
-  );
-
-  return href ? <Link href={href} prefetch>{inner}</Link> : inner;
-}
-
-function ChartCard({ title, subtitle, accentColor, data, gradientId }: {
-  title: string; subtitle: string; accentColor: string;
-  data: { label: string; value: number }[]; gradientId: string;
-}) {
-  const W = 460;
-  const H = 160;
-  const pad = 16;
-
-  const max = Math.max(...data.map((d) => d.value), 1);
-  const step = (W - pad * 2) / Math.max(data.length - 1, 1);
-  const pts = data.map((d, i) => ({
-    x: pad + i * step,
-    y: H - pad - (d.value / max) * (H - pad * 2),
-    v: d.value,
-    label: d.label,
-  }));
-
-  let linePath = `M ${pts[0].x} ${pts[0].y}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const cx = (pts[i].x + pts[i + 1].x) / 2;
-    linePath += ` C ${cx} ${pts[i].y}, ${cx} ${pts[i + 1].y}, ${pts[i + 1].x} ${pts[i + 1].y}`;
-  }
-  const areaPath = linePath + ` L ${pts[pts.length - 1].x} ${H} L ${pts[0].x} ${H} Z`;
-  const activePts = pts.filter((p) => p.v > 0);
-
-  return (
-    <div className="rounded-xl border border-border bg-vylta-surface p-5 shadow-card">
-      <div className="mb-4 flex items-start gap-2">
-        <div className="w-0.5 h-10 rounded-full" style={{ backgroundColor: accentColor }} />
-        <div>
-          <h3 className="text-sm font-bold text-vylta-bone">{title}</h3>
-          <p className="text-[11px] text-vylta-muted mt-0.5">{subtitle}</p>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H + 20}`} className="w-full h-auto">
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={accentColor} stopOpacity={0.35} />
-            <stop offset="70%" stopColor={accentColor} stopOpacity={0.05} />
-            <stop offset="100%" stopColor={accentColor} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill={`url(#${gradientId})`} />
-        <line x1={pad} y1={H} x2={W - pad} y2={H} stroke="#334155" strokeWidth={0.5} />
-        <path d={linePath} stroke={accentColor} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-        {activePts.map((p, i) => (
-          <g key={i}>
-            <circle cx={p.x} cy={p.y} r={3.5} fill="#0A0E1A" stroke={accentColor} strokeWidth={1.5} />
-            <text x={p.x} y={p.y - 8} fontSize={9} fill={accentColor} textAnchor="middle" fontWeight="bold">{p.v}</text>
-          </g>
-        ))}
-        {pts.filter((_, i) => i % 2 === 0).map((p, i) => (
-          <text key={`l-${i}`} x={p.x} y={H + 14} fontSize={8} fill="#64748B" textAnchor="middle">{p.label}</text>
-        ))}
-      </svg>
     </div>
   );
 }
@@ -388,10 +332,10 @@ function ActionCard({ href, Icon, title, description, color }: {
         <Icon className="h-6 w-6 shrink-0" strokeWidth={2} />
         <div className="flex-1">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-bold">{title}</h3>
-            <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-1" />
+            <h3 className="text-base font-bold">{title}</h3>
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
           </div>
-          <p className="text-[11px] text-vylta-muted mt-1" >{description}</p>
+          <p className="text-sm text-vylta-muted mt-1">{description}</p>
         </div>
       </div>
     </Link>
