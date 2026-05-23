@@ -8,14 +8,21 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
 // ═══════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v4 — Realtime pulse May 22 2026)
+// MexicoHeatmap (v5 — Realtime pulse INSERT + UPDATE May 23 2026)
 //
-// NUEVO EN v4:
-//   • Subscription a Supabase Realtime sobre INSERT en business_profiles
-//   • Cuando se registra un nuevo negocio, el estado correspondiente
-//     parpadea con un pulse dorado/verde por 10 segundos
-//   • Toast notification con el nombre del estado
-//   • Cleanup correcto al desmontar el componente
+// CAMBIOS EN v5:
+//   • Antes solo escuchaba INSERT en business_profiles.
+//   • Problema: el wizard de onboarding crea el row en el Paso 1 (negocio)
+//     y luego hace UPSERT en el Paso 2 (ubicacion). Como ya existe el row,
+//     el evento que dispara Postgres es UPDATE, no INSERT. Por eso el
+//     pulse nunca aparecia para usuarios nuevos del wizard.
+//   • Solucion: escuchar ambos eventos con `event: '*'` y detectar si el
+//     `state` cambio efectivamente (de NULL/vacio a un valor real, o de
+//     un valor a otro distinto). Asi cubrimos:
+//       a. Negocios nuevos que se crean con state directo (INSERT con state)
+//       b. Negocios que se crean sin state y luego se actualizan (UPDATE
+//          del Paso 2 del wizard)
+//       c. Usuarios existentes que cambian su ubicacion desde Mi Negocio
 // ═══════════════════════════════════════════════════════════════════════
 
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
@@ -104,21 +111,50 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
     [data]
   );
 
-  // ═══ SUPABASE REALTIME: detectar nuevos negocios y disparar pulse ═══
+  // ═══════════════════════════════════════════════════════════════════════
+  // SUPABASE REALTIME (v5): detectar nuevos negocios Y cambios de ubicacion
+  //
+  // ANTES (v4): solo escuchaba INSERT. Eso fallaba para el wizard de
+  // onboarding porque crea el row en Paso 1 y hace UPSERT (=UPDATE) en
+  // Paso 2 con la ubicacion. El evento que llegaba era UPDATE, no INSERT,
+  // asi que el pulse nunca aparecia.
+  //
+  // AHORA (v5): escucha `event: '*'` (INSERT + UPDATE + DELETE).
+  // Filtramos en el handler:
+  //   - INSERT con state lleno  → pulse + toast "Nuevo negocio en X"
+  //   - UPDATE donde state cambio de NULL/vacio a un valor  → mismo pulse
+  //   - UPDATE donde state cambio de un valor X a un valor Y  → pulse en Y
+  //   - DELETE  → ignorar (no es relevante para el dashboard live)
+  // ═══════════════════════════════════════════════════════════════════════
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
-      .channel('admin-heatmap-new-business')
+      .channel('admin-heatmap-state-changes')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'business_profiles',
         },
         (payload) => {
+          // Solo nos interesan eventos INSERT y UPDATE
+          if (payload.eventType !== 'INSERT' && payload.eventType !== 'UPDATE') return;
+
           const newRow = payload.new as { state?: string; business_name?: string };
+          const oldRow = payload.old as { state?: string };
+
+          // Si el row nuevo no tiene state, no hay nada que mostrar en el mapa
           if (!newRow.state) return;
+
+          // En UPDATE solo disparar pulse si el state cambio efectivamente.
+          // Esto evita pulses cuando se actualizan otros campos (logo, telefono)
+          // sin cambiar la ubicacion.
+          if (payload.eventType === 'UPDATE') {
+            const oldState = oldRow?.state || null;
+            const newState = newRow.state || null;
+            if (oldState === newState) return;
+          }
 
           const stateName = normalizeStateName(newRow.state);
 
@@ -129,11 +165,14 @@ export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatm
             return next;
           });
 
-          // Toast notification
+          // Toast notification — diferenciamos lenguaje segun tipo de evento
+          const isNew = payload.eventType === 'INSERT' || !oldRow?.state;
           toast.success(
-            `✨ Nuevo negocio en ${stateName}`,
+            isNew
+              ? `✨ Nuevo negocio en ${stateName}`
+              : `📍 Negocio actualizado en ${stateName}`,
             {
-              description: newRow.business_name || 'Se acaba de registrar un negocio',
+              description: newRow.business_name || (isNew ? 'Se acaba de registrar un negocio' : 'Se actualizó la ubicación'),
               duration: 8000,
             }
           );
