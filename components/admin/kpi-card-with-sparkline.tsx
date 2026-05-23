@@ -14,6 +14,12 @@ import { cn } from '@/lib/utils';
 //   KpiCard (numero grande) + ChartCard (grafica grande separada)
 //
 // Asi consolidamos informacion sin duplicar visualmente datos.
+//
+// ⓘ ACTUALIZACIÓN (May 23 2026):
+// Agregado prop opcional `info` para mostrar un tooltip explicativo
+// junto al label del KPI (componente DashboardInfo). Si el card tiene
+// href (es un Link), el icono detiene el click para no navegar al hacer
+// click en el tooltip.
 // ═══════════════════════════════════════════════════════════════════════
 
 type Accent = 'green' | 'blue' | 'gold' | 'luxury' | 'rose';
@@ -39,10 +45,16 @@ interface KpiCardWithSparklineProps {
   deltaLabel?: string;
   deltaDirection?: 'up' | 'down' | 'flat';
   pulse?: boolean;
+  /**
+   * Tooltip explicativo opcional (componente DashboardInfo).
+   * Si el card es un Link (tiene href), el icono detendra el click
+   * para que el popover se abra sin navegar.
+   */
+  info?: React.ReactNode;
 }
 
 export function KpiCardWithSparkline({
-  label, value, hint, Icon, accent, href, series, deltaLabel, deltaDirection, pulse,
+  label, value, hint, Icon, accent, href, series, deltaLabel, deltaDirection, pulse, info,
 }: KpiCardWithSparklineProps) {
   const colors = COLOR_MAP[accent];
 
@@ -81,6 +93,14 @@ export function KpiCardWithSparkline({
                     : deltaDirection === 'down' ? 'text-vylta-rose'
                     : 'text-vylta-muted';
 
+  // Si el card es un Link y tiene info, el icono debe detener el click
+  // para que el popover se abra sin navegar.
+  const infoWrapped = info && href ? (
+    <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+      {info}
+    </span>
+  ) : info;
+
   const inner = (
     <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-5 shadow-card transition-all hover:border-vylta-gold/40 hover:-translate-y-0.5">
       {/* Halo decorativo */}
@@ -90,11 +110,14 @@ export function KpiCardWithSparkline({
       />
 
       <div className="relative">
-        {/* Header con label + icon */}
+        {/* Header con label + (info) + icon */}
         <div className="flex items-center justify-between">
-          <span className="text-xs font-bold uppercase tracking-[0.18em] text-vylta-subtle">
-            {label}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-bold uppercase tracking-[0.18em] text-vylta-subtle">
+              {label}
+            </span>
+            {infoWrapped}
+          </div>
           <Icon className={cn('h-5 w-5', colors.text)} strokeWidth={2} />
         </div>
 
