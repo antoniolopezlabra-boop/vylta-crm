@@ -15,18 +15,32 @@ import {
   Ticket,
   ShieldCheck,
   RefreshCw,
+  Sparkles,
+  UserPlus,
+  Wallet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
+import { MexicoHeatmap } from '@/components/admin/mexico-heatmap';
 
-// ═════════════════════════════════════════════════════════════════════
-// Control Center Dashboard — VYLTA Admin
+// ═══════════════════════════════════════════════════════════════════════
+// Control Center Dashboard — VYLTA Admin (REDISEÑADO May 22 2026)
 //
-// OPTIMIZADO con TanStack Query (useAdminDashboard):
-//   • Cache de 30s: volver al dashboard <30s = instantáneo (cero queries)
-//   • Stale-while-revalidate: hasta 5min muestra cache + refresca silente
-//   • isFetching != isLoading: spinner solo en primera carga, no en refetch
-// ═════════════════════════════════════════════════════════════════════
+// Estilo: "CyberSecure" — dashboard ejecutivo de alto valor con:
+//   • KPI grid superior con metricas globales del negocio
+//   • Mapa de calor interactivo de la Republica Mexicana
+//   • Hero MRR con detalles de planes
+//   • Charts de actividad reciente
+//   • Quick actions a las secciones admin
+//
+// ESTRUCTURA VISUAL:
+//   1. Header con "live" indicator + boton de refresh
+//   2. KPI top: 4 metricas core (Clientes, Suscriptores, Citas 14d, Nuevos)
+//   3. Hero MRR: numero grande + breakdown de planes
+//   4. MAPA DE MÉXICO HEATMAP — signature feature
+//   5. Charts: serie 14d citas + serie 8 semanas negocios
+//   6. Quick actions: links a secciones admin
+// ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
   const { data, isLoading, isFetching, refetch } = useAdminDashboard();
@@ -34,49 +48,118 @@ export default function AdminDashboardPage() {
   if (isLoading || !data) {
     return (
       <div className="flex items-center justify-center py-32">
-        <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-vylta-muted">
+            Cargando Control Center
+          </span>
+        </div>
       </div>
     );
   }
 
+  const dateString = new Date().toLocaleDateString('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
   return (
     <div className="space-y-7 animate-fade-in">
-      {/* HEADER */}
-      <div className="flex items-center justify-between">
+      {/* ═══ HEADER CON LIVE INDICATOR ═══ */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="absolute inset-0 animate-ping rounded-full bg-vylta-gold/60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-vylta-gold" />
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-vylta-gold">Control Center</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-vylta-gold">
+              VYLTA Control Center · LIVE
+            </span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tightest text-vylta-bone">VYLTA</h1>
-          <p className="text-sm text-vylta-muted mt-1">Panel de administración global del sistema</p>
+          <h1 className="mt-2 text-4xl font-bold tracking-tightest text-vylta-bone">
+            Centro de operaciones
+          </h1>
+          <p className="text-sm text-vylta-muted mt-1 capitalize">{dateString}</p>
         </div>
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 self-start rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-3 py-2 text-xs font-bold text-vylta-gold transition hover:bg-vylta-gold/10 disabled:opacity-50"
         >
           <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
           {isFetching ? 'Actualizando...' : 'Actualizar'}
         </button>
       </div>
 
-      {/* MRR HERO */}
-      <div className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
+      {/* ═══ 4 KPIs CORE (lo que pidió Antonio) ═══ */}
+      <section>
+        <SectionHeader label="Vista global del negocio" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <KpiCard
+            label="Clientes"
+            value={data.totalClients}
+            hint="Capturados en VYLTA"
+            Icon={Users}
+            accent="green"
+          />
+          <KpiCard
+            label="Suscriptores"
+            value={data.activeSubscribers}
+            hint="Planes pagados activos"
+            Icon={Sparkles}
+            accent="gold"
+            pulse
+          />
+          <KpiCard
+            label="Citas 14d"
+            value={data.last14DaysAppointments}
+            hint="Últimos 14 días"
+            Icon={CalendarCheck}
+            accent="luxury"
+          />
+          <KpiCard
+            label="Nuevos"
+            value={`+${data.newBusinessesThisWeek}`}
+            hint="Negocios esta semana"
+            Icon={UserPlus}
+            accent="blue"
+            pulse={data.newBusinessesThisWeek > 0}
+          />
+        </div>
+      </section>
+
+      {/* ═══ MAPA DE CALOR DE MÉXICO — signature feature ═══ */}
+      <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
+        <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
+        <div className="relative">
+          <MexicoHeatmap
+            data={data.stateData}
+            onStateClick={(state) => {
+              // Drill-down futuro: navegar a /admin/tenants?state=<state>
+              console.log('[ControlCenter] Click en estado:', state);
+            }}
+          />
+        </div>
+      </section>
+
+      {/* ═══ MRR HERO ═══ */}
+      <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
         <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
         <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.08]" />
 
         <div className="relative flex flex-col gap-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Coins className="h-4 w-4 text-vylta-gold" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-gold">MRR en vivo</span>
+              <Wallet className="h-4 w-4 text-vylta-gold" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-gold">
+                Ingresos Recurrentes Mensuales
+              </span>
             </div>
-            <span className="text-[10px] text-vylta-muted">
-              {new Date().toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+            <span className="text-[10px] text-vylta-muted tabular-nums">
+              {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
             </span>
           </div>
 
@@ -93,20 +176,20 @@ export default function AdminDashboardPage() {
             <PlanCount label="Básico" count={data.gratuitoCount} price={0} color="text-vylta-subtle" Icon={Users} />
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* KPI GRID */}
+      {/* ═══ INDICADORES SECUNDARIOS ═══ */}
       <section>
-        <SectionHeader label="Indicadores" />
+        <SectionHeader label="Indicadores operacionales" />
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <KpiCard label="Negocios" value={data.totalTenants} hint="Total registrados" Icon={Building2} accent="green" href="/admin/tenants" />
-          <KpiCard label="Activos 30d" value={data.activeTenants} hint="Con sesión" Icon={Activity} accent="blue" pulse />
+          <KpiCard label="Negocios totales" value={data.totalTenants} hint="Registrados en VYLTA" Icon={Building2} accent="green" href="/admin/tenants" />
+          <KpiCard label="Activos 30d" value={data.activeTenants} hint="Con sesión reciente" Icon={Activity} accent="blue" />
           <KpiCard label="Retención" value={`${data.retentionRate}%`} hint="Activos / Total" Icon={TrendingUp} accent="gold" />
           <KpiCard label="Citas mes" value={data.monthAppointments} hint={`Histórico: ${data.totalAppointments}`} Icon={CalendarCheck} accent="luxury" />
         </div>
       </section>
 
-      {/* CHARTS */}
+      {/* ═══ CHARTS ═══ */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard
           title="Citas últimos 14 días"
@@ -124,7 +207,7 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      {/* QUICK ACTIONS */}
+      {/* ═══ QUICK ACTIONS ═══ */}
       <section>
         <SectionHeader label="Acciones rápidas" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -158,7 +241,7 @@ export default function AdminDashboardPage() {
 function SectionHeader({ label }: { label: string }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <div className="h-px flex-1 bg-border max-w-[20px]" />
+      <div className="h-px w-5 bg-vylta-gold/40" />
       <h2 className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-muted">{label}</h2>
       <div className="h-px flex-1 bg-border" />
     </div>
@@ -201,7 +284,7 @@ function KpiCard({
   }[accent];
 
   const inner = (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-4 shadow-card transition-all hover:border-border/80 hover:-translate-y-0.5">
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-vylta-surface p-4 shadow-card transition-all hover:border-vylta-gold/30 hover:-translate-y-0.5">
       <div
         className="pointer-events-none absolute -top-10 -right-10 h-32 w-32 rounded-full blur-2xl opacity-25 transition-opacity group-hover:opacity-40"
         style={{ background: colorMap.halo }}
@@ -215,8 +298,14 @@ function KpiCard({
           <div className={cn('text-3xl font-bold tabular-nums tracking-tightest', colorMap.text)}>{value}</div>
           {pulse && (
             <span className="relative flex h-2 w-2 mt-2">
-              <span className="absolute inset-0 animate-ping rounded-full bg-vylta-sky/50" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-vylta-sky" />
+              <span
+                className="absolute inset-0 animate-ping rounded-full opacity-50"
+                style={{ background: colorMap.halo }}
+              />
+              <span
+                className="relative inline-flex h-2 w-2 rounded-full"
+                style={{ background: colorMap.halo }}
+              />
             </span>
           )}
         </div>
