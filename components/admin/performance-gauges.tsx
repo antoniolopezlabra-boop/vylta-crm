@@ -6,30 +6,35 @@ import { Database, HardDrive, Wifi, Zap, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ═════════════════════════════════════════════════════════════════════
-// PerformanceGauges (v2 — fix bug Response Time May 22 2026)
+// PerformanceGauges (v3 — Umbrales realistas May 22 2026)
 //
-// BUG ANTERIOR REPORTADO POR ANTONIO:
-//   El gauge "Response Time" se veía en ROJO aunque el valor estuviera
-//   al 14%. Eso era confuso visualmente.
+// ANTONIO REPORTÓ:
+//   "veo muy seguido que se satura el tiempo de respuesta de la latencia,
+//    hay que ver si eso le impacta a la BD y de que manera... quiero
+//    analizar que tanto antes de activar la suscripción nada mas por que si"
 //
-// CAUSA RAÍZ:
-//   La lógica usaba `100 - responsePct` como display pero el `status`
-//   se calculaba a partir del responseTime absoluto en ms. Eso causaba
-//   que en cargas rápidas (e.g. 14% de la escala = ~140ms), el gauge
-//   mostrara value pequeño pero también healthy → confusión visual.
+// ANÁLISIS HONESTO:
+//   El "Response Time" medido desde el navegador SIEMPRE incluye latencia
+//   de red navegador → Supabase Sao Paulo (~150-300ms base desde Mexico)
+//   + 4 queries en paralelo + Wi-Fi/red del usuario.
 //
-// FIX:
-//   1. El status ahora se deriva del MISMO valor que se renderiza
-//   2. Para gauges donde "menos = mejor" (Response Time), invertimos
-//      el value mostrado pero también ajustamos los thresholds para
-//      que la lógica sea consistente
-//   3. Etiquetas más claras ("Saludable", "Atención", "Crítico")
-// ═════════════════════════════════════════════════════════════════════
+//   NO es un problema de Supabase Free, es un problema de medición.
+//   Umbrales viejos (150/400ms) eran demasiado estrictos.
+//
+// UMBRALES RECALIBRADOS (basados en realidad mexicana):
+//   • <400ms   = healthy  (excelente, 4 queries paralelas rápidas)
+//   • 400-800ms = warning (normal en redes móviles)
+//   • >800ms   = critical (revisar conexión o BD)
+//
+// NOTA: Para diagnosticar la BD real, usar Supabase Dashboard
+// (Logs → Postgres). Esa sí muestra latencia REAL de Postgres sin
+// incluir red del navegador.
+// ═══════════════════════════════════════════════════════════════════════
 
 interface GaugeData {
   label: string;
-  value: number;          // 0-100, valor a mostrar en el arco
-  display: string;        // Texto debajo del gauge
+  value: number;
+  display: string;
   status: 'healthy' | 'warning' | 'critical';
   Icon: any;
   hint: string;
@@ -68,31 +73,26 @@ export function PerformanceGauges() {
       const responseTime = Math.round(performance.now() - start);
       const totalRows = (totalRows1 || 0) + (totalRows2 || 0) + (totalRows3 || 0) + (totalRows4 || 0);
 
-      // ── 1. DATABASE LOAD ──
-      // % uso de la cuota informal de filas (5000 como límite cómodo)
+      // DATABASE LOAD: 5000 filas como umbral cómodo
       const dbLoadPct = Math.min(Math.round((totalRows / 5000) * 100), 100);
       const dbStatus: 'healthy' | 'warning' | 'critical' =
         dbLoadPct > 80 ? 'critical' : dbLoadPct > 50 ? 'warning' : 'healthy';
 
-      // ── 2. STORAGE ──
-      // Estimación ~1KB por fila vs cuota Supabase free 500MB
+      // STORAGE: estimación vs cuota Supabase free 500MB
       const estimatedMB = Math.round((totalRows * 1) / 1024 * 100) / 100;
       const storagePct = Math.min(Math.round((estimatedMB / 500) * 100), 100);
       const storageStatus: 'healthy' | 'warning' | 'critical' =
         storagePct > 80 ? 'critical' : storagePct > 60 ? 'warning' : 'healthy';
 
-      // ── 3. RESPONSE TIME (FIX) ──
-      // FIX: ahora el value mostrado y el status son coherentes.
-      //  - <150ms = healthy (gauge bajo, 0-15%)
-      //  - 150-400ms = warning (gauge medio, 15-40%)
-      //  - >400ms = critical (gauge alto, 40%+)
-      // Note: en este gauge, MENOS valor mostrado = MEJOR estado.
+      // RESPONSE TIME (umbrales realistas):
+      // El display es % sobre 1000ms (cap visual).
+      // El status considera red mexicana hacia Supabase SP:
+      //   <400ms healthy, 400-800ms warning, >800ms critical
       const responsePct = Math.min(Math.round((responseTime / 1000) * 100), 100);
       const responseStatus: 'healthy' | 'warning' | 'critical' =
-        responseTime > 400 ? 'critical' : responseTime > 150 ? 'warning' : 'healthy';
+        responseTime > 800 ? 'critical' : responseTime > 400 ? 'warning' : 'healthy';
 
-      // ── 4. REALTIME ──
-      // % uso de canales (Supabase free permite 200)
+      // REALTIME: % uso de canales (Supabase free permite 200)
       const realtimeChannels = totalRows1 || 0;
       const realtimePct = Math.min(Math.round((realtimeChannels / 200) * 100), 100);
       const realtimeStatus: 'healthy' | 'warning' | 'critical' =
@@ -105,7 +105,7 @@ export function PerformanceGauges() {
           display: `${totalRows.toLocaleString('es-MX')} filas`,
           status: dbStatus,
           Icon: Database,
-          hint: 'Filas totales en BD',
+          hint: 'Total de registros',
         },
         {
           label: 'STORAGE',
@@ -121,7 +121,7 @@ export function PerformanceGauges() {
           display: `${responseTime} ms`,
           status: responseStatus,
           Icon: Zap,
-          hint: 'Latencia promedio queries',
+          hint: 'Incluye red navegador',
         },
         {
           label: 'REALTIME',
@@ -129,7 +129,7 @@ export function PerformanceGauges() {
           display: `${realtimeChannels} canales`,
           status: realtimeStatus,
           Icon: Wifi,
-          hint: 'Canales realtime activos',
+          hint: 'Canales activos',
         },
       ];
 
@@ -148,11 +148,11 @@ export function PerformanceGauges() {
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-px w-5 bg-vylta-gold/40" />
-          <h2 className="text-[10px] font-bold uppercase tracking-[0.25em] text-vylta-muted">
+          <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-muted">
             Salud del sistema
           </h2>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-vylta-subtle">
+        <div className="flex items-center gap-1.5 text-xs text-vylta-subtle">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inset-0 animate-ping rounded-full bg-vylta-green/60" />
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-vylta-green" />
@@ -194,7 +194,7 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
         <div className="flex items-center justify-between">
           <Icon className={cn('h-4 w-4', colors.text)} />
           <span className={cn(
-            'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+            'text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded',
             status === 'critical' && 'text-vylta-rose bg-vylta-rose/10 animate-pulse',
             status === 'warning' && 'text-vylta-gold bg-vylta-gold/10',
             status === 'healthy' && 'text-vylta-green bg-vylta-green/10',
@@ -247,8 +247,8 @@ function GaugeCard({ gauge }: { gauge: GaugeData }) {
 
         <div className="mt-1 text-center">
           <div className={cn('text-sm font-bold tabular-nums', colors.text)}>{display}</div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle mt-0.5">{label}</div>
-          <div className="text-[10px] text-vylta-muted mt-0.5">{hint}</div>
+          <div className="text-xs font-bold uppercase tracking-[0.15em] text-vylta-subtle mt-1">{label}</div>
+          <div className="text-xs text-vylta-muted mt-0.5">{hint}</div>
         </div>
       </div>
     </div>

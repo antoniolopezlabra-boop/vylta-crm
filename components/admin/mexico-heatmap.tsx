@@ -1,30 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ComposableMap, Geographies, Geography } from 'react-simple-maps';
-import { MapPin, Search, Maximize2, X, TrendingUp } from 'lucide-react';
+import { MapPin, Search, Maximize2, X, TrendingUp, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 
 // ═══════════════════════════════════════════════════════════════════════
-// MexicoHeatmap (v3 — Ejecutivo May 22 2026)
+// MexicoHeatmap (v4 — Realtime pulse May 22 2026)
 //
-// REDISEÑO COMPLETO basado en feedback de Antonio:
-//
-//   1️⃣ ESQUEMA DE COLORES SEMAFORIZADO (5 niveles):
-//      - Gris    → sin presencia
-//      - Verde   → primeros usuarios (1-5)
-//      - Amarillo → un poco más (6-15)
-//      - Naranja → carga considerable (16-50)
-//      - Rojo    → muchos clientes (50+)
-//
-//   2️⃣ VISTA COMPACTA + MODAL EXPANDIBLE (estilo Google Ads):
-//      - Vista compacta: mapa al ~60% del tamaño anterior
-//      - Botón "Expandir" en esquina superior derecha
-//      - Modal full-screen con mapa grande + tabla completa + detalles
-//
-//   3️⃣ TIPOGRAFÍA EJECUTIVA:
-//      - Densidad / Top 5: text-xs en lugar de text-[10px]
-//      - Labels más grandes y legibles
+// NUEVO EN v4:
+//   • Subscription a Supabase Realtime sobre INSERT en business_profiles
+//   • Cuando se registra un nuevo negocio, el estado correspondiente
+//     parpadea con un pulse dorado/verde por 10 segundos
+//   • Toast notification con el nombre del estado
+//   • Cleanup correcto al desmontar el componente
 // ═══════════════════════════════════════════════════════════════════════
 
 const MEXICO_TOPO_JSON = 'https://raw.githubusercontent.com/strotgen/mexico-leaflet/master/states.geojson';
@@ -51,11 +42,11 @@ export interface StateDataPoint {
 interface MexicoHeatmapProps {
   data: StateDataPoint[];
   onStateClick?: (stateName: string) => void;
+  /** Callback opcional cuando llega un nuevo negocio vía realtime — útil para invalidar caches */
+  onNewBusiness?: () => void;
 }
 
-// ── ESQUEMA SEMAFORIZADO (Antonio's pedido) ──
-// Gris → Verde → Amarillo → Naranja → Rojo
-// Umbrales absolutos (esquema A): 0 / 1-5 / 6-15 / 16-50 / 50+
+// Esquema semaforizado solicitado por Antonio: gris/verde/amarillo/naranja/rojo
 function getHeatColor(count: number): {
   fill: string;
   stroke: string;
@@ -79,17 +70,23 @@ function getHeatColor(count: number): {
 }
 
 const LEGEND: { label: string; color: string; glow: boolean; range: string }[] = [
-  { label: 'Saturado',    color: '#EF4444', glow: true,  range: '50+' },
-  { label: 'Carga alta',  color: '#F97316', glow: true,  range: '16-50' },
-  { label: 'Crecimiento', color: '#F59E0B', glow: true,  range: '6-15' },
-  { label: 'Primeros',    color: '#10B981', glow: false, range: '1-5' },
+  { label: 'Saturado',      color: '#EF4444', glow: true,  range: '50+' },
+  { label: 'Carga alta',    color: '#F97316', glow: true,  range: '16-50' },
+  { label: 'Crecimiento',   color: '#F59E0B', glow: true,  range: '6-15' },
+  { label: 'Primeros',      color: '#10B981', glow: false, range: '1-5' },
   { label: 'Sin presencia', color: '#1F2937', glow: false, range: '0' },
 ];
 
-export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
+export function MexicoHeatmap({ data, onStateClick, onNewBusiness }: MexicoHeatmapProps) {
   const [hoveredState, setHoveredState] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // ⚡ PULSE STATES: Set de nombres de estados que están parpadeando ahora
+  const [pulsingStates, setPulsingStates] = useState<Set<string>>(new Set());
+  // Mantenemos un ref para que el subscriber siempre acceda a la versión más reciente
+  const onNewBusinessRef = useRef(onNewBusiness);
+  useEffect(() => { onNewBusinessRef.current = onNewBusiness; }, [onNewBusiness]);
 
   const dataByState = useMemo(() => {
     const map = new Map<string, StateDataPoint>();
@@ -106,6 +103,60 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
     () => [...data].sort((a, b) => b.total_businesses - a.total_businesses).slice(0, 5),
     [data]
   );
+
+  // ═══ SUPABASE REALTIME: detectar nuevos negocios y disparar pulse ═══
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin-heatmap-new-business')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'business_profiles',
+        },
+        (payload) => {
+          const newRow = payload.new as { state?: string; business_name?: string };
+          if (!newRow.state) return;
+
+          const stateName = normalizeStateName(newRow.state);
+
+          // Añadir a pulsingStates
+          setPulsingStates((prev) => {
+            const next = new Set(prev);
+            next.add(stateName);
+            return next;
+          });
+
+          // Toast notification
+          toast.success(
+            `✨ Nuevo negocio en ${stateName}`,
+            {
+              description: newRow.business_name || 'Se acaba de registrar un negocio',
+              duration: 8000,
+            }
+          );
+
+          // Trigger callback para invalidar caches del dashboard
+          onNewBusinessRef.current?.();
+
+          // Quitar el pulse después de 10 segundos
+          setTimeout(() => {
+            setPulsingStates((prev) => {
+              const next = new Set(prev);
+              next.delete(stateName);
+              return next;
+            });
+          }, 10_000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // ESC para cerrar modal
   useEffect(() => {
@@ -138,9 +189,9 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
         hoveredData={hoveredData}
         onStateClick={onStateClick}
         onExpand={() => setIsExpanded(true)}
+        pulsingStates={pulsingStates}
       />
 
-      {/* MODAL FULL-SCREEN — vista expandida */}
       {isExpanded && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
@@ -171,18 +222,30 @@ export function MexicoHeatmap({ data, onStateClick }: MexicoHeatmapProps) {
                 hoveredData={hoveredData}
                 onStateClick={onStateClick}
                 onExpand={() => {}}
+                pulsingStates={pulsingStates}
               />
             </div>
           </div>
         </div>
       )}
+
+      {/* CSS de la animación pulse — inline para no depender de tailwind config */}
+      <style jsx global>{`
+        @keyframes vylta-state-pulse {
+          0%, 100% {
+            filter: drop-shadow(0 0 6px #FBBF24) drop-shadow(0 0 12px #F59E0B);
+          }
+          50% {
+            filter: drop-shadow(0 0 16px #FBBF24) drop-shadow(0 0 30px #F59E0B);
+          }
+        }
+        .state-pulse path {
+          animation: vylta-state-pulse 0.8s ease-in-out infinite;
+        }
+      `}</style>
     </>
   );
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// MapContent — contenido del mapa (reutilizado en vista normal y modal)
-// ═══════════════════════════════════════════════════════════════════════
 
 function MapContent({
   isExpanded,
@@ -197,6 +260,7 @@ function MapContent({
   hoveredData,
   onStateClick,
   onExpand,
+  pulsingStates,
 }: {
   isExpanded: boolean;
   data: StateDataPoint[];
@@ -210,10 +274,10 @@ function MapContent({
   hoveredData: StateDataPoint | undefined | null;
   onStateClick?: (s: string) => void;
   onExpand: () => void;
+  pulsingStates: Set<string>;
 }) {
   return (
     <div className="relative">
-      {/* HEADER */}
       <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <MapPin className="h-5 w-5 text-vylta-gold" />
@@ -227,6 +291,12 @@ function MapContent({
             </span>
             Tiempo real
           </span>
+          {pulsingStates.size > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-vylta-gold animate-pulse">
+              <Sparkles className="h-3.5 w-3.5" />
+              {pulsingStates.size} nuevo{pulsingStates.size > 1 ? 's' : ''}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4 text-xs font-bold text-vylta-muted">
           <span>
@@ -252,7 +322,6 @@ function MapContent({
       </div>
 
       <div className={cn('grid gap-4', isExpanded ? 'lg:grid-cols-[1fr_320px]' : 'lg:grid-cols-[1fr_260px]')}>
-        {/* MAPA */}
         <div
           className="relative overflow-hidden rounded-xl border border-border bg-vylta-admin-bg shadow-card-lg"
           onMouseMove={(e) => {
@@ -294,38 +363,42 @@ function MapContent({
                     const stateData = dataByState.get(stateName);
                     const count = stateData?.total_businesses || 0;
                     const heat = getHeatColor(count);
+                    const isPulsing = pulsingStates.has(stateName);
 
                     return (
-                      <Geography
-                        key={geo.rsmKey}
-                        geography={geo}
-                        onMouseEnter={() => setHoveredState(stateName)}
-                        onClick={() => onStateClick?.(stateName)}
-                        style={{
-                          default: {
-                            fill: heat.fill,
-                            stroke: heat.stroke,
-                            strokeWidth: 0.6,
-                            outline: 'none',
-                            filter: heat.glow ? `drop-shadow(0 0 8px ${heat.fill}90)` : 'none',
-                            transition: 'all 0.2s ease-out',
-                          },
-                          hover: {
-                            fill: heat.fill,
-                            stroke: '#FBBF24',
-                            strokeWidth: 2.2,
-                            outline: 'none',
-                            cursor: 'pointer',
-                            filter: `drop-shadow(0 0 14px ${heat.fill}cc)`,
-                          },
-                          pressed: {
-                            fill: heat.fill,
-                            stroke: '#FBBF24',
-                            strokeWidth: 2.2,
-                            outline: 'none',
-                          },
-                        }}
-                      />
+                      <g key={geo.rsmKey} className={isPulsing ? 'state-pulse' : ''}>
+                        <Geography
+                          geography={geo}
+                          onMouseEnter={() => setHoveredState(stateName)}
+                          onClick={() => onStateClick?.(stateName)}
+                          style={{
+                            default: {
+                              fill: isPulsing ? '#FBBF24' : heat.fill,
+                              stroke: isPulsing ? '#F59E0B' : heat.stroke,
+                              strokeWidth: isPulsing ? 2.5 : 0.6,
+                              outline: 'none',
+                              filter: !isPulsing && heat.glow
+                                ? `drop-shadow(0 0 8px ${heat.fill}90)`
+                                : 'none',
+                              transition: 'all 0.2s ease-out',
+                            },
+                            hover: {
+                              fill: isPulsing ? '#FBBF24' : heat.fill,
+                              stroke: '#FBBF24',
+                              strokeWidth: 2.2,
+                              outline: 'none',
+                              cursor: 'pointer',
+                              filter: `drop-shadow(0 0 14px ${heat.fill}cc)`,
+                            },
+                            pressed: {
+                              fill: heat.fill,
+                              stroke: '#FBBF24',
+                              strokeWidth: 2.2,
+                              outline: 'none',
+                            },
+                          }}
+                        />
+                      </g>
                     );
                   })
                 }
@@ -333,7 +406,6 @@ function MapContent({
             </ComposableMap>
           </div>
 
-          {/* TOOLTIP FLOTANTE */}
           {hoveredState && mousePos && (
             <div
               className="pointer-events-none absolute z-10 rounded-lg border border-vylta-gold/40 bg-vylta-card/95 px-4 py-3 shadow-card-lg backdrop-blur-sm"
@@ -369,9 +441,7 @@ function MapContent({
           )}
         </div>
 
-        {/* PANEL LATERAL */}
         <div className="flex flex-col gap-4">
-          {/* TOP 5 — con tipografia mas grande */}
           <div className="rounded-xl border border-border bg-vylta-surface p-5">
             <div className="flex items-center gap-2 mb-4">
               <TrendingUp className="h-4 w-4 text-vylta-gold" />
@@ -402,7 +472,7 @@ function MapContent({
                         {s.state}
                       </span>
                       <span className="text-vylta-gold tabular-nums font-bold text-sm">{s.total_businesses}</span>
-                      <span className="text-[11px] text-vylta-subtle tabular-nums w-9 text-right">{pct}%</span>
+                      <span className="text-xs text-vylta-subtle tabular-nums w-9 text-right">{pct}%</span>
                     </div>
                   );
                 })}
@@ -410,7 +480,6 @@ function MapContent({
             )}
           </div>
 
-          {/* LEYENDA — esquema semaforizado */}
           <div className="rounded-xl border border-border bg-vylta-surface p-5">
             <div className="text-sm font-bold text-vylta-bone mb-4">
               Densidad por estado
@@ -434,7 +503,6 @@ function MapContent({
             </div>
           </div>
 
-          {/* TABLA COMPLETA solo en vista expandida */}
           {isExpanded && (
             <div className="rounded-xl border border-border bg-vylta-surface p-5">
               <div className="text-sm font-bold text-vylta-bone mb-3">

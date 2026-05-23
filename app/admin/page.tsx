@@ -13,12 +13,11 @@ import {
   ShieldCheck,
   RefreshCw,
   Sparkles,
-  UserPlus,
   Wallet,
   ArrowRight,
-  Briefcase,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
 import { MexicoHeatmap } from '@/components/admin/mexico-heatmap';
@@ -29,33 +28,18 @@ import { UserSupportPanel } from '@/components/admin/user-support-panel';
 import { KpiCardWithSparkline } from '@/components/admin/kpi-card-with-sparkline';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center v4 — Refactor para eliminar redundancias (May 22 2026)
-//
-// ANTONIO PIDIÓ:
-//   "hay cosas en las que necesito un mayor detalle no el numero grueso
-//    de resultado, por ejemplo: Tengo un dashboard al inicio que dice
-//    Negocios 17 y tengo abajo una grafica que dice Nuevos negocios
-//    (8 semanas). ambos recuadros me los puedes juntar en uno solo.
-//    quiero algo ejecutivo a nivel direccion."
+// Control Center v5 — Fixes de feedback de Antonio (May 22 2026)
 //
 // CAMBIOS:
-//   1️⃣ Cards consolidados: KPI numerico + mini sparkline en mismo card
-//      • Negocios + serie 8 semanas → 1 card
-//      • Citas 14d + serie diaria → 1 card
-//
-//   2️⃣ Eliminadas graficas duplicadas redundantes
-//
-//   3️⃣ Layout reorganizado para sentirse ejecutivo:
-//      - Fila 1: 4 KPIs consolidados con sparklines
-//      - Fila 2: Mapa de calor (con botón expandir)
-//      - Fila 3: Performance gauges
-//      - Fila 4: MRR Hero + Plan Mix donut + Indicadores (en triple grid)
-//      - Fila 5: Pagos a proveedores (tabla con tipografia grande)
-//      - Fila 6: Soporte usuarios
-//      - Fila 7: Quick actions
+//   1️⃣ Quitado KPI "Clientes finales" (no aportaba valor ejecutivo)
+//   2️⃣ Quitado header duplicado "Centro de operaciones" (ya esta en AdminTabs)
+//   3️⃣ Quitado SectionHeader externo de Soporte (el componente trae el propio)
+//   4️⃣ Quitado SectionHeader externo de Pagos a proveedores (puro componente)
+//   5️⃣ Realtime pulse en mapa al detectar nuevo negocio
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isFetching, refetch } = useAdminDashboard();
 
   if (isLoading || !data) {
@@ -64,7 +48,7 @@ export default function AdminDashboardPage() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-vylta-gold" />
           <span className="text-xs font-bold uppercase tracking-[0.3em] text-vylta-muted">
-            Cargando Control Center
+            Cargando dashboard
           </span>
         </div>
       </div>
@@ -78,7 +62,7 @@ export default function AdminDashboardPage() {
     year: 'numeric',
   });
 
-  // Calcular deltas para los cards consolidados
+  // Deltas para sparklines
   const lastWeekValue = data.weeklyNegocios[data.weeklyNegocios.length - 2]?.value || 0;
   const thisWeekValue = data.weeklyNegocios[data.weeklyNegocios.length - 1]?.value || 0;
   const negociosDelta = thisWeekValue - lastWeekValue;
@@ -93,8 +77,8 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* ═══ HEADER ═══ */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      {/* HEADER LIMPIO (sin titulo "Centro de operaciones", ya esta en AdminTabs) */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
@@ -102,13 +86,10 @@ export default function AdminDashboardPage() {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-vylta-gold" />
             </span>
             <span className="text-xs font-bold uppercase tracking-[0.3em] text-vylta-gold">
-              VYLTA Control Center · LIVE
+              LIVE
             </span>
+            <span className="text-sm text-vylta-muted capitalize ml-2">{dateString}</span>
           </div>
-          <h1 className="mt-2 text-4xl font-bold tracking-tightest text-vylta-bone">
-            Centro de operaciones
-          </h1>
-          <p className="text-sm text-vylta-muted mt-1 capitalize">{dateString}</p>
         </div>
         <button
           onClick={() => refetch()}
@@ -120,10 +101,10 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {/* ═══ 4 KPIs EJECUTIVOS CONSOLIDADOS (con sparklines) ═══ */}
+      {/* 3 KPIs EJECUTIVOS (sin Clientes finales) */}
       <section>
         <SectionHeader label="Vista global del negocio" />
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           <KpiCardWithSparkline
             label="Negocios"
             value={data.totalTenants}
@@ -134,13 +115,6 @@ export default function AdminDashboardPage() {
             series={data.weeklyNegocios}
             deltaLabel={negociosDelta !== 0 ? `${negociosDelta > 0 ? '+' : ''}${negociosDelta} esta semana` : 'sin cambios'}
             deltaDirection={negociosDeltaDir}
-          />
-          <KpiCardWithSparkline
-            label="Clientes finales"
-            value={data.totalClients}
-            hint="Capturados por los negocios"
-            Icon={Users}
-            accent="luxury"
           />
           <KpiCardWithSparkline
             label="Suscriptores"
@@ -155,7 +129,7 @@ export default function AdminDashboardPage() {
             value={data.last14DaysAppointments}
             hint="Reservaciones recientes"
             Icon={CalendarCheck}
-            accent="blue"
+            accent="luxury"
             series={data.dailyCitas}
             deltaLabel={citasDelta !== 0 ? `${citasDelta > 0 ? '+' : ''}${citasDelta} vs ayer` : 'sin cambios'}
             deltaDirection={citasDeltaDir}
@@ -163,7 +137,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* ═══ MAPA DE CALOR (con botón expandir) ═══ */}
+      {/* MAPA DE CALOR con realtime pulse */}
       <section className="relative overflow-hidden rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg">
         <div className="pointer-events-none absolute -top-32 -right-32 h-72 w-72 rounded-full bg-vylta-gold/8 blur-[100px]" />
         <div className="relative">
@@ -172,20 +146,23 @@ export default function AdminDashboardPage() {
             onStateClick={(state) => {
               console.log('[ControlCenter] Click en estado:', state);
             }}
+            onNewBusiness={() => {
+              // Refrescar dashboard cuando se detecte un nuevo negocio vía realtime
+              queryClient.invalidateQueries({ queryKey: ['admin-dashboard'] });
+            }}
           />
         </div>
       </section>
 
-      {/* ═══ PERFORMANCE GAUGES ═══ */}
+      {/* PERFORMANCE GAUGES */}
       <section>
         <PerformanceGauges />
       </section>
 
-      {/* ═══ SALUD FINANCIERA: MRR HERO + DONUT + INDICADORES ═══ */}
+      {/* SALUD FINANCIERA */}
       <section>
         <SectionHeader label="Salud financiera" />
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[2fr_1.2fr]">
-          {/* MRR HERO */}
           <div className="relative overflow-hidden rounded-2xl border border-vylta-gold/30 bg-vylta-surface p-7 shadow-card-lg">
             <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-vylta-gold/10 blur-[80px]" />
             <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.08]" />
@@ -218,7 +195,6 @@ export default function AdminDashboardPage() {
             </div>
           </div>
 
-          {/* DONUT */}
           <PlanMixDonut
             premiumCount={data.basicCount}
             luxuryCount={data.premiumCount}
@@ -227,7 +203,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* ═══ INDICADORES OPERACIONALES ═══ */}
+      {/* INDICADORES OPERACIONALES */}
       <section>
         <SectionHeader label="Indicadores operacionales" />
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
@@ -237,19 +213,18 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* ═══ PAGOS A PROVEEDORES — tipografia grande ═══ */}
+      {/* PAGOS A PROVEEDORES — editable inline (sin SectionHeader externo) */}
       <section>
         <SectionHeader label="Pagos a proveedores" />
         <VendorPaymentsTable />
       </section>
 
-      {/* ═══ SOPORTE A USUARIOS ═══ */}
+      {/* SOPORTE A USUARIOS — sin SectionHeader externo (el componente trae el propio) */}
       <section>
-        <SectionHeader label="Soporte a usuarios" />
         <UserSupportPanel />
       </section>
 
-      {/* ═══ ACCIONES RÁPIDAS ═══ */}
+      {/* ACCIONES RÁPIDAS */}
       <section>
         <SectionHeader label="Acciones rápidas" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
