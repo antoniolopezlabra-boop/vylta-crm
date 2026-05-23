@@ -4,31 +4,20 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Database, HardDrive, Wifi, Zap, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═════════════════════════════════════════════════════════════════════
-// PerformanceGauges (v3 — Umbrales realistas May 22 2026)
+// PerformanceGauges (v4 — Tooltip ⓘ explicativo, May 23 2026)
 //
-// ANTONIO REPORTÓ:
-//   "veo muy seguido que se satura el tiempo de respuesta de la latencia,
-//    hay que ver si eso le impacta a la BD y de que manera... quiero
-//    analizar que tanto antes de activar la suscripción nada mas por que si"
+// CAMBIOS EN v4:
+//   • Agregado DashboardInfo junto al titulo "Salud del sistema" para
+//     que Hugo entienda los 4 medidores (database load, storage,
+//     response time, realtime) sin necesitar contexto tecnico.
 //
-// ANÁLISIS HONESTO:
-//   El "Response Time" medido desde el navegador SIEMPRE incluye latencia
-//   de red navegador → Supabase Sao Paulo (~150-300ms base desde Mexico)
-//   + 4 queries en paralelo + Wi-Fi/red del usuario.
-//
-//   NO es un problema de Supabase Free, es un problema de medición.
-//   Umbrales viejos (150/400ms) eran demasiado estrictos.
-//
-// UMBRALES RECALIBRADOS (basados en realidad mexicana):
-//   • <400ms   = healthy  (excelente, 4 queries paralelas rápidas)
-//   • 400-800ms = warning (normal en redes móviles)
-//   • >800ms   = critical (revisar conexión o BD)
-//
-// NOTA: Para diagnosticar la BD real, usar Supabase Dashboard
-// (Logs → Postgres). Esa sí muestra latencia REAL de Postgres sin
-// incluir red del navegador.
+// HISTORIAL:
+//   v3 (May 22 2026): Umbrales realistas para Response Time considerando
+//   latencia de red navegador → Supabase Sao Paulo desde Mexico (~150-300ms
+//   base). <400ms healthy, 400-800ms warning, >800ms critical.
 // ═══════════════════════════════════════════════════════════════════════
 
 interface GaugeData {
@@ -73,26 +62,19 @@ export function PerformanceGauges() {
       const responseTime = Math.round(performance.now() - start);
       const totalRows = (totalRows1 || 0) + (totalRows2 || 0) + (totalRows3 || 0) + (totalRows4 || 0);
 
-      // DATABASE LOAD: 5000 filas como umbral cómodo
       const dbLoadPct = Math.min(Math.round((totalRows / 5000) * 100), 100);
       const dbStatus: 'healthy' | 'warning' | 'critical' =
         dbLoadPct > 80 ? 'critical' : dbLoadPct > 50 ? 'warning' : 'healthy';
 
-      // STORAGE: estimación vs cuota Supabase free 500MB
       const estimatedMB = Math.round((totalRows * 1) / 1024 * 100) / 100;
       const storagePct = Math.min(Math.round((estimatedMB / 500) * 100), 100);
       const storageStatus: 'healthy' | 'warning' | 'critical' =
         storagePct > 80 ? 'critical' : storagePct > 60 ? 'warning' : 'healthy';
 
-      // RESPONSE TIME (umbrales realistas):
-      // El display es % sobre 1000ms (cap visual).
-      // El status considera red mexicana hacia Supabase SP:
-      //   <400ms healthy, 400-800ms warning, >800ms critical
       const responsePct = Math.min(Math.round((responseTime / 1000) * 100), 100);
       const responseStatus: 'healthy' | 'warning' | 'critical' =
         responseTime > 800 ? 'critical' : responseTime > 400 ? 'warning' : 'healthy';
 
-      // REALTIME: % uso de canales (Supabase free permite 200)
       const realtimeChannels = totalRows1 || 0;
       const realtimePct = Math.min(Math.round((realtimeChannels / 200) * 100), 100);
       const realtimeStatus: 'healthy' | 'warning' | 'critical' =
@@ -151,6 +133,17 @@ export function PerformanceGauges() {
           <h2 className="text-xs font-bold uppercase tracking-[0.25em] text-vylta-muted">
             Salud del sistema
           </h2>
+          <DashboardInfo
+            title="Salud del sistema"
+            description="Medidores en tiempo real del estado técnico de VYLTA. Cada uno cambia de color según qué tan saludable está: verde (bien), amarillo (atención), rojo (crítico)."
+            metrics={[
+              { label: 'Database load', meaning: 'Qué tan llena está la base de datos. Sube cuando hay más registros (negocios, citas, clientes).' },
+              { label: 'Storage', meaning: 'Espacio usado en disco. El plan Supabase Pro nos da 8 GB; hoy usamos menos del 1%.' },
+              { label: 'Response time', meaning: 'Cuánto tarda VYLTA en responder. Incluye el tiempo de tu internet — desde México a Supabase Sao Paulo son 150-300ms normales.' },
+              { label: 'Realtime', meaning: 'Cuántos canales en vivo están abiertos. Hoy solo se usa para citas en tiempo real.' },
+            ]}
+            whyMatters="Si algún medidor pasa a rojo, hay que actuar pronto: agregar capacidad, optimizar queries o actualizar el plan de Supabase. Por ahora todo está en verde porque VYLTA recién arranca."
+          />
         </div>
         <div className="flex items-center gap-1.5 text-xs text-vylta-subtle">
           <span className="relative flex h-1.5 w-1.5">
