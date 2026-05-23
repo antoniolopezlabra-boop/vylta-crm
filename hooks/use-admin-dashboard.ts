@@ -22,9 +22,16 @@ import { createClient } from '@/lib/supabase/client';
 // los negocios de VYLTA. La funcion RPC verifica internamente que el caller
 // esté en vylta_admins con is_active=true antes de devolver datos.
 //
+// ⚙️ ACTUALIZACIÓN PERFORMANCE (May 23 2026):
+// Quitado Supabase Realtime de business_profiles (consumia ~557K queries
+// al WAL en 24h, saturando el Disk IO Budget del plan Free). El mapa
+// admin ahora usa POLLING cada 60s en vez de eventos en vivo. Tradeoff:
+// hasta 60s de delay para ver un nuevo registro, pero cero consumo de WAL.
+//
 // OPTIMIZADO con TanStack Query:
 //   • Cache de 30s: volver al dashboard <30s = instantáneo
 //   • Stale-while-revalidate: hasta 5min muestra cache + refresca silente
+//   • refetchInterval: 60s → recarga automática mientras la pestaña esté activa
 // ═══════════════════════════════════════════════════════════════════════
 
 export interface StateDataPoint {
@@ -179,5 +186,9 @@ export function useAdminDashboard() {
     queryKey: ['admin-dashboard'],
     queryFn: fetchDashboardData,
     // Hereda staleTime/gcTime del QueryProvider (30s / 5min)
+    // ⚙️ Polling cada 60s mientras la pestaña esté activa.
+    // Reemplaza el Realtime que teniamos antes (consumia ~557K queries al WAL/24h).
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false, // no consumir requests si la pestaña no esta visible
   });
 }
