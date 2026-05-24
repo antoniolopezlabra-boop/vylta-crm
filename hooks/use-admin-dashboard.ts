@@ -16,22 +16,18 @@ import { createClient } from '@/lib/supabase/client';
 //
 // 🔒 ACTUALIZACIÓN SEGURIDAD (May 23 2026):
 // Reemplazada la view 'business_profiles_by_state' por la función RPC
-// 'get_business_profiles_by_state'. La view original tenia SECURITY DEFINER
-// con grants a anon, lo que permitia que cualquier visitante de la landing
-// (con anon key publica) pudiera consultar la distribucion geografica de
-// los negocios de VYLTA. La funcion RPC verifica internamente que el caller
-// esté en vylta_admins con is_active=true antes de devolver datos.
+// 'get_business_profiles_by_state'.
 //
 // ⚙️ ACTUALIZACIÓN PERFORMANCE (May 23 2026):
-// Quitado Supabase Realtime de business_profiles (consumia ~557K queries
-// al WAL en 24h, saturando el Disk IO Budget del plan Free). El mapa
-// admin ahora usa POLLING cada 60s en vez de eventos en vivo. Tradeoff:
-// hasta 60s de delay para ver un nuevo registro, pero cero consumo de WAL.
+// Quitado Supabase Realtime de business_profiles, polling cada 60s.
 //
-// OPTIMIZADO con TanStack Query:
-//   • Cache de 30s: volver al dashboard <30s = instantáneo
-//   • Stale-while-revalidate: hasta 5min muestra cache + refresca silente
-//   • refetchInterval: 60s → recarga automática mientras la pestaña esté activa
+// 🐛 FIX RETENCIÓN >100% (May 23 2026):
+// Antes: activeTenants contaba TODAS las sesiones de user_sessions, incluyendo
+// admins (vylta_admins) que NO tienen business_profile. Esto causaba que
+// activeTenants > totalTenants en algunos casos, generando retencion >100%
+// (ej. 18 activos / 17 negocios = 106%). Ahora filtramos las sesiones para
+// contar solo las de usuarios que SÍ tienen business_profile, igualando el
+// denominador y manteniendo la retencion en el rango 0-100%.
 // ═══════════════════════════════════════════════════════════════════════
 
 export interface StateDataPoint {
@@ -42,7 +38,6 @@ export interface StateDataPoint {
 }
 
 export interface DashboardData {
-  // Datos existentes
   totalTenants: number;
   activeTenants: number;
   retentionRate: number;
@@ -55,7 +50,6 @@ export interface DashboardData {
   dailyCitas: { label: string; value: number }[];
   weeklyNegocios: { label: string; value: number }[];
 
-  // Nuevos (May 22 2026) — para el Control Center CyberSecure
   totalClients: number;
   activeSubscribers: number;
   last14DaysAppointments: number;
@@ -88,6 +82,7 @@ async function fetchDashboardData(): Promise<DashboardData> {
     { count: last14DaysAppointments },
     { count: newBusinessesThisWeek },
     { data: sessions },
+    { data: businessUserIds },  // 🐛 NEW (May 23 2026): para filtrar admins sin perfil
     { data: dailyApts },
     { data: weeklyRegs },
     { data: plans, error: plansError },
@@ -96,18 +91,14 @@ async function fetchDashboardData(): Promise<DashboardData> {
     supabase.from('business_profiles').select('*', { count: 'exact', head: true }),
     supabase.from('appointments').select('*', { count: 'exact', head: true }),
     supabase.from('appointments').select('*', { count: 'exact', head: true }).gte('date', monthStartStr),
-    // Nuevos counters
     supabase.from('clients').select('*', { count: 'exact', head: true }),
     supabase.from('appointments').select('*', { count: 'exact', head: true }).gte('date', fourteenAgoStr),
     supabase.from('business_profiles').select('*', { count: 'exact', head: true }).gte('created_at', sevenAgo.toISOString()),
-    // Sesiones y series
     supabase.from('user_sessions').select('user_id').gte('last_seen_at', thirtyAgo.toISOString()),
+    supabase.from('business_profiles').select('user_id'),  // 🐛 NEW: lista de user_ids con perfil
     supabase.from('appointments').select('date').gte('date', fourteenAgoStr).order('date'),
     supabase.from('business_profiles').select('created_at').gte('created_at', fiftySixAgo.toISOString()).order('created_at'),
     supabase.rpc('get_all_subscription_plans'),
-    // ⚡ 🔒 NEW (May 23 2026): data del mapa de calor agregada por estado.
-    // Antes: supabase.from('business_profiles_by_state').select('*') — view publica vulnerable.
-    // Ahora: RPC que verifica internamente vylta_admins.is_active=true.
     supabase.rpc('get_business_profiles_by_state'),
   ]);
 
@@ -124,8 +115,6 @@ async function fetchDashboardData(): Promise<DashboardData> {
     (p.plan_type || '').toLowerCase().trim() === 'gratuito'
   ).length || 0;
 
-  // Suscriptores activos = todos los planes pagados con status='active'
-  // (no incluye Plan Básico que es $0).
   const activeSubscribers = (plans?.filter((p: any) => {
     const planType = (p.plan_type || '').toLowerCase().trim();
     const status = (p.status || '').toLowerCase().trim();
@@ -134,7 +123,14 @@ async function fetchDashboardData(): Promise<DashboardData> {
   }).length) || 0;
 
   const mrr = basicCount * 399 + premiumCount * 799;
-  const activeTenants = sessions?.length || 0;
+
+  // 🐛 FIX RETENCIÓN >100% (May 23 2026):
+  // Filtrar las sesiones para contar SOLO usuarios que tienen business_profile.
+  // Asi los admins (que tienen sesion pero no perfil de negocio) no inflan el contador.
+  const businessUserIdSet = new Set((businessUserIds || []).map((b: any) => b.user_id));
+  const sessionsWithBusiness = (sessions || []).filter((s: any) => businessUserIdSet.has(s.user_id));
+  const activeTenants = new Set(sessionsWithBusiness.map((s: any) => s.user_id)).size;
+
   const retentionRate = totalTenants ? Math.round((activeTenants / (totalTenants || 1)) * 100) : 0;
 
   // Citas últimos 14 días (serie diaria)
@@ -160,7 +156,6 @@ async function fetchDashboardData(): Promise<DashboardData> {
   });
 
   return {
-    // Existentes
     totalTenants: totalTenants || 0,
     activeTenants,
     retentionRate,
@@ -172,7 +167,6 @@ async function fetchDashboardData(): Promise<DashboardData> {
     mrr,
     dailyCitas: Object.entries(days).map(([label, value]) => ({ label, value })),
     weeklyNegocios: Object.entries(weeks).map(([label, value]) => ({ label, value })),
-    // Nuevos
     totalClients: totalClients || 0,
     activeSubscribers,
     last14DaysAppointments: last14DaysAppointments || 0,
@@ -185,10 +179,7 @@ export function useAdminDashboard() {
   return useQuery({
     queryKey: ['admin-dashboard'],
     queryFn: fetchDashboardData,
-    // Hereda staleTime/gcTime del QueryProvider (30s / 5min)
-    // ⚙️ Polling cada 60s mientras la pestaña esté activa.
-    // Reemplaza el Realtime que teniamos antes (consumia ~557K queries al WAL/24h).
     refetchInterval: 60_000,
-    refetchIntervalInBackground: false, // no consumir requests si la pestaña no esta visible
+    refetchIntervalInBackground: false,
   });
 }
