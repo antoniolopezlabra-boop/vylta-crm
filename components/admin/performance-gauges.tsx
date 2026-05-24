@@ -7,18 +7,39 @@ import { cn } from '@/lib/utils';
 import { DashboardInfo } from '@/components/admin/dashboard-info';
 
 // ═════════════════════════════════════════════════════════════════════
-// PerformanceGauges (v4 — Tooltip ⓘ explicativo, May 23 2026)
+// PerformanceGauges (v5 — Umbrales actualizados para Plan PRO, May 23 2026)
 //
-// CAMBIOS EN v4:
-//   • Agregado DashboardInfo junto al titulo "Salud del sistema" para
-//     que Hugo entienda los 4 medidores (database load, storage,
-//     response time, realtime) sin necesitar contexto tecnico.
+// CAMBIOS EN v5:
+//   • STORAGE: medido con pg_database_size() REAL (no estimación de 1KB/fila).
+//     Nuevo límite: 8 GB de disco del Plan Pro (era 500 MB del Free).
+//   • DATABASE LOAD: límite subido de 5K filas → 50K filas (cómodo en Pro).
+//   • RESPONSE TIME: rangos relajados (era 400/800, ahora 500/1500).
+//     Razón: 4 queries paralelas desde México hacia Sao Paulo siempre dan
+//     400-800ms en condiciones normales — antes salía "Atención" todo el día.
+//   • REALTIME: límite subido de 200 → 500 conexiones concurrentes (Pro).
+//   • Nueva RPC get_system_health_stats() para obtener db_size_bytes REAL.
+//
+// LÍMITES PLAN PRO (verificados May 23 2026):
+//   • Disk Size:          8 GB iniciales con auto-grow
+//   • Storage (archivos): 100 GB
+//   • Egress:             250 GB/mes
+//   • Realtime concurrent: 500 conexiones
+//   • Monthly Active Users: 100K
+//   • Edge Functions:     2M invocations/mes
 //
 // HISTORIAL:
-//   v3 (May 22 2026): Umbrales realistas para Response Time considerando
-//   latencia de red navegador → Supabase Sao Paulo desde Mexico (~150-300ms
-//   base). <400ms healthy, 400-800ms warning, >800ms critical.
+//   v4 (May 23 2026): Agregado tooltip ⓘ.
+//   v3 (May 22 2026): Umbrales Free Plan (5K filas / 500 MB / 800ms / 200 ch).
 // ═══════════════════════════════════════════════════════════════════════
+
+// Límites del Plan Pro
+const DB_ROW_LIMIT = 50_000;          // 50K filas como umbral confortable
+const DISK_SIZE_BYTES = 8 * 1024 ** 3; // 8 GB iniciales Pro plan
+const REALTIME_LIMIT = 500;            // 500 conexiones concurrentes Pro
+// Response time: 500ms healthy, 500-1500ms warning, >1500ms critical
+// (México → São Paulo: 150-300ms base + 4 queries paralelas + overhead)
+const RT_GREEN_MAX = 500;
+const RT_RED_MIN = 1500;
 
 interface GaugeData {
   label: string;
@@ -37,6 +58,13 @@ function getGaugeColors(status: 'healthy' | 'warning' | 'critical') {
   }[status];
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
 export function PerformanceGauges() {
   const [gauges, setGauges] = useState<GaugeData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,31 +80,43 @@ export function PerformanceGauges() {
         { count: totalRows2 },
         { count: totalRows3 },
         { count: totalRows4 },
+        { data: healthStats, error: healthError },
       ] = await Promise.all([
         supabase.from('business_profiles').select('*', { count: 'exact', head: true }),
         supabase.from('appointments').select('*', { count: 'exact', head: true }),
         supabase.from('clients').select('*', { count: 'exact', head: true }),
         supabase.from('subscription_plans').select('*', { count: 'exact', head: true }),
+        supabase.rpc('get_system_health_stats'),
       ]);
 
       const responseTime = Math.round(performance.now() - start);
       const totalRows = (totalRows1 || 0) + (totalRows2 || 0) + (totalRows3 || 0) + (totalRows4 || 0);
 
-      const dbLoadPct = Math.min(Math.round((totalRows / 5000) * 100), 100);
+      if (healthError) console.warn('[PerformanceGauges] Health stats error:', healthError);
+      const dbSizeBytes = Number((healthStats as any)?.[0]?.db_size_bytes) || 0;
+
+      // ─── DATABASE LOAD: 50K filas como tope Pro
+      const dbLoadPct = Math.min(Math.round((totalRows / DB_ROW_LIMIT) * 100), 100);
       const dbStatus: 'healthy' | 'warning' | 'critical' =
         dbLoadPct > 80 ? 'critical' : dbLoadPct > 50 ? 'warning' : 'healthy';
 
-      const estimatedMB = Math.round((totalRows * 1) / 1024 * 100) / 100;
-      const storagePct = Math.min(Math.round((estimatedMB / 500) * 100), 100);
+      // ─── STORAGE: tamaño REAL de la BD vs 8 GB del Pro
+      const storagePct = Math.min(Math.round((dbSizeBytes / DISK_SIZE_BYTES) * 100), 100);
       const storageStatus: 'healthy' | 'warning' | 'critical' =
         storagePct > 80 ? 'critical' : storagePct > 60 ? 'warning' : 'healthy';
+      const storageDisplay = `${formatBytes(dbSizeBytes)} / 8 GB`;
 
-      const responsePct = Math.min(Math.round((responseTime / 1000) * 100), 100);
+      // ─── RESPONSE TIME: umbrales realistas Méx → SP
+      const responsePct = Math.min(Math.round((responseTime / 2000) * 100), 100);
       const responseStatus: 'healthy' | 'warning' | 'critical' =
-        responseTime > 800 ? 'critical' : responseTime > 400 ? 'warning' : 'healthy';
+        responseTime > RT_RED_MIN ? 'critical' :
+        responseTime > RT_GREEN_MAX ? 'warning' :
+        'healthy';
 
+      // ─── REALTIME: por ahora estimamos por #business_profiles (cada negocio = 1 canal)
+      // En el futuro se puede medir conexiones reales con Supabase Realtime metrics API.
       const realtimeChannels = totalRows1 || 0;
-      const realtimePct = Math.min(Math.round((realtimeChannels / 200) * 100), 100);
+      const realtimePct = Math.min(Math.round((realtimeChannels / REALTIME_LIMIT) * 100), 100);
       const realtimeStatus: 'healthy' | 'warning' | 'critical' =
         realtimePct > 80 ? 'critical' : realtimePct > 50 ? 'warning' : 'healthy';
 
@@ -87,15 +127,15 @@ export function PerformanceGauges() {
           display: `${totalRows.toLocaleString('es-MX')} filas`,
           status: dbStatus,
           Icon: Database,
-          hint: 'Total de registros',
+          hint: `de ${DB_ROW_LIMIT.toLocaleString('es-MX')} cómodos`,
         },
         {
           label: 'STORAGE',
           value: storagePct,
-          display: `${estimatedMB} / 500 MB`,
+          display: storageDisplay,
           status: storageStatus,
           Icon: HardDrive,
-          hint: 'Plan Supabase Free',
+          hint: 'Plan Supabase Pro',
         },
         {
           label: 'RESPONSE TIME',
@@ -103,15 +143,15 @@ export function PerformanceGauges() {
           display: `${responseTime} ms`,
           status: responseStatus,
           Icon: Zap,
-          hint: 'Incluye red navegador',
+          hint: 'Méx → São Paulo',
         },
         {
           label: 'REALTIME',
           value: realtimePct,
-          display: `${realtimeChannels} canales`,
+          display: `${realtimeChannels} / ${REALTIME_LIMIT}`,
           status: realtimeStatus,
           Icon: Wifi,
-          hint: 'Canales activos',
+          hint: 'Conexiones simultáneas',
         },
       ];
 
@@ -137,12 +177,12 @@ export function PerformanceGauges() {
             title="Salud del sistema"
             description="Medidores en tiempo real del estado técnico de VYLTA. Cada uno cambia de color según qué tan saludable está: verde (bien), amarillo (atención), rojo (crítico)."
             metrics={[
-              { label: 'Database load', meaning: 'Qué tan llena está la base de datos. Sube cuando hay más registros (negocios, citas, clientes).' },
-              { label: 'Storage', meaning: 'Espacio usado en disco. El plan Supabase Pro nos da 8 GB; hoy usamos menos del 1%.' },
-              { label: 'Response time', meaning: 'Cuánto tarda VYLTA en responder. Incluye el tiempo de tu internet — desde México a Supabase Sao Paulo son 150-300ms normales.' },
-              { label: 'Realtime', meaning: 'Cuántos canales en vivo están abiertos. Hoy solo se usa para citas en tiempo real.' },
+              { label: 'Database load', meaning: 'Cuántos registros tiene la base de datos. El plan Pro maneja cómodamente hasta 50 mil filas; hoy tenemos muy pocas.' },
+              { label: 'Storage', meaning: 'Espacio real ocupado en disco. El plan Pro nos da 8 GB iniciales y crece automáticamente si los llenamos.' },
+              { label: 'Response time', meaning: 'Cuánto tarda VYLTA en responder. De México a São Paulo (donde está la base de datos), entre 300 y 800 ms es normal. Solo es crítico arriba de 1.5 segundos.' },
+              { label: 'Realtime', meaning: 'Conexiones simultáneas en vivo. El plan Pro permite hasta 500 al mismo tiempo. Cada negocio que tiene el CRM abierto suma una.' },
             ]}
-            whyMatters="Si algún medidor pasa a rojo, hay que actuar pronto: agregar capacidad, optimizar queries o actualizar el plan de Supabase. Por ahora todo está en verde porque VYLTA recién arranca."
+            whyMatters="Si algún medidor pasa a rojo, hay que actuar pronto: optimizar queries, revisar capacidad, o si llegamos al tope, agregar add-ons al plan Pro. Por ahora todo cómodo: somos 17 negocios usando menos del 1% en todo."
           />
         </div>
         <div className="flex items-center gap-1.5 text-xs text-vylta-subtle">
