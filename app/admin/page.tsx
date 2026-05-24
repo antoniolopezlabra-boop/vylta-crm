@@ -20,6 +20,7 @@ import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useAdminDashboard } from '@/hooks/use-admin-dashboard';
+import { useAdminGrowthMetrics } from '@/hooks/use-admin-growth-metrics';
 import { MexicoHeatmap } from '@/components/admin/mexico-heatmap';
 import { PerformanceGauges } from '@/components/admin/performance-gauges';
 import { VendorPaymentsTable } from '@/components/admin/vendor-payments-table';
@@ -27,25 +28,30 @@ import { PlanMixDonut } from '@/components/admin/plan-mix-donut';
 import { UserSupportPanel } from '@/components/admin/user-support-panel';
 import { KpiCardWithSparkline } from '@/components/admin/kpi-card-with-sparkline';
 import { DashboardInfo } from '@/components/admin/dashboard-info';
+import { FunnelCard } from '@/components/admin/funnel-card';
+import { TopBottomPerformers } from '@/components/admin/top-bottom-performers';
+import { BusinessTypeChart } from '@/components/admin/business-type-chart';
 
 // ═══════════════════════════════════════════════════════════════════════
-// Control Center v6 — Tooltips informativos (May 23 2026)
+// Control Center v7 — Dashboards de crecimiento Fase 1 (May 23 2026)
 //
-// CAMBIOS:
-//   1️⃣ Agregado DashboardInfo (icono ⓘ) en cada KPI y seccion para que
-//      Hugo (co-founder no-tecnico) pueda entender que mide cada visual.
-//   2️⃣ Textos escritos en lenguaje sencillo: "ingreso anual estimado"
-//      en lugar de "ARR", "los que pagan" en lugar de "suscriptores", etc.
-//   3️⃣ Sin cambios visuales en KPIs, mapa, MRR, donut, tablas. Solo se
-//      agrego ⓘ junto a cada titulo de seccion y cada KPI.
+// CAMBIOS EN v7:
+//   1️⃣ Nueva seccion "Crecimiento y activacion" con 3 dashboards:
+//       • FunnelCard          → embudo de activacion (5 pasos)
+//       • TopBottomPerformers → top 10 + bottom 10 negocios
+//       • BusinessTypeChart   → distribucion por tipo de negocio
+//   2️⃣ Cada uno con su ⓘ explicativo y mensajes accionables.
+//   3️⃣ Hook nuevo useAdminGrowthMetrics consume las 3 RPCs en paralelo.
 //
 // HISTORIAL:
+//   v6 (May 23 2026): Tooltips ⓘ aplicados a KPIs y secciones existentes.
 //   v5 (May 22 2026): Quitado KPI Clientes finales, headers limpios.
 // ═══════════════════════════════════════════════════════════════════════
 
 export default function AdminDashboardPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, isFetching, refetch } = useAdminDashboard();
+  const { data: growth, isLoading: growthLoading } = useAdminGrowthMetrics();
 
   if (isLoading || !data) {
     return (
@@ -308,6 +314,39 @@ export default function AdminDashboardPage() {
               />
             }
           />
+        </div>
+      </section>
+
+      {/* ═══ CRECIMIENTO Y ACTIVACIÓN — Fase 1 (May 23 2026) ═══════════ */}
+      <section>
+        <SectionHeader
+          label="Crecimiento y activación"
+          info={
+            <DashboardInfo
+              title="Crecimiento y activación"
+              description="Métricas accionables para tomar decisiones de producto y atención a clientes. Te ayudan a saber qué optimizar y a quién contactar esta semana."
+              whyMatters="Si una métrica es solo decorativa (te dice cómo va el negocio pero no qué hacer), no sirve. Estos 3 dashboards están diseñados para detonar acciones concretas."
+            />
+          }
+        />
+        <div className="space-y-5">
+          {/* Funnel ocupa una fila completa */}
+          <FunnelCard
+            steps={growth?.funnel || []}
+            loading={growthLoading}
+          />
+
+          {/* Top/Bottom + BusinessType en grid 2 columnas en pantallas grandes */}
+          <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1.4fr_1fr]">
+            <TopBottomPerformers
+              performers={growth?.performers || []}
+              loading={growthLoading}
+            />
+            <BusinessTypeChart
+              data={growth?.businessTypes || []}
+              loading={growthLoading}
+            />
+          </div>
         </div>
       </section>
 
