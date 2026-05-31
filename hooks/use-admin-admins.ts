@@ -6,9 +6,11 @@ import { createClient } from '@/lib/supabase/client';
 // ══════════════════════════════════════════════════════════════════════
 // useAdminAdmins — Hook con caché para la lista de administradores
 //
-// Además del useQuery clásico, expone:
-//   • useToggleAdminActive: mutation para desactivar/activar admins
-//     regulares (NUNCA para super admins; ese check está en la UI también)
+// Expone:
+//   • useAdminAdmins: lista de admins (cache + stale-while-revalidate)
+//   • useToggleAdminActive: activar/desactivar admins regulares
+//   • useCreateAdmin: crear/invitar un nuevo admin desde el panel
+//     (llama a /api/admin/create — la lógica segura vive en el server)
 // ══════════════════════════════════════════════════════════════════════
 
 export interface AdminMember {
@@ -57,6 +59,43 @@ export function useToggleAdminActive() {
         .eq('id', id);
       if (error) throw error;
       return { id, newState: !currentlyActive };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-admins'] });
+    },
+  });
+}
+
+export type CreateAdminInput = {
+  email: string;
+  name: string;
+  role: 'admin' | 'super_admin';
+};
+
+export type CreateAdminResult = {
+  status: 'invited' | 'promoted' | 'reactivated' | 'already_admin';
+  email: string;
+};
+
+/**
+ * Mutation: crear/invitar un nuevo administrador.
+ * Toda la lógica sensible (service_role, auth.admin) vive en el server,
+ * en /api/admin/create. Aquí solo hacemos el fetch y refrescamos la lista.
+ */
+export function useCreateAdmin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateAdminInput): Promise<CreateAdminResult> => {
+      const res = await fetch('/api/admin/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Error creando administrador');
+      }
+      return json as CreateAdminResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-admins'] });
