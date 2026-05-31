@@ -7,8 +7,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 // POST /api/admin/create — Crear / invitar un nuevo administrador
 //
 // Flujo seguro:
-//   1. Verifica que quien llama sea un super_admin ACTIVO (vía sesión
-//      real en cookies, NUNCA confiando en datos del cliente).
+//   1. Verifica que quien llama sea super_admin ACTIVO (sesión real).
+//      Acepta el rol como 'super_admin' o 'superadmin' (la app móvil usa
+//      la segunda forma; normalizamos igual que en la UI).
 //   2. Valida el body con zod.
 //   3. Resuelve el usuario de auth:
 //        • Si NO existe  → lo crea e invita por correo (Resend SMTP).
@@ -16,7 +17,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 //   4. Lo inserta en vylta_admins (o reactiva si estaba inactivo).
 //
 // La service_role key vive solo aquí (server). Nunca se expone al browser.
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,14 @@ const BodySchema = z.object({
   name: z.string().trim().min(1, 'El nombre es obligatorio').max(80),
   role: z.enum(['admin', 'super_admin']).default('admin'),
 });
+
+/**
+ * Normaliza el rol: acepta 'super_admin' y 'superadmin' como super admin.
+ * (La app móvil guarda 'superadmin' sin guion bajo.)
+ */
+function isSuperAdminRole(role: string): boolean {
+  return (role || '').toLowerCase().replace(/_/g, '') === 'superadmin';
+}
 
 /**
  * Busca el user_id de un usuario existente por email, sin efectos
@@ -53,12 +62,12 @@ async function findUserIdByEmail(
 }
 
 export async function POST(request: Request) {
-  // 1) Autorización: super_admin activo
+  // 1) Autorización: super_admin activo (acepta ambas formas del rol)
   const caller = await getAdminUserServer();
   if (!caller) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
-  if (caller.role !== 'super_admin') {
+  if (!isSuperAdminRole(caller.role)) {
     return NextResponse.json(
       { error: 'Solo un super admin puede crear administradores' },
       { status: 403 },
