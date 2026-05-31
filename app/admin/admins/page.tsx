@@ -12,6 +12,7 @@ import {
   Calendar,
   Mail,
   RefreshCw,
+  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getAdminUserClient } from '@/lib/admin';
@@ -20,24 +21,24 @@ import { MONTHS_ES } from '@/lib/date-utils';
 import {
   useAdminAdmins,
   useToggleAdminActive,
+  useCreateAdmin,
   type AdminMember,
 } from '@/hooks/use-admin-admins';
 
 // ═════════════════════════════════════════════════════════════════════
 // /admin/admins — Gestión de administradores del sistema
 //
-// OPTIMIZADO con TanStack Query (May 2026):
-//   • useAdminAdmins() para la lista — cache + stale-while-revalidate
-//   • useToggleAdminActive() mutation con invalidación automática
-//   • Botón refresh con isFetching spinner
+// ACTUALIZADO (May 2026): ahora se puede AGREGAR un admin directamente
+// desde el panel (solo super admins). El formulario llama a la ruta
+// server-side /api/admin/create, que:
+//   • Si la persona no tiene cuenta → la crea e invita por correo.
+//   • Si ya tiene cuenta → solo la promueve a admin.
+// Ya no hace falta meter el user_id a mano en Supabase.
 //
-// IMPORTANTE: agregar admins requiere user_id de auth.users (UUID).
-// Como esto no se puede hacer por email desde el cliente con seguridad,
-// agregar un admin DEBE hacerse manualmente en Supabase Table Editor.
 // Esta pantalla permite:
+//   • Crear/invitar nuevos admins (super admins)
 //   • Ver lista de admins
-//   • Toggle is_active (activar/desactivar)
-//   • Identificar roles (super_admin/superadmin vs admin regular)
+//   • Toggle is_active (activar/desactivar) de admins regulares
 //
 // Super admins NO se pueden desactivar desde aquí (defensa contra
 // auto-bloqueo): debe hacerse desde Supabase directamente.
@@ -47,9 +48,13 @@ export default function AdminAdminsPage() {
   const { data: admins = [], isLoading, isFetching, refetch } = useAdminAdmins();
   const toggleMutation = useToggleAdminActive();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<string | null>(null);
 
   useEffect(() => {
-    getAdminUserClient().then((u) => setCurrentUserId(u?.user_id || null));
+    getAdminUserClient().then((u) => {
+      setCurrentUserId(u?.user_id || null);
+      setCurrentRole(u?.role || null);
+    });
   }, []);
 
   async function toggleActive(admin: AdminMember) {
@@ -89,6 +94,7 @@ export default function AdminAdminsPage() {
 
   const supers = admins.filter((a) => isSuperAdminRole(a.role));
   const regulars = admins.filter((a) => !isSuperAdminRole(a.role));
+  const canManage = isSuperAdminRole(currentRole || '');
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -122,22 +128,20 @@ export default function AdminAdminsPage() {
         </button>
       </div>
 
-      {/* INFO BANNER — cómo agregar admin */}
-      <div className="rounded-xl border border-vylta-sky/25 bg-vylta-sky/5 p-4">
-        <div className="flex items-start gap-2">
-          <Info className="h-4 w-4 shrink-0 text-vylta-sky mt-0.5" />
-          <div className="flex-1">
-            <div className="text-sm font-bold text-vylta-sky">¿Cómo agregar un admin?</div>
-            <p className="text-xs text-vylta-muted mt-1">
-              Por seguridad, agregar admins requiere el <code className="px-1 rounded bg-vylta-card text-vylta-bone">user_id</code> de Supabase Auth.
-              Hazlo manual en{' '}
-              <span className="font-bold text-vylta-bone">Supabase → Table Editor → vylta_admins</span>{' '}
-              insertando: <code className="px-1 rounded bg-vylta-card text-vylta-bone">user_id, name, email, role, is_active=true</code>.
-              Roles válidos: <code className="px-1 rounded bg-vylta-card text-vylta-gold">super_admin</code> o <code className="px-1 rounded bg-vylta-card text-vylta-sky">admin</code>.
+      {/* AGREGAR ADMIN — solo super admins */}
+      {canManage ? (
+        <CreateAdminForm />
+      ) : (
+        <div className="rounded-xl border border-vylta-sky/25 bg-vylta-sky/5 p-4">
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 shrink-0 text-vylta-sky mt-0.5" />
+            <p className="text-xs text-vylta-muted">
+              Solo un <span className="font-bold text-vylta-bone">super admin</span> puede agregar
+              o invitar nuevos administradores.
             </p>
           </div>
         </div>
-      </div>
+      )}
 
       {/* SUPER ADMINS */}
       {supers.length > 0 && (
@@ -193,6 +197,131 @@ export default function AdminAdminsPage() {
           <p className="text-xs text-vylta-muted mt-1">Esto es inusual. Agrega un admin desde Supabase.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Formulario para crear/invitar un nuevo administrador.
+ * Llama a /api/admin/create vía useCreateAdmin.
+ */
+function CreateAdminForm() {
+  const createMutation = useCreateAdmin();
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<'admin' | 'super_admin'>('admin');
+
+  async function handleSubmit() {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim();
+    if (!cleanEmail || !cleanName) {
+      toast.error('Escribe el nombre y el correo');
+      return;
+    }
+
+    try {
+      const result = await createMutation.mutateAsync({
+        email: cleanEmail,
+        name: cleanName,
+        role,
+      });
+
+      switch (result.status) {
+        case 'invited':
+          toast.success(
+            `Invitación enviada a ${result.email}. Recibirá un correo para crear su contraseña.`,
+          );
+          break;
+        case 'promoted':
+          toast.success(`${result.email} ya tenía cuenta y ahora es administrador.`);
+          break;
+        case 'reactivated':
+          toast.success(`${result.email} fue reactivado como administrador.`);
+          break;
+        case 'already_admin':
+          toast.info(`${result.email} ya es administrador.`);
+          break;
+      }
+
+      // Limpiar formulario en éxito
+      setEmail('');
+      setName('');
+      setRole('admin');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error creando administrador');
+    }
+  }
+
+  const inputClass =
+    'w-full rounded-lg border border-border bg-vylta-card px-3 py-2 text-sm text-vylta-bone placeholder:text-vylta-subtle transition focus:border-vylta-gold/50 focus:outline-none disabled:opacity-50';
+
+  return (
+    <div className="rounded-xl border border-vylta-gold/25 bg-vylta-gold/5 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <UserPlus className="h-4 w-4 text-vylta-gold" />
+        <h2 className="text-sm font-bold text-vylta-gold">Agregar administrador</h2>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div>
+          <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-vylta-muted">
+            Nombre
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ej. Hugo Ramírez"
+            disabled={createMutation.isPending}
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-vylta-muted">
+            Correo
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="persona@correo.com"
+            disabled={createMutation.isPending}
+            className={inputClass}
+          />
+        </div>
+        <div className="flex gap-2">
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as 'admin' | 'super_admin')}
+            disabled={createMutation.isPending}
+            className={cn(inputClass, 'sm:w-auto')}
+            aria-label="Rol"
+          >
+            <option value="admin">Admin</option>
+            <option value="super_admin">Super Admin</option>
+          </select>
+          <button
+            onClick={handleSubmit}
+            disabled={createMutation.isPending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/15 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/25 disabled:opacity-50"
+          >
+            {createMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
+            Agregar
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-start gap-2">
+        <Info className="h-3.5 w-3.5 shrink-0 text-vylta-muted mt-0.5" />
+        <p className="text-[11px] text-vylta-muted">
+          Si la persona no tiene cuenta en VYLTA, le llegará un correo para crear su contraseña.
+          Si ya tiene cuenta, simplemente se le otorgan permisos de administrador.
+        </p>
+      </div>
     </div>
   );
 }
