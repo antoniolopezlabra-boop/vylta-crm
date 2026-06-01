@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { RouteTransition } from '@/components/layout/route-transition';
 import { QueryProvider } from '@/components/providers/query-provider';
+import { SessionTracker } from '@/components/session-tracker';
 
 // ═════════════════════════════════════════════════════════════════════
 // Layout autenticado (App Shell) + QueryProvider de React Query
@@ -33,6 +34,12 @@ import { QueryProvider } from '@/components/providers/query-provider';
 // Schema real (confirmado en components/settings/tabs/business-tab.tsx):
 //   business_name, business_type, address, phone, alternative_phone, logo_url
 // NO existe: description, business_email, owner_name
+//
+// ⚡ ÚLTIMA CONEXIÓN (Jun 2026):
+// Montamos <SessionTracker> (componente cliente invisible) para registrar
+// la conexión del dueño en user_sessions.last_seen_at, igual que la app
+// móvil. Sin esto, los negocios que solo usan el CRM Web aparecían como
+// "Nunca" en el panel admin (sección Mejores y peores negocios).
 // ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
@@ -76,6 +83,9 @@ export default async function AppLayout({
 
   return (
     <QueryProvider>
+      {/* Registra la última conexión del dueño (consistente con la app móvil) */}
+      <SessionTracker userId={user.id} />
+
       <div className="flex h-screen overflow-hidden bg-background">
         <RouteTransition />
 
