@@ -22,7 +22,7 @@ import { HoursTab } from './tabs/hours-tab';
 import { hasPremiumAccess, hasLuxuryAccess } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
-// ══════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
 // Shell de Configuración — coordina las tabs.
 //
 // ⚡ ACTUALIZACIONES (May 19 2026):
@@ -33,7 +33,14 @@ import { cn } from '@/lib/utils';
 //     tabs/whatsapp-tab.tsx por si se necesita restaurar después.
 //     Decisión del usuario (May 19 2026): "no le veo una funcionalidad
 //     clara, procedamos a esconderla".
-// ══════════════════════════════════════════════════════════════════════
+//
+// ⚡ ACTUALIZACIÓN (Jun 2026): el gating de "Citas simultáneas" bajó de
+//   Luxury a Premium (Premium + Luxury + VIPs, NO Gratuito). El toggle de
+//   cumpleaños por email SIGUE siendo Luxury. Por eso OverlapsTab ahora
+//   recibe AMBOS flags por separado: isPremiumOrAbove (empalme) e isLuxury
+//   (cumpleaños). Espeja el cambio hecho en la app móvil (canOverlap =
+//   isBasico || isPremium).
+// ════════════════════════════════════════════════════════════════════
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -93,7 +100,7 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
           <BlocksTab userId={user.id} />
         </TabsContent>
         <TabsContent value="overlaps" className="focus-visible:outline-none">
-          <OverlapsTab userId={user.id} profile={profile} isLuxury={isLuxury} />
+          <OverlapsTab userId={user.id} profile={profile} isPremiumOrAbove={isPremiumOrAbove} isLuxury={isLuxury} />
         </TabsContent>
         <TabsContent value="cuenta" className="focus-visible:outline-none">
           <AccountTab email={user.email} userId={user.id} />

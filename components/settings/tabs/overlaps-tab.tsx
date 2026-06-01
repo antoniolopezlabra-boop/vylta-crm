@@ -9,13 +9,25 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { SettingsCard } from '../configuracion-shell';
 
+// ════════════════════════════════════════════════════════════════════
+// Tab "Avanzado" — dos toggles con gating DISTINTO:
+//   • Citas simultáneas  → Premium o superior (isPremiumOrAbove)
+//   • Cumpleaños email   → Luxury o superior  (isLuxury)
+//
+// ⚡ Jun 2026: el empalme bajó de Luxury a Premium para igualar a la app
+//   móvil (canOverlap = isBasico || isPremium). El de cumpleaños NO cambia.
+// ════════════════════════════════════════════════════════════════════
+
 interface Props {
   userId: string;
   profile: any | null;
+  /** Empalme: Premium, Luxury y VIPs (NO Gratuito). */
+  isPremiumOrAbove: boolean;
+  /** Cumpleaños por email: solo Luxury y VIP Luxury. */
   isLuxury: boolean;
 }
 
-export function OverlapsTab({ userId, profile, isLuxury }: Props) {
+export function OverlapsTab({ userId, profile, isPremiumOrAbove, isLuxury }: Props) {
   const [allowOverlapping, setAllowOverlapping] = useState(profile?.allow_overlapping === true);
   const [birthdayEnabled, setBirthdayEnabled] = useState(profile?.birthday_reminders_enabled === true);
   const [savingOverlap, setSavingOverlap] = useState(false);
@@ -38,8 +50,8 @@ export function OverlapsTab({ userId, profile, isLuxury }: Props) {
   }
 
   async function toggleOverlap(value: boolean) {
-    if (!isLuxury) {
-      toast.error('Esta función requiere plan Luxury');
+    if (!isPremiumOrAbove) {
+      toast.error('Esta función requiere plan Premium o Luxury');
       return;
     }
     setSavingOverlap(true);
@@ -71,27 +83,27 @@ export function OverlapsTab({ userId, profile, isLuxury }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Citas simultáneas */}
+      {/* Citas simultáneas — Premium o superior */}
       <SettingsCard
-        icon={isLuxury ? Sparkles : Lock}
+        icon={isPremiumOrAbove ? Sparkles : Lock}
         title="Citas simultáneas"
         description="Permite agendar más de una cita al mismo tiempo (útil si tienes equipo)."
-        badge={!isLuxury ? <span className="rounded-md bg-vylta-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-vylta-amber-700 dark:text-amber-400">LUXURY</span> : undefined}
+        badge={!isPremiumOrAbove ? <span className="rounded-md bg-vylta-green-500/15 px-2 py-0.5 text-[10px] font-bold text-vylta-green-700 dark:text-vylta-green-400">PREMIUM</span> : undefined}
       >
         <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3">
           <div>
             <Label className="text-sm font-semibold">{allowOverlapping ? 'Activado' : 'Desactivado'}</Label>
             <p className="text-[11px] text-muted-foreground">
-              {isLuxury
-                ? 'Con citas simultáneas, puedes asignar dos colaboradores a la misma hora.'
-                : 'Activa Luxury para gestionar equipo y citas simultáneas.'}
+              {isPremiumOrAbove
+                ? 'Con citas simultáneas, puedes agendar dos citas a la misma hora (idealmente con distinto colaborador).'
+                : 'Activa el plan Premium o Luxury para usar citas simultáneas.'}
             </p>
           </div>
-          <Switch checked={allowOverlapping} onCheckedChange={toggleOverlap} disabled={savingOverlap || !isLuxury} />
+          <Switch checked={allowOverlapping} onCheckedChange={toggleOverlap} disabled={savingOverlap || !isPremiumOrAbove} />
         </div>
       </SettingsCard>
 
-      {/* Felicitaciones de cumpleaños POR EMAIL (May 2026) */}
+      {/* Felicitaciones de cumpleaños POR EMAIL (May 2026) — solo Luxury */}
       <SettingsCard
         icon={isLuxury ? Cake : Lock}
         title="Felicitaciones de cumpleaños por email"
