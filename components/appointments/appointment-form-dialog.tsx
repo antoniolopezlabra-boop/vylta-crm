@@ -21,6 +21,7 @@ import {
   Coffee,
   History,
   Pencil,
+  Layers,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
@@ -50,9 +51,10 @@ import { useServices } from '@/lib/queries/use-services';
 import { useActiveStaff } from '@/lib/queries/use-appointments';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
 import { getBlocksForDate, findBlockConflict } from '@/lib/time-blocks';
+import { hasPremiumAccess } from '@/lib/plan-labels';
 import { updateAppointmentFull, type Appointment } from '@/lib/appointments';
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // Form de Cita — ahora soporta CREAR y EDITAR
 //
 // Modo CREAR (default): se llama sin initialAppointment
@@ -67,7 +69,20 @@ import { updateAppointmentFull, type Appointment } from '@/lib/appointments';
 // eso el INSERT del modo CREAR debe enviar este campo explícitamente
 // (default true). Sin esto, las citas creadas desde el CRM web NO
 // disparan los recordatorios por WhatsApp.
-// ══════════════════════════════════════════════════════════════════════
+//
+// ⚡ CITAS SIMULTÁNEAS / EMPALME (Jun 2026):
+// El CRM ahora soporta empalmar citas, igual que la app móvil. Reglas:
+//   • Disponible si el plan es Premium o superior (hasPremiumAccess) Y el
+//     toggle business_profiles.allow_overlapping está en true. (Gratuito NO.)
+//   • Cuando el empalme está activo, los horarios que ya tienen una cita
+//     dejan de estar bloqueados y se pueden seleccionar (idealmente con
+//     distinto colaborador). Esa cita se crea con status 'En espera',
+//     consistente con la app móvil.
+//   • Cuando el empalme NO está activo, el comportamiento es el de antes:
+//     los horarios ocupados quedan bloqueados.
+//   • Los bloqueos de tiempo, horarios pasados y "no alcanza" SIEMPRE
+//     bloquean, haya o no empalme.
+// ═════════════════════════════════════════════════════════════════════
 
 const STATUS_OPTIONS_CREATE = ['Confirmada', 'Pendiente'] as const;
 const STATUS_OPTIONS_EDIT = ['Confirmada', 'Pendiente', 'Completada', 'Pagado', 'En espera', 'Reagendada'] as const;
@@ -125,6 +140,10 @@ export function AppointmentFormDialog({
   const [bookedSlots, setBookedSlots] = useState<BookedSlot[]>([]);
   const [creatingClient, setCreatingClient] = useState(false);
 
+  // ⚡ Empalme: se resuelve al abrir el dialog leyendo plan + toggle del negocio.
+  // overlapEnabled = plan Premium+ Y business_profiles.allow_overlapping = true.
+  const [overlapEnabled, setOverlapEnabled] = useState(false);
+
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!open) return;
@@ -167,6 +186,30 @@ export function AppointmentFormDialog({
   const selectedStaffId   = watch('staffId');
   const selectedDate      = watch('date');
   const selectedTime      = watch('start_time');
+
+  // ⚡ Al abrir el dialog, resolver si el empalme está disponible para este
+  // negocio: requiere plan Premium o superior Y el toggle allow_overlapping ON.
+  // Espeja la doble validación de la app móvil (validateOverlappingPermission).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const [{ data: bp }, { data: sub }] = await Promise.all([
+        supabase.from('business_profiles').select('allow_overlapping').eq('user_id', user.id).maybeSingle(),
+        supabase.from('subscription_plans').select('plan_type, status').eq('user_id', user.id).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const planType = sub?.plan_type ?? 'Gratuito';
+      const status = (sub?.status || '').toLowerCase();
+      const planActive = status === '' || status === 'active' || status === 'pending_cancellation';
+      const enabled = !!bp?.allow_overlapping && hasPremiumAccess(planType) && planActive;
+      setOverlapEnabled(enabled);
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   // Cuando se abre el dialog, prellenar form (modo edit) o resetear (modo crear)
   useEffect(() => {
@@ -252,6 +295,9 @@ export function AppointmentFormDialog({
       minutes: number;
       blocked: boolean;
       reason: BlockReason | null;
+      // ⚡ overlap=true: el slot tiene una cita existente pero el empalme está
+      // activo, así que es seleccionable (se creará como 'En espera').
+      overlap: boolean;
     }> = [];
 
     const staffIdForCheck = selectedStaffId === UNASSIGNED_KEY ? null : selectedStaffId;
@@ -267,7 +313,7 @@ export function AppointmentFormDialog({
         const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
         if (!duration) {
-          result.push({ time, minutes, blocked: false, reason: null });
+          result.push({ time, minutes, blocked: false, reason: null, overlap: false });
           continue;
         }
 
@@ -281,10 +327,11 @@ export function AppointmentFormDialog({
           initialAppointment?.start_time?.slice(0, 5) === time;
 
         if (isToday && minutes < nowMinutes && !isCurrentSlot) {
-          result.push({ time, minutes, blocked: true, reason: { kind: 'past' } });
+          result.push({ time, minutes, blocked: true, reason: { kind: 'past' }, overlap: false });
           continue;
         }
 
+        // Bloqueos de tiempo SIEMPRE bloquean (haya empalme o no).
         const blockConflict = findBlockConflict(minutes, duration, blocksForDate);
         if (blockConflict && !isCurrentSlot) {
           result.push({
@@ -292,6 +339,7 @@ export function AppointmentFormDialog({
             minutes,
             blocked: true,
             reason: { kind: 'block', label: blockConflict.label },
+            overlap: false,
           });
           continue;
         }
@@ -302,26 +350,40 @@ export function AppointmentFormDialog({
           return minutes < b.end && slotEnd > b.start;
         });
         if (bookingConflict) {
-          result.push({
-            time,
-            minutes,
-            blocked: true,
-            reason: { kind: 'booking', clientName: bookingConflict.clientName },
-          });
+          // ⚡ Con empalme activo, un choque con otra cita NO bloquea: el slot
+          // queda seleccionable y la cita se creará como 'En espera'.
+          // Sin empalme, se mantiene el bloqueo de siempre.
+          if (overlapEnabled) {
+            result.push({
+              time,
+              minutes,
+              blocked: false,
+              reason: { kind: 'booking', clientName: bookingConflict.clientName },
+              overlap: true,
+            });
+          } else {
+            result.push({
+              time,
+              minutes,
+              blocked: true,
+              reason: { kind: 'booking', clientName: bookingConflict.clientName },
+              overlap: false,
+            });
+          }
           continue;
         }
 
         if (slotEnd > SLOT_END_HOUR * 60) {
-          result.push({ time, minutes, blocked: true, reason: { kind: 'no-fit' } });
+          result.push({ time, minutes, blocked: true, reason: { kind: 'no-fit' }, overlap: false });
           continue;
         }
 
-        result.push({ time, minutes, blocked: false, reason: null });
+        result.push({ time, minutes, blocked: false, reason: null, overlap: false });
       }
     }
 
     return result;
-  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now, isEditMode, initialAppointment]);
+  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now, isEditMode, initialAppointment, overlapEnabled]);
 
   useEffect(() => {
     if (!selectedTime) return;
@@ -334,6 +396,13 @@ export function AppointmentFormDialog({
   }, [duration, selectedStaffId, selectedDate]);
 
   const availableCount = slots.filter(s => !s.blocked).length;
+
+  // ¿El horario seleccionado es un empalme (slot con cita existente)?
+  const selectedIsOverlap = useMemo(() => {
+    if (!selectedTime) return false;
+    const slot = slots.find(s => s.time === selectedTime);
+    return !!slot?.overlap;
+  }, [slots, selectedTime]);
 
   const staffConflict = useMemo(() => {
     if (selectedStaffId === UNASSIGNED_KEY || !selectedTime || !duration) return null;
@@ -369,6 +438,9 @@ export function AppointmentFormDialog({
   }
 
   async function onSubmit(data: AppointmentFormData) {
+    // Si hay choque con el MISMO colaborador, confirmar (igual que antes).
+    // Nota: con empalme se espera distinto colaborador; este aviso protege
+    // contra el caso de doble-asignar a la misma persona por error.
     if (staffConflict) {
       const ok = confirm(
         `Este colaborador ya tiene una cita con ${staffConflict.clientName} en ese horario. ¿Continuar?`,
@@ -398,6 +470,14 @@ export function AppointmentFormDialog({
     const endM = end % 60;
     const end_time = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
     const staffIdToSave = data.staffId === UNASSIGNED_KEY ? null : data.staffId;
+
+    // ¿Este horario choca con una cita existente? (recalcular en submit por seguridad)
+    const staffIdForCheck = staffIdToSave;
+    const hasBookingClash = bookedSlots.some(b => {
+      if (staffIdForCheck && b.staffId && b.staffId !== staffIdForCheck) return false;
+      if (!staffIdForCheck && b.staffId) return false;
+      return start < b.end && end > b.start;
+    });
 
     // ── Modo EDITAR ──
     if (isEditMode && initialAppointment) {
@@ -430,6 +510,13 @@ export function AppointmentFormDialog({
     // Sin este campo (queda en NULL o false), la cita se crea pero el
     // cliente NUNCA recibe la confirmación. La app móvil ya lo envía;
     // el CRM web debe ser consistente.
+    //
+    // ⚡ EMPALME: si el horario choca con una cita existente y el empalme
+    // está activo, la cita se crea con status 'En espera' (igual que la app
+    // móvil). Si no hay choque, se respeta el status elegido en el form.
+    const useOverlapStatus = overlapEnabled && hasBookingClash;
+    const finalStatus = useOverlapStatus ? 'En espera' : data.status;
+
     const payload = {
       user_id: user.id,
       client_id: data.clientId,
@@ -438,7 +525,7 @@ export function AppointmentFormDialog({
       date: data.date,
       start_time: data.start_time,
       end_time,
-      status: data.status,
+      status: finalStatus,
       notes: data.notes?.trim() || null,
       staff_id: staffIdToSave,
       whatsapp_notification: true,
@@ -453,7 +540,7 @@ export function AppointmentFormDialog({
       return;
     }
 
-    toast.success('Cita creada');
+    toast.success(useOverlapStatus ? 'Cita simultánea creada (En espera)' : 'Cita creada');
     reset();
     onOpenChange(false);
     onSuccess?.();
@@ -629,6 +716,19 @@ export function AppointmentFormDialog({
             />
           </Field>
 
+          {/* Aviso de empalme activo */}
+          {!isEditMode && overlapEnabled && (
+            <div className="flex items-start gap-2 rounded-lg border border-vylta-luxury/30 bg-vylta-luxury/5 px-3 py-2 text-xs">
+              <Layers className="h-4 w-4 shrink-0 text-vylta-luxury" />
+              <div className="text-vylta-luxury">
+                <p className="font-bold">Citas simultáneas activadas</p>
+                <p className="mt-0.5 text-vylta-luxury/80">
+                  Puedes elegir horarios ya ocupados (marcados con ▤). La cita se creará como “En espera”. Idealmente asígnala a un colaborador distinto.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* HORARIO */}
           <Field label="Horario" icon={Clock} error={errors.start_time?.message} required>
             {!selectedServiceId ? (
@@ -654,9 +754,23 @@ export function AppointmentFormDialog({
                 selectedTime={selectedTime}
                 onSelect={(time) => setValue('start_time', time, { shouldValidate: true, shouldDirty: true })}
                 duration={duration}
+                overlapEnabled={overlapEnabled}
               />
             )}
           </Field>
+
+          {/* Aviso: el horario elegido es un empalme */}
+          {selectedIsOverlap && selectedTime && (
+            <div className="flex items-start gap-2 rounded-lg border border-vylta-luxury/40 bg-vylta-luxury/10 px-3 py-2 text-xs">
+              <Layers className="h-4 w-4 shrink-0 text-vylta-luxury" />
+              <div>
+                <p className="font-bold text-vylta-luxury">Cita simultánea</p>
+                <p className="mt-0.5 text-vylta-luxury/80">
+                  Ya hay otra cita a esta hora. Esta se creará como “En espera”.
+                </p>
+              </div>
+            </div>
+          )}
 
           {staffConflict && selectedTime && (
             <div className="flex items-start gap-2 rounded-lg border border-vylta-amber/40 bg-vylta-amber/10 px-3 py-2 text-xs">
@@ -665,6 +779,7 @@ export function AppointmentFormDialog({
                 <p className="font-bold text-vylta-amber">Colaborador ocupado</p>
                 <p className="mt-0.5 text-vylta-amber/80">
                   {selectedStaff?.name} ya tiene cita con {staffConflict.clientName} a esa hora.
+                  {overlapEnabled ? ' Considera asignar a otro colaborador.' : ''}
                 </p>
               </div>
             </div>
@@ -688,6 +803,11 @@ export function AppointmentFormDialog({
                 </Select>
               )}
             />
+            {!isEditMode && selectedIsOverlap && (
+              <p className="mt-1.5 text-[11px] text-vylta-luxury/80">
+                Por ser cita simultánea, se guardará como “En espera” independientemente de esta selección.
+              </p>
+            )}
           </Field>
 
           {/* NOTAS */}
@@ -725,9 +845,9 @@ export function AppointmentFormDialog({
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 // ClientCombobox (sin cambios)
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
 
 interface ClientLite { id: string; name: string; phone: string | null; }
 
@@ -886,15 +1006,16 @@ function ClientCombobox({
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// SlotGrid — sin cambios
-// ══════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+// SlotGrid
+// ═════════════════════════════════════════════════════════════════════
 
 interface Slot {
   time: string;
   minutes: number;
   blocked: boolean;
   reason: BlockReason | null;
+  overlap: boolean;
 }
 
 function SlotGrid({
@@ -902,11 +1023,13 @@ function SlotGrid({
   selectedTime,
   onSelect,
   duration,
+  overlapEnabled,
 }: {
   slots: Slot[];
   selectedTime: string;
   onSelect: (time: string) => void;
   duration: number;
+  overlapEnabled: boolean;
 }) {
   const grouped = useMemo(() => {
     const map: Record<number, Slot[]> = {};
@@ -922,7 +1045,9 @@ function SlotGrid({
     <div className="space-y-2 rounded-lg border border-border bg-vylta-card/30 p-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-vylta-muted">
         <LegendDot color="bg-vylta-green" label="Disponible" />
-        <LegendDot color="bg-vylta-card ring-1 ring-border" label="Ocupado" />
+        {overlapEnabled
+          ? <LegendDot color="bg-vylta-luxury/50" label="Empalmable" />
+          : <LegendDot color="bg-vylta-card ring-1 ring-border" label="Ocupado" />}
         <LegendDot color="bg-vylta-luxury/40" label="Bloqueo" />
         <LegendDot color="bg-vylta-subtle/30" label="Pasado" />
         {duration > 0 && (
@@ -973,7 +1098,7 @@ function SlotButton({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const { time, blocked, reason } = slot;
+  const { time, blocked, reason, overlap } = slot;
 
   let className: string;
   let title: string | undefined;
@@ -982,6 +1107,11 @@ function SlotButton({
   if (isSelected) {
     className = 'border-vylta-green bg-vylta-green text-white shadow-[0_0_12px_hsl(160_84%_39%/0.4)]';
     Icon = CheckCircle2;
+  } else if (overlap) {
+    // ⚡ Slot empalmable: tiene una cita pero el empalme está activo. Seleccionable.
+    className = 'border-vylta-luxury/40 bg-vylta-luxury/10 text-vylta-luxury hover:border-vylta-luxury/60 hover:bg-vylta-luxury/20';
+    title = `Empalmar con: ${reason?.kind === 'booking' ? reason.clientName : 'otra cita'}`;
+    Icon = Layers;
   } else if (!blocked) {
     className = 'border-vylta-green/20 bg-vylta-green/5 text-vylta-green hover:border-vylta-green/40 hover:bg-vylta-green/10';
   } else if (reason?.kind === 'past') {
