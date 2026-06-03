@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 //   • staff_accounts: staff_member_id, user_id (acceso a app móvil)
 //
 // Plan requerido: Premium (badge "Luxury" visible al usuario)
-// Límite: 5 colaboradores totales por negocio.
+// Límite: configurable por usuario (ver MAX_STAFF / getStaffLimit abajo).
 //
 // ⚡ ACTUALIZACIÓN (May 19 2026):
 // Añadidos helpers createStaffAccount() y deleteStaffAccount() que
@@ -23,6 +23,13 @@ import { createClient } from '@/lib/supabase/client';
 // El JWT del browser se envía automáticamente vía supabase.functions.invoke.
 // ══════════════════════════════════════════════════════════════════════
 
+// ⚡ Jun 2026: el límite de colaboradores dejó de ser fijo. Ahora es
+// configurable POR USUARIO en la columna subscription_plans.max_staff,
+// editable por un administrador desde el panel /admin/tenants/[id].
+// MAX_STAFF queda como VALOR POR DEFECTO y fallback seguro (mismo número
+// que antes) por si la columna no está disponible todavía. Esto sienta
+// las bases para una futura suscripción Enterprise con más colaboradores.
+// Para obtener el límite REAL del usuario actual, usar getStaffLimit().
 export const MAX_STAFF = 5;
 
 export const STAFF_PALETTE = [
@@ -88,6 +95,32 @@ export async function hasTeamAccess(): Promise<boolean> {
   const status = (data.status || '').toLowerCase();
   const validStatus = ['active', 'pending_cancellation', 'trialing'].includes(status);
   return planType === 'premium' && validStatus;
+}
+
+/**
+ * Obtiene el límite de colaboradores del usuario actual.
+ * Lee subscription_plans.max_staff (el RLS permite leer la propia fila).
+ *
+ * DEFENSIVO: si la columna no existe todavía (p. ej. antes de correr la
+ * migración) o si ocurre cualquier error, devuelve el valor por defecto
+ * (MAX_STAFF = 5), preservando exactamente el comportamiento anterior.
+ */
+export async function getStaffLimit(): Promise<number> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return MAX_STAFF;
+  try {
+    const { data, error } = await supabase
+      .from('subscription_plans')
+      .select('max_staff')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (error) return MAX_STAFF;
+    const v = (data as any)?.max_staff;
+    return typeof v === 'number' && v > 0 ? v : MAX_STAFF;
+  } catch {
+    return MAX_STAFF;
+  }
 }
 
 /**

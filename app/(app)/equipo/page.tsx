@@ -18,6 +18,7 @@ import { cn, getInitials } from '@/lib/utils';
 import {
   fetchStaff,
   hasTeamAccess,
+  getStaffLimit,
   toggleStaffActive,
   MAX_STAFF,
   type StaffMemberWithStats,
@@ -28,8 +29,10 @@ import { TeamPaywall } from '@/components/team/team-paywall';
 // ══════════════════════════════════════════════════════════════════════
 // /equipo — Gestión de colaboradores
 //
-// Solo Plan Luxury (interno: 'premium'). Hasta 5 colaboradores.
-// Cada uno con su propio color, rol y horario por día.
+// Solo Plan Luxury (interno: 'premium'). El límite de colaboradores es
+// configurable por usuario (subscription_plans.max_staff, default 5),
+// editable por un admin desde /admin/tenants/[id]. Base para Enterprise.
+// Cada colaborador con su propio color, rol y horario por día.
 //
 // El control de acceso a la app móvil (staff_accounts) se gestiona
 // desde la app móvil porque requiere Edge Function con service_role key,
@@ -39,6 +42,7 @@ import { TeamPaywall } from '@/components/team/team-paywall';
 export default function EquipoPage() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [staff, setStaff] = useState<StaffMemberWithStats[]>([]);
+  const [maxStaff, setMaxStaff] = useState<number>(MAX_STAFF);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -48,8 +52,9 @@ export default function EquipoPage() {
     const access = await hasTeamAccess();
     setHasAccess(access);
     if (access) {
-      const data = await fetchStaff();
+      const [data, limit] = await Promise.all([fetchStaff(), getStaffLimit()]);
       setStaff(data);
+      setMaxStaff(limit);
     }
     setLoading(false);
   }
@@ -58,7 +63,7 @@ export default function EquipoPage() {
 
   const activeStaff = useMemo(() => staff.filter(s => s.is_active), [staff]);
   const inactiveStaff = useMemo(() => staff.filter(s => !s.is_active), [staff]);
-  const atLimit = staff.length >= MAX_STAFF;
+  const atLimit = staff.length >= maxStaff;
 
   async function handleToggleActive(member: StaffMemberWithStats) {
     const newState = !member.is_active;
@@ -79,7 +84,7 @@ export default function EquipoPage() {
 
   function openCreate() {
     if (atLimit) {
-      toast.error(`Límite de ${MAX_STAFF} colaboradores alcanzado. Desactiva o elimina uno para agregar otro.`);
+      toast.error(`Límite de ${maxStaff} colaboradores alcanzado. Desactiva o elimina uno para agregar otro.`);
       return;
     }
     setEditingId(null);
@@ -120,7 +125,7 @@ export default function EquipoPage() {
           <p className="text-sm text-muted-foreground">
             {loading
               ? 'Cargando...'
-              : `${activeStaff.length} ${activeStaff.length === 1 ? 'colaborador activo' : 'colaboradores activos'} de ${MAX_STAFF} máximo`}
+              : `${activeStaff.length} ${activeStaff.length === 1 ? 'colaborador activo' : 'colaboradores activos'} de ${maxStaff} máximo`}
           </p>
         </div>
         <Button size="sm" onClick={openCreate} disabled={atLimit}>
@@ -135,14 +140,14 @@ export default function EquipoPage() {
           <div className="flex items-start gap-3 rounded-lg border border-vylta-amber-500/40 bg-vylta-amber-500/5 p-3">
             <Sparkles className="h-4 w-4 shrink-0 text-vylta-amber-700 dark:text-amber-400" />
             <p className="text-xs text-vylta-amber-700 dark:text-amber-400">
-              <span className="font-bold">Límite alcanzado:</span> Has registrado los {MAX_STAFF} colaboradores del plan Luxury. Desactiva o elimina uno para agregar otro.
+              <span className="font-bold">Límite alcanzado:</span> Has registrado los {maxStaff} colaboradores disponibles en tu plan. Desactiva o elimina uno para agregar otro.
             </p>
           </div>
         ) : (
           <div className="flex items-start gap-3 rounded-lg border border-vylta-indigo-500/30 bg-vylta-indigo-500/5 p-3">
             <Users className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
             <p className="text-xs text-foreground/80">
-              <span className="font-bold">{staff.length}/{MAX_STAFF} colaboradores</span>. Cada uno tiene su propio horario, color identificador y citas asignables.
+              <span className="font-bold">{staff.length}/{maxStaff} colaboradores</span>. Cada uno tiene su propio horario, color identificador y citas asignables.
             </p>
           </div>
         )
@@ -154,7 +159,7 @@ export default function EquipoPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : staff.length === 0 ? (
-        <EmptyState onCreate={openCreate} />
+        <EmptyState onCreate={openCreate} maxStaff={maxStaff} />
       ) : (
         <div className="space-y-4">
           {activeStaff.length > 0 && (
@@ -297,7 +302,7 @@ function StaffCard({
   );
 }
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState({ onCreate, maxStaff }: { onCreate: () => void; maxStaff: number }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
       <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-vylta-indigo-500/10">
@@ -305,7 +310,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </div>
       <h3 className="text-base font-bold">Agrega tu primer colaborador</h3>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        Registra hasta {MAX_STAFF} colaboradores para asignarles citas y gestionar sus horarios por separado.
+        Registra hasta {maxStaff} colaboradores para asignarles citas y gestionar sus horarios por separado.
       </p>
       <Button size="sm" className="mt-4" onClick={onCreate}>
         <Plus className="h-4 w-4" />

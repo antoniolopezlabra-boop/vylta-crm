@@ -26,6 +26,7 @@ import { useAdminTenantDetail } from '@/hooks/use-admin-tenants';
 import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { getApptStatusStyle } from '@/lib/appointments';
 import { MONTHS_ES } from '@/lib/date-utils';
+import { StaffLimitEditor } from '@/components/admin/staff-limit-editor';
 
 // ══════════════════════════════════════════════════════════════════════
 // /admin/tenants/[id] — Detalle de un negocio específico
@@ -36,6 +37,9 @@ import { MONTHS_ES } from '@/lib/date-utils';
 //   • Si volvió de otra ruta dentro de 30s, también instantáneo
 //   • Cache key compuesto: ['admin-tenant', userId] — cada tenant
 //     tiene su propio cache independiente
+//
+// ⚡ Jun 2026: añadido <StaffLimitEditor> para que un admin ajuste el
+// límite de colaboradores de este negocio (base para Enterprise).
 // ══════════════════════════════════════════════════════════════════════
 
 export default function AdminTenantDetailPage() {
@@ -185,6 +189,9 @@ export default function AdminTenantDetailPage() {
         <DetailKpi label="Citas este mes" value={tenant.appointments_this_month} Icon={TrendingUp} color="sky" />
         <DetailKpi label="Ingresos históricos" value={formatCurrency(tenant.total_revenue)} Icon={DollarSign} color="gold" tabular />
       </div>
+
+      {/* Control admin del límite de colaboradores (base Enterprise) */}
+      <StaffLimitEditor userId={tenant.user_id} planLabel={tenant.plan_label} />
 
       <div className="overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
         <div className="flex items-center justify-between border-b border-border bg-vylta-card/40 px-5 py-3">
