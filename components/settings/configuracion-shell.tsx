@@ -19,10 +19,11 @@ import { OverlapsTab } from './tabs/overlaps-tab';
 import { BlocksTab } from './tabs/blocks-tab';
 import { AccountTab } from './tabs/account-tab';
 import { HoursTab } from './tabs/hours-tab';
+import { BookingBlocksCard } from './tabs/booking-blocks-card';
 import { hasPremiumAccess, hasLuxuryAccess } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
-// ════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // Shell de Configuración — coordina las tabs.
 //
 // ⚡ ACTUALIZACIONES (May 19 2026):
@@ -40,7 +41,12 @@ import { cn } from '@/lib/utils';
 //   recibe AMBOS flags por separado: isPremiumOrAbove (empalme) e isLuxury
 //   (cumpleaños). Espeja el cambio hecho en la app móvil (canOverlap =
 //   isBasico || isPremium).
-// ════════════════════════════════════════════════════════════════════
+//
+// ⚡ ACTUALIZACIÓN (Jun 2026): nueva tarjeta "Recepción por bloques"
+//   (BookingBlocksCard) dentro de la pestaña Horarios. Permite al dueño
+//   recibir citas solo en ventanas fijas en el link público. Premium +
+//   Luxury. No toca el editor de horarios normal.
+// ═══════════════════════════════════════════════════════════════
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -88,7 +94,10 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
           <BusinessTab userId={user.id} profile={profile} />
         </TabsContent>
         <TabsContent value="horarios" className="focus-visible:outline-none">
-          <HoursTab userId={user.id} />
+          <div className="space-y-6">
+            <HoursTab userId={user.id} />
+            <BookingBlocksCard userId={user.id} isPremiumOrAbove={isPremiumOrAbove} />
+          </div>
         </TabsContent>
         <TabsContent value="plan" className="focus-visible:outline-none">
           <PlanTab userId={user.id} plan={plan} />
