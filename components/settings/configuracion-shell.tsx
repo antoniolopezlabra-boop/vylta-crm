@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
 import {
   Building2,
   CreditCard,
@@ -10,8 +10,9 @@ import {
   Settings as SettingsIcon,
   Coffee,
   Clock,
+  ChevronRight,
+  ChevronLeft,
 } from 'lucide-react';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { BusinessTab } from './tabs/business-tab';
 import { PlanTab } from './tabs/plan-tab';
 import { BookingLinkTab } from './tabs/booking-link-tab';
@@ -23,30 +24,53 @@ import { BookingBlocksCard } from './tabs/booking-blocks-card';
 import { hasPremiumAccess, hasLuxuryAccess } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
-// ═══════════════════════════════════════════════════════════════
-// Shell de Configuración — coordina las tabs.
+// ═════════════════════════════════════════════════════════════════════
+// Shell de Configuración — REDISEÑO UI (Jun 2026)
 //
-// ⚡ ACTUALIZACIONES (May 19 2026):
-//   • Añadida pestaña "Horarios" para editar business_hours día por día
-//     (commit 7b93b5d3+39dbb39d, resolvió bug post-wizard).
-//   • Quitada pestaña "WhatsApp": era puramente informativa (sin acciones
-//     configurables). El contenido se conserva en components/settings/
-//     tabs/whatsapp-tab.tsx por si se necesita restaurar después.
-//     Decisión del usuario (May 19 2026): "no le veo una funcionalidad
-//     clara, procedamos a esconderla".
+// Antes: 7 pestañas diminutas (solo icono en móvil) que no comunicaban
+// qué contenían ni parecían navegables.
 //
-// ⚡ ACTUALIZACIÓN (Jun 2026): el gating de "Citas simultáneas" bajó de
-//   Luxury a Premium (Premium + Luxury + VIPs, NO Gratuito). El toggle de
-//   cumpleaños por email SIGUE siendo Luxury. Por eso OverlapsTab ahora
-//   recibe AMBOS flags por separado: isPremiumOrAbove (empalme) e isLuxury
-//   (cumpleaños). Espeja el cambio hecho en la app móvil (canOverlap =
-//   isBasico || isPremium).
+// Ahora: navegación tipo "ajustes premium":
+//   • ESCRITORIO (lg+): rail vertical a la izquierda (icono a color +
+//     título + descripción) + panel de contenido a la derecha. Rail sticky.
+//   • MÓVIL: lista de tarjetas grandes (master-detail). Tocas una sección
+//     y entras; botón "← Configuración" para regresar a la lista.
 //
-// ⚡ ACTUALIZACIÓN (Jun 2026): nueva tarjeta "Recepción por bloques"
-//   (BookingBlocksCard) dentro de la pestaña Horarios. Permite al dueño
-//   recibir citas solo en ventanas fijas en el link público. Premium +
-//   Luxury. No toca el editor de horarios normal.
-// ═══════════════════════════════════════════════════════════════
+// Los formularios internos (BusinessTab, HoursTab, etc.) NO se tocan.
+//
+// GATING (sin cambios): "Citas simultáneas" es Premium+ (isPremiumOrAbove)
+// y "cumpleaños por email" es Luxury (isLuxury); por eso OverlapsTab recibe
+// ambos flags. La pestaña WhatsApp sigue oculta (era informativa); su
+// contenido se conserva en tabs/whatsapp-tab.tsx por si se restaura.
+// ══════════════════════════════════════════════════════════════════════
+
+type AccentKey = 'green' | 'sky' | 'luxury' | 'amber' | 'rose';
+
+const ACCENT: Record<AccentKey, { icon: string; bar: string; activeBg: string }> = {
+  green:  { icon: 'bg-vylta-green/10 text-vylta-green ring-vylta-green/20',     bar: 'bg-vylta-green',  activeBg: 'bg-vylta-green/[0.08]' },
+  sky:    { icon: 'bg-vylta-sky/10 text-vylta-sky ring-vylta-sky/20',           bar: 'bg-vylta-sky',    activeBg: 'bg-vylta-sky/[0.08]' },
+  luxury: { icon: 'bg-vylta-luxury/10 text-vylta-luxury ring-vylta-luxury/20',  bar: 'bg-vylta-luxury', activeBg: 'bg-vylta-luxury/[0.08]' },
+  amber:  { icon: 'bg-vylta-amber/10 text-vylta-amber ring-vylta-amber/20',     bar: 'bg-vylta-amber',  activeBg: 'bg-vylta-amber/[0.08]' },
+  rose:   { icon: 'bg-vylta-rose/10 text-vylta-rose ring-vylta-rose/20',        bar: 'bg-vylta-rose',   activeBg: 'bg-vylta-rose/[0.08]' },
+};
+
+type SectionDef = {
+  id: string;
+  icon: any;
+  label: string;
+  desc: string;
+  accent: AccentKey;
+};
+
+const SECTIONS: SectionDef[] = [
+  { id: 'negocio',  icon: Building2,  label: 'Información del negocio', desc: 'Nombre, contacto y logo',       accent: 'green' },
+  { id: 'horarios', icon: Clock,      label: 'Horarios de atención',   desc: 'Días y horas de atención',     accent: 'sky' },
+  { id: 'plan',     icon: CreditCard, label: 'Tu plan',                desc: 'Suscripción y facturación',   accent: 'luxury' },
+  { id: 'link',     icon: Link2,      label: 'Link público',           desc: 'Tu página de autoagenda',     accent: 'green' },
+  { id: 'bloqueos', icon: Coffee,     label: 'Bloqueos y descansos',   desc: 'Vacaciones y días libres',    accent: 'amber' },
+  { id: 'overlaps', icon: Sparkles,   label: 'Opciones avanzadas',     desc: 'Citas simultáneas y más',     accent: 'luxury' },
+  { id: 'cuenta',   icon: Shield,     label: 'Cuenta y seguridad',     desc: 'Contraseña y datos de acceso', accent: 'rose' },
+];
 
 interface ConfigShellProps {
   user: { id: string; email: string };
@@ -58,6 +82,37 @@ interface ConfigShellProps {
 export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigShellProps) {
   const isPremiumOrAbove = hasPremiumAccess(plan?.plan_type);
   const isLuxury = hasLuxuryAccess(plan?.plan_type);
+
+  // null = (en móvil) mostrando la lista de secciones.
+  // En escritorio se usa 'negocio' por defecto para que siempre haya contenido.
+  const [active, setActive] = useState<string | null>(null);
+  const current = active ?? 'negocio';
+
+  function renderSection(id: string) {
+    switch (id) {
+      case 'negocio':
+        return <BusinessTab userId={user.id} profile={profile} />;
+      case 'horarios':
+        return (
+          <div className="space-y-6">
+            <HoursTab userId={user.id} />
+            <BookingBlocksCard userId={user.id} isPremiumOrAbove={isPremiumOrAbove} />
+          </div>
+        );
+      case 'plan':
+        return <PlanTab userId={user.id} plan={plan} />;
+      case 'link':
+        return <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />;
+      case 'bloqueos':
+        return <BlocksTab userId={user.id} />;
+      case 'overlaps':
+        return <OverlapsTab userId={user.id} profile={profile} isPremiumOrAbove={isPremiumOrAbove} isLuxury={isLuxury} />;
+      case 'cuenta':
+        return <AccountTab email={user.email} userId={user.id} />;
+      default:
+        return null;
+    }
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -76,74 +131,88 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         </div>
       </div>
 
-      {/* TABS */}
-      <Tabs defaultValue="negocio" className="space-y-6">
-        <div className="relative border-b border-border overflow-x-auto">
-          <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0">
-            <ConfigTab value="negocio" icon={Building2} label="Negocio" />
-            <ConfigTab value="horarios" icon={Clock} label="Horarios" />
-            <ConfigTab value="plan" icon={CreditCard} label="Plan" />
-            <ConfigTab value="link" icon={Link2} label="Link público" />
-            <ConfigTab value="bloqueos" icon={Coffee} label="Bloqueos" />
-            <ConfigTab value="overlaps" icon={Sparkles} label="Avanzado" />
-            <ConfigTab value="cuenta" icon={Shield} label="Cuenta" />
-          </TabsList>
+      {/* BODY: rail de navegación + contenido */}
+      <div className="lg:grid lg:grid-cols-[300px_minmax(0,1fr)] lg:items-start lg:gap-6">
+        {/* NAV (escritorio) / LISTA (móvil) */}
+        <nav
+          className={cn(
+            'lg:sticky lg:top-2 lg:self-start',
+            active !== null && 'hidden lg:block',
+          )}
+          aria-label="Secciones de configuración"
+        >
+          <ul className="space-y-2 lg:space-y-1">
+            {SECTIONS.map((s) => {
+              const Icon = s.icon;
+              const isActive = current === s.id;
+              const a = ACCENT[s.accent];
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => setActive(s.id)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={cn(
+                      'group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition-all',
+                      isActive
+                        ? cn('border-transparent', a.activeBg)
+                        : 'border-border bg-vylta-surface hover:bg-vylta-card lg:border-transparent lg:bg-transparent lg:hover:bg-vylta-card/70',
+                    )}
+                  >
+                    {/* Barra de acento (visible cuando está activo) */}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full transition-opacity duration-200',
+                        a.bar,
+                        isActive ? 'opacity-100' : 'opacity-0',
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1',
+                        a.icon,
+                      )}
+                    >
+                      <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          'block truncate text-sm font-semibold',
+                          isActive ? 'text-vylta-bone' : 'text-vylta-bone/90',
+                        )}
+                      >
+                        {s.label}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-vylta-muted">
+                        {s.desc}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-vylta-subtle transition-transform group-hover:translate-x-0.5 lg:hidden" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        {/* CONTENIDO */}
+        <div className={cn('min-w-0', active === null && 'hidden lg:block')}>
+          {/* Volver a la lista (solo móvil) */}
+          <button
+            type="button"
+            onClick={() => setActive(null)}
+            className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-vylta-muted transition-colors hover:text-vylta-bone lg:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Configuración
+          </button>
+
+          {renderSection(current)}
         </div>
-
-        <TabsContent value="negocio" className="focus-visible:outline-none">
-          <BusinessTab userId={user.id} profile={profile} />
-        </TabsContent>
-        <TabsContent value="horarios" className="focus-visible:outline-none">
-          <div className="space-y-6">
-            <HoursTab userId={user.id} />
-            <BookingBlocksCard userId={user.id} isPremiumOrAbove={isPremiumOrAbove} />
-          </div>
-        </TabsContent>
-        <TabsContent value="plan" className="focus-visible:outline-none">
-          <PlanTab userId={user.id} plan={plan} />
-        </TabsContent>
-        <TabsContent value="link" className="focus-visible:outline-none">
-          <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />
-        </TabsContent>
-        <TabsContent value="bloqueos" className="focus-visible:outline-none">
-          <BlocksTab userId={user.id} />
-        </TabsContent>
-        <TabsContent value="overlaps" className="focus-visible:outline-none">
-          <OverlapsTab userId={user.id} profile={profile} isPremiumOrAbove={isPremiumOrAbove} isLuxury={isLuxury} />
-        </TabsContent>
-        <TabsContent value="cuenta" className="focus-visible:outline-none">
-          <AccountTab email={user.email} userId={user.id} />
-        </TabsContent>
-      </Tabs>
+      </div>
     </div>
-  );
-}
-
-function ConfigTab({
-  value,
-  icon: Icon,
-  label,
-}: {
-  value: string;
-  icon: any;
-  label: string;
-}) {
-  return (
-    <TabsTrigger
-      value={value}
-      className={cn(
-        'relative h-auto rounded-none border-0 bg-transparent px-3 py-2.5 text-sm font-medium shadow-none shrink-0',
-        'text-vylta-muted transition-colors hover:text-vylta-bone',
-        'data-[state=active]:bg-transparent data-[state=active]:text-vylta-bone data-[state=active]:shadow-none',
-        'after:absolute after:bottom-[-1px] after:left-2 after:right-2 after:h-[2px] after:rounded-full after:bg-vylta-green',
-        'after:scale-x-0 after:opacity-0 after:transition-all after:duration-300',
-        'data-[state=active]:after:scale-x-100 data-[state=active]:after:opacity-100',
-        'data-[state=active]:after:shadow-[0_0_8px_hsl(160_84%_39%/0.5)]',
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-      <span className="hidden sm:inline">{label}</span>
-    </TabsTrigger>
   );
 }
 
