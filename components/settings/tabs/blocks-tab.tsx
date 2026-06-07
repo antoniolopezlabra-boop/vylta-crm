@@ -54,17 +54,23 @@ import type { TimeBlock } from '@/lib/time-blocks';
 //   • Vacaciones (específico 20-25 de junio)
 //   • Eventos personales (especific 14 julio 10:00-12:00)
 //   • Por staff individual o todo el negocio
+//
+// ⚡ FIX (Jun 2026): day_of_week ahora usa la MISMA convención que la app
+//   móvil y business_hours: 0=Lunes ... 6=Domingo. Antes el CRM usaba
+//   1=Lunes ... 0=Domingo, lo que mostraba los bloqueos creados en la app
+//   móvil corridos un día (y bloqueaba el día equivocado en citas).
 // ══════════════════════════════════════════════════════════════════════
 
 const BUSINESS_KEY = '__business__';
+// 0=Lunes ... 6=Domingo (alineado con app móvil, business_hours y wizard)
 const DAYS_OF_WEEK = [
-  { value: 1, label: 'Lun' },
-  { value: 2, label: 'Mar' },
-  { value: 3, label: 'Mié' },
-  { value: 4, label: 'Jue' },
-  { value: 5, label: 'Vie' },
-  { value: 6, label: 'Sáb' },
-  { value: 0, label: 'Dom' },
+  { value: 0, label: 'Lun' },
+  { value: 1, label: 'Mar' },
+  { value: 2, label: 'Mié' },
+  { value: 3, label: 'Jue' },
+  { value: 4, label: 'Vie' },
+  { value: 5, label: 'Sáb' },
+  { value: 6, label: 'Dom' },
 ];
 
 const PRESET_LABELS = ['Comida', 'Descanso', 'Junta', 'Vacaciones', 'Personal'];
@@ -403,7 +409,7 @@ function BlockFormDialog({
       label: 'Comida',
       staffId: BUSINESS_KEY,
       is_recurring: true,
-      day_of_week: 1,
+      day_of_week: 0,
       specific_date: null,
       start_time: '14:00',
       end_time: '15:00',
@@ -431,7 +437,7 @@ function BlockFormDialog({
           label: 'Comida',
           staffId: BUSINESS_KEY,
           is_recurring: true,
-          day_of_week: 1,
+          day_of_week: 0,
           specific_date: null,
           start_time: '14:00',
           end_time: '15:00',
@@ -504,7 +510,7 @@ function BlockFormDialog({
               label: 'Comida',
               staffId: BUSINESS_KEY,
               is_recurring: true,
-              day_of_week: 1,
+              day_of_week: 0,
               specific_date: null,
               start_time: '14:00',
               end_time: '15:00',
@@ -609,7 +615,7 @@ function BlockFormDialog({
                     onClick={() => {
                       field.onChange(true);
                       setValue('specific_date', null);
-                      if (watch('day_of_week') === null) setValue('day_of_week', 1);
+                      if (watch('day_of_week') === null) setValue('day_of_week', 0);
                     }}
                     className={cn(
                       'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition',
