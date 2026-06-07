@@ -43,6 +43,14 @@ import { useNewAppointmentsTracker } from '@/lib/hooks/use-new-appointments-trac
 // sus citas históricas siguen referenciando el id. Esto NO rompe el calendario
 // (los datos vienen del JOIN de Supabase), pero es bueno mostrar un warning
 // para que el dueño note la inconsistencia.
+//
+// ⚡ RESPONSIVE / MÓVIL (Jun 2026):
+//   El calendario semanal (7 días) se veía muy apretado en celular. Ahora
+//   en móvil la tarjeta del calendario permite scroll horizontal y el grid
+//   tiene un ancho mínimo (min-w-[680px]) para que cada día sea legible;
+//   la cabecera de días y el cuerpo se desplazan juntos. En lg+ vuelve a
+//   ocupar todo el ancho (min-w-0), idéntico a antes. También el header
+//   de la página hace wrap si no cabe.
 // ══════════════════════════════════════════════════════════════════════
 
 const HOUR_HEIGHT = 60;
@@ -162,7 +170,7 @@ export default function CitasPage() {
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col gap-4 animate-fade-in">
       {/* HEADER */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-vylta-green/10 ring-1 ring-vylta-green/20">
             <CalendarDays className="h-5 w-5 text-vylta-green" strokeWidth={2} />
@@ -240,8 +248,8 @@ export default function CitasPage() {
       )}
 
       {/* CALENDARIO */}
-      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border bg-vylta-card/30">
+      <div className="flex flex-1 flex-col overflow-x-auto overflow-y-hidden lg:overflow-hidden rounded-xl border border-border bg-vylta-surface shadow-card">
+        <div className="grid min-w-[680px] grid-cols-[60px_repeat(7,1fr)] border-b border-border bg-vylta-card/30 lg:min-w-0">
           <div className="border-r border-border" />
           {weekDays.map((day, idx) => {
             const dateStr = toLocalDateString(day);
@@ -255,7 +263,7 @@ export default function CitasPage() {
           })}
         </div>
 
-        <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto">
+        <div ref={scrollContainerRef} className="relative min-w-[680px] flex-1 overflow-y-auto lg:min-w-0">
           {showFullLoader && (
             <div className="absolute inset-0 z-30 flex items-center justify-center bg-vylta-surface/70 backdrop-blur-sm">
               <Loader2 className="h-6 w-6 animate-spin text-vylta-green" />
