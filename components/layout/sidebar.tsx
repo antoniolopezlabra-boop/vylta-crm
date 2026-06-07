@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { VyltaLogo } from './vylta-logo';
 import { usePrefetchClients } from '@/lib/queries/use-clients';
 import { usePrefetchServices } from '@/lib/queries/use-services';
+import { useMobileNav } from './mobile-nav-context';
 
 // ══════════════════════════════════════════════════════════════════════
 // Sidebar premium + Optimistic UI + Prefetching predictivo
@@ -41,6 +42,13 @@ import { usePrefetchServices } from '@/lib/queries/use-services';
 //   • onMouseEnter en items → precarga los datos antes del click
 //     Esto significa que para cuando el usuario hace click, los datos
 //     ya están en cache y la navegación se siente instantánea.
+//
+// ⚡ RESPONSIVE / MÓVIL (Jun 2026):
+//   En móvil el sidebar es un CAJÓN (drawer) fijo y deslizable, con
+//   backdrop oscuro detrás; se abre con la hamburguesa del Topbar y se
+//   cierra al tocar fuera o al navegar. En lg+ vuelve a ser estático y
+//   colapsable, idéntico a antes. El estado abierto/cerrado vive en
+//   MobileNavContext (compartido con el Topbar).
 // ══════════════════════════════════════════════════════════════════════
 
 type BadgeKind = 'luxury' | 'premium';
@@ -82,6 +90,7 @@ interface SidebarProps {
 export function Sidebar({ businessName, logoUrl }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { open, setOpen } = useMobileNav();
   const [collapsed, setCollapsed] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [optimisticHref, setOptimisticHref] = useState<string | null>(null);
@@ -95,6 +104,8 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
   }
 
   function handleNavigate(href: string) {
+    // Cierra el cajón en móvil (en escritorio no tiene efecto visible).
+    setOpen(false);
     if (pathname.startsWith(href)) return;
     setOptimisticHref(href);
     startTransition(() => {
@@ -110,10 +121,23 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
 
   return (
     <TooltipProvider delayDuration={50}>
+      {/* Backdrop del cajón en móvil — tap para cerrar */}
+      <div
+        className={cn(
+          'fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 lg:hidden',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={() => setOpen(false)}
+        aria-hidden="true"
+      />
+
       <aside
         className={cn(
-          'relative flex shrink-0 flex-col border-r border-border bg-vylta-surface transition-[width] duration-300 ease-out',
-          collapsed ? 'w-[72px]' : 'w-64',
+          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-vylta-surface',
+          'transition-transform duration-300 ease-out',
+          'lg:relative lg:inset-auto lg:z-auto lg:translate-x-0 lg:shrink-0 lg:transition-[width]',
+          open ? 'translate-x-0' : '-translate-x-full',
+          collapsed ? 'lg:w-[72px]' : 'lg:w-64',
         )}
       >
         {/* HEADER: Branding del NEGOCIO DEL CLIENTE (logo + nombre) */}
@@ -197,7 +221,7 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
             ))}
           </ul>
 
-          {/* FOOTER: Branding VYLTA discreto + botón colapsar */}
+          {/* FOOTER: Branding VYLTA discreto + botón colapsar (colapsar solo en lg+) */}
           {!collapsed ? (
             <div className="px-4 pb-3 pt-1 animate-fade-in">
               <div className="flex items-center justify-between gap-2">
@@ -215,7 +239,7 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
                 </a>
                 <button
                   onClick={() => setCollapsed(true)}
-                  className="shrink-0 rounded-md p-1 text-vylta-subtle transition hover:bg-vylta-card hover:text-vylta-bone"
+                  className="hidden shrink-0 rounded-md p-1 text-vylta-subtle transition hover:bg-vylta-card hover:text-vylta-bone lg:flex"
                   aria-label="Colapsar menú"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />

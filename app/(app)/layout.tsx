@@ -6,6 +6,7 @@ import { Topbar } from '@/components/layout/topbar';
 import { RouteTransition } from '@/components/layout/route-transition';
 import { QueryProvider } from '@/components/providers/query-provider';
 import { SessionTracker } from '@/components/session-tracker';
+import { MobileNavProvider } from '@/components/layout/mobile-nav-context';
 
 // ═════════════════════════════════════════════════════════════════════
 // Layout autenticado (App Shell) + QueryProvider de React Query
@@ -40,6 +41,11 @@ import { SessionTracker } from '@/components/session-tracker';
 // la conexión del dueño en user_sessions.last_seen_at, igual que la app
 // móvil. Sin esto, los negocios que solo usan el CRM Web aparecían como
 // "Nunca" en el panel admin (sección Mejores y peores negocios).
+//
+// ⚡ RESPONSIVE / MÓVIL (Jun 2026):
+// El shell ahora es usable desde celular. El Sidebar se vuelve un cajón
+// deslizable (drawer) controlado por MobileNavProvider; el Topbar tiene
+// un botón hamburguesa en móvil. En lg+ todo queda igual que antes.
 // ═════════════════════════════════════════════════════════════════════
 
 export default async function AppLayout({
@@ -86,24 +92,26 @@ export default async function AppLayout({
       {/* Registra la última conexión del dueño (consistente con la app móvil) */}
       <SessionTracker userId={user.id} />
 
-      <div className="flex h-screen overflow-hidden bg-background">
-        <RouteTransition />
+      <MobileNavProvider>
+        <div className="flex h-screen overflow-hidden bg-background">
+          <RouteTransition />
 
-        <Sidebar businessName={businessName} logoUrl={logoUrl} />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Topbar
-            user={{
-              email: user.email,
-              displayName,
-            }}
-          />
-          <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1600px] p-6 md:p-8">
-              {children}
-            </div>
-          </main>
+          <Sidebar businessName={businessName} logoUrl={logoUrl} />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <Topbar
+              user={{
+                email: user.email,
+                displayName,
+              }}
+            />
+            <main className="flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 md:p-8">
+                {children}
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+      </MobileNavProvider>
     </QueryProvider>
   );
 }

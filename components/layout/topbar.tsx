@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import {
+  Menu,
   Search,
   LogOut,
   Settings,
@@ -23,6 +24,7 @@ import { getInitials } from '@/lib/utils';
 import { toast } from 'sonner';
 import { CommandPalette } from './command-palette';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { useMobileNav } from './mobile-nav-context';
 
 // ══════════════════════════════════════════════════════════════════════
 // Topbar — búsqueda global (⌘K) + theme toggle + menú de usuario.
@@ -32,6 +34,9 @@ import { ThemeToggle } from '@/components/theme-toggle';
 //
 // ⚡ THEME TOGGLE (May 22 2026): agregado <ThemeToggle /> entre Bell y
 // Avatar para permitir al usuario cambiar entre modo claro y oscuro.
+//
+// ⚡ RESPONSIVE (Jun 2026): botón hamburguesa a la izquierda, visible solo
+// en móvil (lg:hidden), que abre el cajón de navegación.
 // ══════════════════════════════════════════════════════════════════════
 
 interface TopbarProps {
@@ -43,6 +48,7 @@ interface TopbarProps {
 
 export function Topbar({ user }: TopbarProps) {
   const router = useRouter();
+  const { setOpen } = useMobileNav();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // ⌘K / Ctrl+K para abrir el command palette
@@ -74,7 +80,16 @@ export function Topbar({ user }: TopbarProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-5 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 sm:px-5 backdrop-blur-xl">
+        {/* Hamburguesa — solo móvil, abre el cajón de navegación */}
+        <button
+          onClick={() => setOpen(true)}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-vylta-muted transition hover:bg-vylta-card hover:text-vylta-bone lg:hidden"
+          aria-label="Abrir menú"
+        >
+          <Menu className="h-5 w-5" strokeWidth={2} />
+        </button>
+
         {/* Search trigger — abre el command palette */}
         <button
           onClick={() => setPaletteOpen(true)}
@@ -82,7 +97,7 @@ export function Topbar({ user }: TopbarProps) {
         >
           <div className="relative h-9 w-full rounded-lg border border-border bg-card/60 pl-9 pr-14 text-left transition-all hover:border-vylta-green/30">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-vylta-subtle" />
-            <span className="flex h-full items-center text-sm text-vylta-subtle">
+            <span className="flex h-full items-center text-sm text-vylta-subtle truncate">
               Buscar citas, clientes...
             </span>
             <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden h-5 -translate-y-1/2 select-none items-center gap-0.5 rounded border border-border bg-secondary px-1.5 font-mono text-[10px] font-semibold text-vylta-muted sm:inline-flex">
@@ -91,7 +106,7 @@ export function Topbar({ user }: TopbarProps) {
           </div>
         </button>
 
-        <div className="flex-1" />
+        <div className="hidden flex-1 sm:block" />
 
         {/* ⚡ NEW (May 22 2026): Toggle de tema claro/oscuro */}
         <ThemeToggle />
