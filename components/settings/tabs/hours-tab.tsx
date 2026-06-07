@@ -20,20 +20,16 @@ import { SettingsCard } from '../configuracion-shell';
 //   • Operación: delete + insert (matching app móvil; evita problemas
 //     con constraints únicos en BD)
 //
-// UX:
-//   • Cada día tiene su propio toggle "Abierto" y dos campos time
-//   • Si is_open=false los time inputs se deshabilitan visualmente
-//     pero se conservan sus valores en estado (no se pierden si el
-//     usuario vuelve a abrir el día)
-//   • Botón "Copiar a todos los días" toma el horario del Lunes y lo
-//     aplica al resto (UX habitual en SaaS de citas).
-//   • Botón "Guardar cambios" único al final — todos los cambios se
-//     persisten en una sola operación.
+// ⚡ FIX RESPONSIVE (Jun 2026): las filas usaban un grid rígido
+//   grid-cols-[110px_70px_1fr] que en anchos angostos desbordaba (el
+//   segundo campo de hora se cortaba y todo se recargaba a la derecha).
+//   Ahora cada fila es flex-wrap: "día + toggle" a la izquierda y los dos
+//   campos de hora a la derecha; en pantallas chicas las horas bajan a
+//   una segunda línea. Nunca se desborda.
 //
 // Validaciones:
 //   • Para días abiertos: start_time < end_time
-//   • Si todos los días están cerrados → permitir guardar pero mostrar
-//     advertencia (caso raro pero válido: vacaciones, baja temporal)
+//   • Si todos cerrados → permite guardar con advertencia (vacaciones)
 // ══════════════════════════════════════════════════════════════════════
 
 interface DaySchedule {
@@ -204,7 +200,7 @@ export function HoursTab({ userId }: { userId: string }) {
     >
       <div className="space-y-4">
         {/* Botón de utilidad: copiar Lunes a todos */}
-        <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2">
           <p className="text-xs text-muted-foreground">
             ¿Mismo horario todos los días? Configura el Lunes y copia a los demás.
           </p>
@@ -228,23 +224,24 @@ export function HoursTab({ userId }: { userId: string }) {
             return (
               <div
                 key={d.day_of_week}
-                className={`grid grid-cols-[110px_70px_1fr] gap-3 items-center rounded-lg border border-border bg-background px-3 py-2.5 transition-opacity ${
+                className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5 rounded-lg border border-border bg-background px-3 py-2.5 transition-opacity ${
                   d.is_open ? '' : 'opacity-60'
                 }`}
               >
-                <Label className="text-sm font-semibold text-vylta-bone">{meta.label}</Label>
-
-                <div className="flex items-center gap-2">
+                {/* Día + toggle */}
+                <div className="flex items-center gap-2.5">
+                  <Label className="w-20 shrink-0 text-sm font-semibold text-vylta-bone">{meta.label}</Label>
                   <Switch
                     checked={d.is_open}
                     onCheckedChange={(v) => updateDay(d.day_of_week, { is_open: v })}
                     disabled={saving}
                   />
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="w-14 text-[11px] text-muted-foreground">
                     {d.is_open ? 'Abierto' : 'Cerrado'}
                   </span>
                 </div>
 
+                {/* Horas */}
                 <div className="flex items-center gap-2">
                   <Input
                     type="time"
@@ -253,7 +250,7 @@ export function HoursTab({ userId }: { userId: string }) {
                       updateDay(d.day_of_week, { start_time: e.target.value })
                     }
                     disabled={!d.is_open || saving}
-                    className="h-9 max-w-[120px]"
+                    className="h-9 w-[116px]"
                   />
                   <span className="text-xs text-muted-foreground">a</span>
                   <Input
@@ -263,7 +260,7 @@ export function HoursTab({ userId }: { userId: string }) {
                       updateDay(d.day_of_week, { end_time: e.target.value })
                     }
                     disabled={!d.is_open || saving}
-                    className="h-9 max-w-[120px]"
+                    className="h-9 w-[116px]"
                   />
                 </div>
               </div>

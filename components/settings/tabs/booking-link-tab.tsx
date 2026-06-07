@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Link2, Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { Link2, Copy, ExternalLink, Loader2, Download, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { Switch } from '@/components/ui/switch';
@@ -18,9 +18,10 @@ import { cn } from '@/lib/utils';
 // MENSUAL de citas (Gratuito: 10/mes, Premium: ilimitado), pero el
 // acceso al link es universal — es el corazón del producto VYLTA.
 //
-// Bug anterior: bloqueaba a usuarios Gratuitos con mensaje "Activa
-// Premium". Era inconsistente con el flujo real (Wizard de Setup
-// auto-crea el booking_link aun para Gratuitos).
+// ⚡ QR (Jun 2026): se agregó el código QR del link (igual que la app
+// móvil). Se genera con la API pública api.qrserver.com (sin dependencias
+// nuevas; el link es público, no hay datos sensibles) y se puede descargar
+// como PNG para imprimirlo en el negocio.
 // ══════════════════════════════════════════════════════════════════════
 
 interface Props {
@@ -35,6 +36,7 @@ export function BookingLinkTab({ userId, bookingLink }: Props) {
   const [saving, setSaving] = useState(false);
   const slug = bookingLink?.slug || 'tu-negocio';
   const url = `https://book.vylta.lat/${slug}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=12&data=${encodeURIComponent(url)}`;
 
   async function toggle(value: boolean) {
     setSaving(true);
@@ -69,6 +71,26 @@ export function BookingLinkTab({ userId, bookingLink }: Props) {
     toast.success('Link copiado al portapapeles');
   }
 
+  async function downloadQr() {
+    try {
+      const res = await fetch(qrUrl);
+      if (!res.ok) throw new Error('fetch failed');
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `vylta-qr-${slug}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success('Código QR descargado');
+    } catch {
+      // Fallback robusto: abrir el QR en una pestaña nueva para guardar/imprimir
+      window.open(qrUrl, '_blank');
+    }
+  }
+
   return (
     <SettingsCard
       icon={Link2}
@@ -77,7 +99,7 @@ export function BookingLinkTab({ userId, bookingLink }: Props) {
     >
       <div className="space-y-4">
         {/* Toggle activar/desactivar */}
-        <div className="flex items-center justify-between rounded-lg border border-border bg-secondary/30 p-3">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 p-3">
           <div>
             <Label className="text-sm font-semibold">
               Link público {isActive ? 'activo' : 'inactivo'}
@@ -106,7 +128,7 @@ export function BookingLinkTab({ userId, bookingLink }: Props) {
             <button
               type="button"
               onClick={copyUrl}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-secondary hover:text-foreground"
               title="Copiar"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
@@ -115,13 +137,54 @@ export function BookingLinkTab({ userId, bookingLink }: Props) {
               href={url}
               target="_blank"
               className={cn(
-                'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-secondary hover:text-foreground',
+                'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition hover:bg-secondary hover:text-foreground',
                 !isActive && 'pointer-events-none opacity-50',
               )}
               title="Abrir"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </Link>
+          </div>
+        </div>
+
+        {/* Código QR */}
+        <div>
+          <Label className="flex items-center gap-1.5 text-xs font-semibold">
+            <QrCode className="h-3.5 w-3.5" />
+            Código QR
+          </Label>
+          <p className="mb-2 mt-0.5 text-[11px] text-muted-foreground">
+            Imprímelo en tu negocio para que tus clientes escaneen y agenden al instante.
+          </p>
+          <div
+            className={cn(
+              'flex flex-col items-center gap-4 rounded-xl border border-border bg-secondary/30 p-4 sm:flex-row',
+              !isActive && 'opacity-60',
+            )}
+          >
+            <div className="shrink-0 rounded-xl bg-white p-2.5 shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={qrUrl}
+                alt="Código QR de tu link de reservas"
+                width={176}
+                height={176}
+                className="h-44 w-44"
+              />
+            </div>
+            <div className="flex flex-1 flex-col items-center gap-3 sm:items-start">
+              <p className="text-center text-xs text-muted-foreground sm:text-left">
+                Escanea con la cámara del teléfono para abrir tu página de reservas. Ideal para tu mostrador, tarjetas o vitrina.
+              </p>
+              <button
+                type="button"
+                onClick={downloadQr}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-vylta-bone transition hover:bg-secondary"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Descargar QR
+              </button>
+            </div>
           </div>
         </div>
 
