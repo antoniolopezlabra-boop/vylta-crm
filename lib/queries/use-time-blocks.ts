@@ -2,32 +2,30 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchTimeBlocks, type TimeBlock } from '@/lib/time-blocks';
-import { useSupabaseRealtime } from '@/lib/hooks/use-supabase-realtime';
 
 // ══════════════════════════════════════════════════════════════════════
 // useTimeBlocks — hook con React Query para bloqueos de horario
 //
-// staleTime alto (10 min): los bloqueos cambian rarísimo. El usuario los
-// configura una sola vez y los deja vivir. Realtime es backup por si los
-// edita desde móvil.
+// SIN realtime (jun 2026): los bloqueos cambian rarísimo, no vale la pena
+// mantener una suscripción realtime abierta solo para ellos. En su lugar la
+// query se considera "vieja" de inmediato y se refresca:
+//   • al montar el componente (entrar a la sección / cambiar de pantalla)
+//   • al volver el foco a la pestaña (refetchOnWindowFocus)
+// Suficiente para reflejar cambios hechos desde la app móvil sin sobrecargar
+// realtime donde no se necesita. Las mutaciones del propio CRM siguen siendo
+// inmediatas vía useInvalidateTimeBlocks().
 // ══════════════════════════════════════════════════════════════════════
 
 export const TIME_BLOCKS_KEY = 'time-blocks';
 
 export function useTimeBlocks() {
-  const queryClient = useQueryClient();
-
-  const query = useQuery<TimeBlock[]>({
+  return useQuery<TimeBlock[]>({
     queryKey: [TIME_BLOCKS_KEY],
     queryFn: fetchTimeBlocks,
-    staleTime: 10 * 60 * 1000, // 10min frescos (cambian poco)
+    staleTime: 0,                 // siempre "viejo" → refetch al montar y al enfocar
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
-
-  useSupabaseRealtime('time_blocks', () => {
-    queryClient.invalidateQueries({ queryKey: [TIME_BLOCKS_KEY] });
-  });
-
-  return query;
 }
 
 export function useInvalidateTimeBlocks() {
