@@ -19,6 +19,17 @@ import { Button } from '@/components/ui/button';
 import { ServiceFormDialog } from '@/components/services/service-form-dialog';
 import { useServices, useToggleService, useInvalidateServices, type Service } from '@/lib/queries/use-services';
 
+// ════════════════════════════════════════════════════════════════════
+// /servicios — catálogo de servicios.
+//
+// ⚡ FIX UI (Jun 2026): en celular la tabla obligaba a hacer scroll
+//   horizontal para ver el precio (poco intuitivo). Ahora:
+//     • Escritorio (lg+): tabla completa.
+//     • Celular (<lg): tarjetas, una por servicio, con el precio grande
+//       y visible — sin arrastrar nada de lado.
+//   Ambas vistas usan los mismos datos y acciones (editar / activar).
+// ════════════════════════════════════════════════════════════════════
+
 const FALLBACK_COLORS = ['#10B981', '#A78BFA', '#F59E0B', '#F472B6', '#0EA5E9', '#818CF8', '#14B8A6', '#F43F5E'];
 
 export default function ServiciosPage() {
@@ -136,88 +147,157 @@ export default function ServiciosPage() {
         ) : filtered.length === 0 ? (
           <EmptyState hasFilter={search.length > 0 || !showInactive} onCreate={openCreate} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b border-border bg-vylta-card/40">
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Servicio</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Duración</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Precio</th>
-                  <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Estado</th>
-                  <th className="w-12" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((service, idx) => {
-                  const color = colorForService(service, idx);
-                  return (
-                    <tr
-                      key={service.id}
+          <>
+            {/* TABLA — escritorio (lg+) */}
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full">
+                <thead className="border-b border-border bg-vylta-card/40">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Servicio</th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Duración</th>
+                    <th className="px-4 py-2.5 text-right text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Precio</th>
+                    <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-muted">Estado</th>
+                    <th className="w-12" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((service, idx) => {
+                    const color = colorForService(service, idx);
+                    return (
+                      <tr
+                        key={service.id}
+                        onClick={() => openEdit(service)}
+                        className={cn(
+                          'group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/40',
+                          !service.is_active && 'opacity-60',
+                        )}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                              style={{ backgroundColor: `${color}1A`, color }}
+                            >
+                              <Briefcase className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-vylta-bone">{service.name}</div>
+                              {service.description && (
+                                <div className="truncate text-xs text-vylta-muted">{service.description}</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-vylta-muted">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            {service.duration_minutes} min
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green">
+                          {formatCurrency(service.price)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggle(service, e)}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition hover:opacity-80',
+                              service.is_active
+                                ? 'bg-vylta-green/15 text-vylta-green hover:bg-vylta-green/25'
+                                : 'bg-vylta-card text-vylta-muted hover:bg-vylta-card/80',
+                            )}
+                            title={service.is_active ? 'Click para desactivar' : 'Click para activar'}
+                          >
+                            {service.is_active ? (
+                              <>
+                                <CheckCircle2 className="h-3 w-3" />
+                                Activo
+                              </>
+                            ) : (
+                              <>
+                                <Circle className="h-3 w-3" />
+                                Inactivo
+                              </>
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-2 py-3 text-right">
+                          <Pencil className="h-3.5 w-3.5 text-vylta-subtle opacity-0 transition-opacity group-hover:opacity-100" />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* TARJETAS — celular (<lg), sin scroll horizontal */}
+            <ul className="divide-y divide-border lg:hidden">
+              {filtered.map((service, idx) => {
+                const color = colorForService(service, idx);
+                return (
+                  <li key={service.id}>
+                    <div
                       onClick={() => openEdit(service)}
                       className={cn(
-                        'group cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-vylta-card/40',
+                        'flex cursor-pointer gap-3 px-4 py-3.5 transition-colors active:bg-vylta-card/40',
                         !service.is_active && 'opacity-60',
                       )}
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                            style={{ backgroundColor: `${color}1A`, color }}
-                          >
-                            <Briefcase className="h-4 w-4" />
-                          </div>
+                      <div
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                        style={{ backgroundColor: `${color}1A`, color }}
+                      >
+                        <Briefcase className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-vylta-bone">{service.name}</div>
                             {service.description && (
-                              <div className="truncate text-xs text-vylta-muted">{service.description}</div>
+                              <div className="mt-0.5 truncate text-xs text-vylta-muted">{service.description}</div>
                             )}
                           </div>
+                          <div className="shrink-0 text-base font-bold tabular-nums text-vylta-green">
+                            {formatCurrency(service.price)}
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-vylta-muted">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          {service.duration_minutes} min
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-vylta-green">
-                        {formatCurrency(service.price)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <button
-                          type="button"
-                          onClick={(e) => handleToggle(service, e)}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition hover:opacity-80',
-                            service.is_active
-                              ? 'bg-vylta-green/15 text-vylta-green hover:bg-vylta-green/25'
-                              : 'bg-vylta-card text-vylta-muted hover:bg-vylta-card/80',
-                          )}
-                          title={service.is_active ? 'Click para desactivar' : 'Click para activar'}
-                        >
-                          {service.is_active ? (
-                            <>
-                              <CheckCircle2 className="h-3 w-3" />
-                              Activo
-                            </>
-                          ) : (
-                            <>
-                              <Circle className="h-3 w-3" />
-                              Inactivo
-                            </>
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-2 py-3 text-right">
-                        <Pencil className="h-3.5 w-3.5 text-vylta-subtle opacity-0 transition-opacity group-hover:opacity-100" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-vylta-muted">
+                            <Clock className="h-3.5 w-3.5" />
+                            {service.duration_minutes} min
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggle(service, e)}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition',
+                              service.is_active
+                                ? 'bg-vylta-green/15 text-vylta-green'
+                                : 'bg-vylta-card text-vylta-muted',
+                            )}
+                          >
+                            {service.is_active ? (
+                              <>
+                                <CheckCircle2 className="h-3 w-3" />
+                                Activo
+                              </>
+                            ) : (
+                              <>
+                                <Circle className="h-3 w-3" />
+                                Inactivo
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </div>
 
