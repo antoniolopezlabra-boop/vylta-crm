@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,6 +25,12 @@ import { cn } from '@/lib/utils';
 // Form servicio — schema alineado con BD real:
 //   • is_active (no 'active')
 //   • La BD NO tiene columna 'color' — lo guardamos solo si existe
+//
+// ⚡ FIX (Jun 2026): el form de edición mostraba precio 0 / campos vacíos.
+//   useForm captura defaultValues una sola vez al montar (con initialService
+//   = null porque el dialog vive siempre montado en la página). Al elegir un
+//   servicio el prop cambiaba pero el form no se re-inicializaba. Ahora un
+//   useEffect hace reset() con los valores del servicio cada vez que se abre.
 // ══════════════════════════════════════════════════════════════════════
 
 const serviceSchema = z.object({
@@ -72,10 +78,25 @@ export function ServiceFormDialog({
       name: initialService?.name || '',
       description: initialService?.description || '',
       duration_minutes: initialService?.duration_minutes || 60,
-      price: initialService?.price || 0,
+      price: initialService?.price ?? 0,
       is_active: initialService?.is_active ?? true,
     },
   });
+
+  // Re-sincroniza el formulario cada vez que se abre (o cambia el servicio
+  // seleccionado). Sin esto, el form de edición mostraba precio 0 / vacíos
+  // porque defaultValues solo se captura una vez al montar.
+  useEffect(() => {
+    if (open) {
+      reset({
+        name: initialService?.name || '',
+        description: initialService?.description || '',
+        duration_minutes: initialService?.duration_minutes || 60,
+        price: initialService?.price ?? 0,
+        is_active: initialService?.is_active ?? true,
+      });
+    }
+  }, [open, initialService?.id, reset]);
 
   const isActive = watch('is_active');
 
