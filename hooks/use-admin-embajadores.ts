@@ -3,13 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 
-// ══════════════════════════════════════════
 // useAdminEmbajadores — KPIs por embajador para el Control Center.
-//
-// Consume la RPC admin_get_embajadores(), que verifica internamente que
-// el caller esta en vylta_admins.is_active = true. Polling cada 60s,
-// alineado con el resto del dashboard (sin Realtime).
-// ══════════════════════════════════════════
+// Consume la RPC admin_get_embajadores(), que verifica internamente que el
+// caller esta en vylta_admins.is_active = true. Polling cada 60s.
 
 export interface Embajador {
   id: string;
@@ -19,6 +15,7 @@ export interface Embajador {
   ref_code: string;
   estatus: string;
   perfil_completo: boolean;
+  tiene_acceso: boolean;
   clientes_total: number;
   clientes_activos: number;
   nuevos_mes: number;

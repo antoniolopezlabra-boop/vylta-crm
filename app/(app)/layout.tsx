@@ -8,45 +8,13 @@ import { QueryProvider } from '@/components/providers/query-provider';
 import { SessionTracker } from '@/components/session-tracker';
 import { MobileNavProvider } from '@/components/layout/mobile-nav-context';
 
-// ═════════════════════════════════════════════════════════════════════
-// Layout autenticado (App Shell) + QueryProvider de React Query
-//
-// CHECK ADMIN (Sprint A, Mayo 14 2026):
-// Antes de renderizar el CRM, verifica si el user_id está en vylta_admins.
-// Si lo está → redirect('/admin') para evitar que vea el dashboard de
-// dueño de negocio. Esto replica el comportamiento de la app móvil
-// donde antonio.lopez.labra@hotmail.com va directo al Control Center.
-//
-// NOTA: importamos getAdminUserServer desde admin-server.ts (no admin.ts)
-// para evitar que cookies() se bundle al cliente.
-//
-// ⚡ FEATURE BRANDING DEL CLIENTE (May 19 2026):
-// El sidebar muestra el LOGO + NOMBRE DEL NEGOCIO del cliente (no la
-// marca VYLTA), para que sientan que el sistema es parte de su negocio.
-// La marca VYLTA se mueve a un footer discreto del sidebar.
-// Pasamos businessName + logoUrl al Sidebar para que los renderice.
-//
-// ⚡ BUG FIX (May 19 2026):
-// La query original incluía 'owner_name' que NO existe en el schema
-// real de business_profiles. Esto causaba que Supabase fallara
-// silenciosamente y profile siempre fuera null, mostrando "Mi negocio"
-// como fallback aunque el usuario SÍ tuviera negocio configurado.
-//
-// Schema real (confirmado en components/settings/tabs/business-tab.tsx):
-//   business_name, business_type, address, phone, alternative_phone, logo_url
-// NO existe: description, business_email, owner_name
-//
-// ⚡ ÚLTIMA CONEXIÓN (Jun 2026):
-// Montamos <SessionTracker> (componente cliente invisible) para registrar
-// la conexión del dueño en user_sessions.last_seen_at, igual que la app
-// móvil. Sin esto, los negocios que solo usan el CRM Web aparecían como
-// "Nunca" en el panel admin (sección Mejores y peores negocios).
-//
-// ⚡ RESPONSIVE / MÓVIL (Jun 2026):
-// El shell ahora es usable desde celular. El Sidebar se vuelve un cajón
-// deslizable (drawer) controlado por MobileNavProvider; el Topbar tiene
-// un botón hamburguesa en móvil. En lg+ todo queda igual que antes.
-// ═════════════════════════════════════════════════════════════════════
+// Layout autenticado (App Shell) + React Query.
+//  - Si el user es admin (vylta_admins) -> redirect /admin.
+//  - Si el user es embajador (embajadores.user_id) -> redirect /embajador.
+//  - El Sidebar muestra el branding del negocio (logo + nombre), no la marca VYLTA.
+// IMPORTANTE: business_profiles NO tiene owner_name/description/business_email.
+//   Pedir SOLO columnas reales (business_name, logo_url) o la query falla en silencio.
+// SessionTracker registra la ultima conexion del dueno (igual que la app movil).
 
 export default async function AppLayout({
   children,
@@ -60,16 +28,24 @@ export default async function AppLayout({
     redirect('/login');
   }
 
-  // CHECK ADMIN — redirige al Control Center si el usuario es admin.
-  // No usamos try/catch: si falla la consulta, mejor caer al CRM normal
-  // que dejar al usuario sin acceso a nada.
+  // Admin -> Control Center.
   const adminUser = await getAdminUserServer();
   if (adminUser) {
     redirect('/admin');
   }
 
-  // ⚡ Solo pedimos columnas que SÍ existen en el schema real.
-  // Antes incluíamos 'owner_name' (no existe) y eso rompía toda la query.
+  // Embajador -> su portal. Solo afecta a usuarios vinculados en embajadores;
+  // los negocios no tienen fila ahi, asi que no se ven afectados.
+  const { data: embajador } = await supabase
+    .from('embajadores')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (embajador) {
+    redirect('/embajador');
+  }
+
+  // Solo columnas que existen en el schema real (owner_name NO existe -> rompia la query).
   const { data: profile } = await supabase
     .from('business_profiles')
     .select('business_name, logo_url')
@@ -83,13 +59,11 @@ export default async function AppLayout({
     user.email?.split('@')[0] ||
     'Usuario';
 
-  // Datos del branding para pasar al Sidebar
   const businessName = profile?.business_name || null;
   const logoUrl = profile?.logo_url || null;
 
   return (
     <QueryProvider>
-      {/* Registra la última conexión del dueño (consistente con la app móvil) */}
       <SessionTracker userId={user.id} />
 
       <MobileNavProvider>
