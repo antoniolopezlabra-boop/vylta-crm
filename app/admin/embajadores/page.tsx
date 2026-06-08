@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X, Trash2,
+  KeyRound, CheckCircle2, Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -17,7 +18,7 @@ function tierFromNuevos(n: number): { pct: string; cls: string } {
   if (n >= 16) return { pct: '30%', cls: 'text-vylta-gold border-vylta-gold/40 bg-vylta-gold/10' };
   if (n >= 11) return { pct: '25%', cls: 'text-vylta-sky border-vylta-sky/40 bg-vylta-sky/10' };
   if (n >= 1) return { pct: '20%', cls: 'text-vylta-green border-vylta-green/40 bg-vylta-green/10' };
-  return { pct: '—', cls: 'text-vylta-subtle border-border bg-vylta-card/40' };
+  return { pct: '\u2014', cls: 'text-vylta-subtle border-border bg-vylta-card/40' };
 }
 
 function estatusBadge(estatus: string): string {
@@ -39,6 +40,13 @@ export default function AdminEmbajadoresPage() {
   const [exporting, setExporting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Embajador | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Crear acceso al portal
+  const [accessTarget, setAccessTarget] = useState<Embajador | null>(null);
+  const [accessEmail, setAccessEmail] = useState('');
+  const [accessPassword, setAccessPassword] = useState('');
+  const [creatingAccess, setCreatingAccess] = useState(false);
+  const [accessResult, setAccessResult] = useState<{ email: string; password: string } | null>(null);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -72,7 +80,7 @@ export default function AdminEmbajadoresPage() {
         toast.error(r?.error || 'No se pudo crear el embajador');
         return;
       }
-      toast.success(`Embajador creado · código ${r.ref_code}`);
+      toast.success(`Embajador creado \u00b7 c\u00f3digo ${r.ref_code}`);
       setNombre('');
       setEmail('');
       setTelefono('');
@@ -83,6 +91,52 @@ export default function AdminEmbajadoresPage() {
       toast.error('No se pudo crear. Intenta de nuevo.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openAccess(e: Embajador) {
+    setAccessTarget(e);
+    setAccessEmail(e.email || '');
+    setAccessPassword('Inicio.01');
+    setAccessResult(null);
+  }
+
+  function closeAccess() {
+    if (creatingAccess) return;
+    setAccessTarget(null);
+    setAccessResult(null);
+  }
+
+  async function handleCrearAcceso() {
+    if (!accessTarget) return;
+    if (!accessEmail.trim()) {
+      toast.error('El correo es obligatorio');
+      return;
+    }
+    if (accessPassword.length < 6) {
+      toast.error('La contrase\u00f1a debe tener al menos 6 caracteres');
+      return;
+    }
+    try {
+      setCreatingAccess(true);
+      const supabase = createClient();
+      const { data: res, error } = await supabase.functions.invoke('create-ambassador-access', {
+        body: { embajadorId: accessTarget.id, email: accessEmail.trim(), password: accessPassword },
+      });
+      if (error) throw error;
+      const r = res as { success: boolean; error?: string; email?: string };
+      if (!r?.success) {
+        toast.error(r?.error || 'No se pudo crear el acceso');
+        return;
+      }
+      toast.success('Acceso creado');
+      setAccessResult({ email: accessEmail.trim(), password: accessPassword });
+      queryClient.invalidateQueries({ queryKey: ['admin-embajadores'] });
+    } catch (e: any) {
+      console.error('[Embajadores] crear acceso error:', e);
+      toast.error('No se pudo crear el acceso. Intenta de nuevo.');
+    } finally {
+      setCreatingAccess(false);
     }
   }
 
@@ -175,7 +229,7 @@ export default function AdminEmbajadoresPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-vylta-bone">Red de Embajadores</h1>
           <p className="mt-1 text-sm text-vylta-muted">
-            Quién trae clientes nuevos, su nivel del mes y cuánto le toca en el próximo corte.
+            Qui\u00e9n trae clientes nuevos, su nivel del mes y cu\u00e1nto le toca en el pr\u00f3ximo corte.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start">
@@ -223,14 +277,14 @@ export default function AdminEmbajadoresPage() {
         {embajadores.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-20 text-center">
             <Users className="h-10 w-10 text-vylta-subtle" />
-            <p className="text-sm font-semibold text-vylta-bone">Aún no hay embajadores</p>
+            <p className="text-sm font-semibold text-vylta-bone">A\u00fan no hay embajadores</p>
             <p className="max-w-sm text-sm text-vylta-muted">
-              Cuando des de alta a tu primer embajador, aquí verás sus clientes, su nivel y su comisión.
+              Cuando des de alta a tu primer embajador, aqu\u00ed ver\u00e1s sus clientes, su nivel y su comisi\u00f3n.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-vylta-subtle">
                   <th className="px-6 py-3 font-bold">Embajador</th>
@@ -238,7 +292,7 @@ export default function AdminEmbajadoresPage() {
                   <th className="px-4 py-3 text-center font-bold">Clientes</th>
                   <th className="px-4 py-3 text-center font-bold">Nuevos del mes</th>
                   <th className="px-4 py-3 text-center font-bold">Nivel</th>
-                  <th className="px-4 py-3 text-right font-bold">Comisión acumulada</th>
+                  <th className="px-4 py-3 text-right font-bold">Comisi\u00f3n acumulada</th>
                   <th className="px-4 py-3 text-right font-bold">Por pagar</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -275,14 +329,29 @@ export default function AdminEmbajadoresPage() {
                       </td>
                       <td className="px-4 py-4 text-right font-semibold tabular-nums text-vylta-bone">{MXN(e.comision_total)}</td>
                       <td className="px-4 py-4 text-right font-bold tabular-nums text-vylta-gold">{MXN(e.por_pagar)}</td>
-                      <td className="px-4 py-4 text-right">
-                        <button
-                          onClick={() => setDeleteTarget(e)}
-                          title="Eliminar embajador"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-vylta-subtle transition hover:border-vylta-rose/40 hover:bg-vylta-rose/10 hover:text-vylta-rose"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center justify-end gap-2">
+                          {e.tiene_acceso ? (
+                            <span className="inline-flex items-center gap-1 rounded-md border border-vylta-green/30 bg-vylta-green/5 px-2 py-1 text-[11px] font-bold text-vylta-green">
+                              <CheckCircle2 className="h-3 w-3" /> acceso
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => openAccess(e)}
+                              title="Crear acceso al portal"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-vylta-gold/30 bg-vylta-gold/5 px-2.5 text-[12px] font-bold text-vylta-gold transition hover:bg-vylta-gold/10"
+                            >
+                              <KeyRound className="h-3.5 w-3.5" /> Crear acceso
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setDeleteTarget(e)}
+                            title="Eliminar embajador"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-vylta-subtle transition hover:border-vylta-rose/40 hover:bg-vylta-rose/10 hover:text-vylta-rose"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -294,8 +363,8 @@ export default function AdminEmbajadoresPage() {
       </div>
 
       <p className="text-center text-xs text-vylta-subtle">
-        El “Nivel” es la comisión del mes según los clientes nuevos: 20% (1–10), 25% (11–15), 30% (16+).
-        Los cortes se calculan solos el día 1 de cada mes y quedan pendientes hasta que pagas por SPEI.
+        El \u201cNivel\u201d es la comisi\u00f3n del mes seg\u00fan los clientes nuevos: 20% (1\u201310), 25% (11\u201315), 30% (16+).
+        Los cortes se calculan solos el d\u00eda 1 de cada mes y quedan pendientes hasta que pagas por SPEI.
       </p>
 
       {/* MODAL: Alta de embajador */}
@@ -320,9 +389,9 @@ export default function AdminEmbajadoresPage() {
             <div className="space-y-4">
               <Field label="Nombre *" value={nombre} onChange={setNombre} placeholder="Nombre completo del embajador" />
               <Field label="Correo (opcional)" value={email} onChange={setEmail} placeholder="correo@ejemplo.com" type="email" />
-              <Field label="Teléfono (opcional)" value={telefono} onChange={setTelefono} placeholder="442 123 4567" />
+              <Field label="Tel\u00e9fono (opcional)" value={telefono} onChange={setTelefono} placeholder="442 123 4567" />
               <p className="text-xs text-vylta-muted">
-                Se le asigna un código de referido automáticamente. Sus datos bancarios (CLABE, RFC) los completará él mismo en su portal más adelante.
+                Se le asigna un c\u00f3digo de referido autom\u00e1ticamente. Sus datos bancarios (CLABE, RFC) los completar\u00e1 \u00e9l mismo en su portal m\u00e1s adelante.
               </p>
             </div>
             <div className="mt-6 flex justify-end gap-2">
@@ -345,6 +414,91 @@ export default function AdminEmbajadoresPage() {
         </div>
       )}
 
+      {/* MODAL: Crear acceso al portal */}
+      {accessTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={closeAccess}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            {!accessResult ? (
+              <>
+                <div className="mb-1 flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-vylta-bone">Crear acceso</h3>
+                  <button onClick={closeAccess} className="text-vylta-subtle transition hover:text-vylta-bone">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <p className="mb-4 text-sm text-vylta-muted">
+                  Para <span className="font-semibold text-vylta-bone">{accessTarget.nombre}</span>. Define su correo y una contrase\u00f1a; t\u00fa se la compartes y \u00e9l podr\u00e1 cambiarla dentro del portal.
+                </p>
+                <div className="space-y-4">
+                  <Field label="Correo de acceso *" value={accessEmail} onChange={setAccessEmail} placeholder="correo@ejemplo.com" type="email" />
+                  <Field label="Contrase\u00f1a *" value={accessPassword} onChange={setAccessPassword} placeholder="M\u00ednimo 6 caracteres" />
+                </div>
+                <div className="mt-6 flex justify-end gap-2">
+                  <button onClick={closeAccess} className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone">
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCrearAcceso}
+                    disabled={creatingAccess}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20 disabled:opacity-50"
+                  >
+                    {creatingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                    {creatingAccess ? 'Creando...' : 'Crear acceso'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-vylta-green/10">
+                    <CheckCircle2 className="h-4 w-4 text-vylta-green" />
+                  </div>
+                  <h3 className="text-lg font-bold text-vylta-bone">Acceso creado</h3>
+                </div>
+                <p className="text-sm text-vylta-muted">
+                  Comparte estos datos con {accessTarget.nombre} por WhatsApp. Podr\u00e1 cambiar su contrase\u00f1a dentro del portal.
+                </p>
+                <div className="mt-4 space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Portal</span><span className="font-mono text-vylta-bone">app.vylta.lat/embajador</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Correo</span><span className="font-mono text-vylta-bone">{accessResult.email}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Contrase\u00f1a</span><span className="font-mono text-vylta-bone">{accessResult.password}</span></div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      const msg = [
+                        'Bienvenido a VYLTA como Embajador.',
+                        'Entra a tu portal: https://app.vylta.lat/embajador',
+                        `Correo: ${accessResult.email}`,
+                        `Contrase\u00f1a: ${accessResult.password}`,
+                        'Puedes cambiar tu contrase\u00f1a dentro del portal cuando entres.',
+                      ].join('\n');
+                      navigator.clipboard?.writeText(msg);
+                      toast.success('Mensaje copiado para WhatsApp');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone"
+                  >
+                    <Copy className="h-4 w-4" /> Copiar para WhatsApp
+                  </button>
+                  <button
+                    onClick={() => { setAccessTarget(null); setAccessResult(null); }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20"
+                  >
+                    Listo
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Confirmar eliminacion */}
       {deleteTarget && (
         <div
@@ -362,9 +516,9 @@ export default function AdminEmbajadoresPage() {
               <h3 className="text-lg font-bold text-vylta-bone">Eliminar embajador</h3>
             </div>
             <p className="text-sm text-vylta-muted">
-              Vas a eliminar a <span className="font-semibold text-vylta-bone">{deleteTarget.nombre}</span> de forma permanente: su registro, sus comisiones y cortes, y su cuenta de acceso (si la tiene). Los clientes que haya referido conservan su cuenta, pero se les quita la atribución.
+              Vas a eliminar a <span className="font-semibold text-vylta-bone">{deleteTarget.nombre}</span> de forma permanente: su registro, sus comisiones y cortes, y su cuenta de acceso (si la tiene). Los clientes que haya referido conservan su cuenta, pero se les quita la atribuci\u00f3n.
             </p>
-            <p className="mt-2 text-xs font-bold text-vylta-rose">Esta acción no se puede deshacer.</p>
+            <p className="mt-2 text-xs font-bold text-vylta-rose">Esta acci\u00f3n no se puede deshacer.</p>
             <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={() => !deleting && setDeleteTarget(null)}
