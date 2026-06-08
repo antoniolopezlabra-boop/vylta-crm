@@ -18,7 +18,7 @@ function tierFromNuevos(n: number): { pct: string; cls: string } {
   if (n >= 16) return { pct: '30%', cls: 'text-vylta-gold border-vylta-gold/40 bg-vylta-gold/10' };
   if (n >= 11) return { pct: '25%', cls: 'text-vylta-sky border-vylta-sky/40 bg-vylta-sky/10' };
   if (n >= 1) return { pct: '20%', cls: 'text-vylta-green border-vylta-green/40 bg-vylta-green/10' };
-  return { pct: '\u2014', cls: 'text-vylta-subtle border-border bg-vylta-card/40' };
+  return { pct: '—', cls: 'text-vylta-subtle border-border bg-vylta-card/40' };
 }
 
 function estatusBadge(estatus: string): string {
@@ -80,7 +80,7 @@ export default function AdminEmbajadoresPage() {
         toast.error(r?.error || 'No se pudo crear el embajador');
         return;
       }
-      toast.success(`Embajador creado \u00b7 c\u00f3digo ${r.ref_code}`);
+      toast.success(`Embajador creado · código ${r.ref_code}`);
       setNombre('');
       setEmail('');
       setTelefono('');
@@ -114,7 +114,7 @@ export default function AdminEmbajadoresPage() {
       return;
     }
     if (accessPassword.length < 6) {
-      toast.error('La contrase\u00f1a debe tener al menos 6 caracteres');
+      toast.error('La contraseña debe tener al menos 6 caracteres');
       return;
     }
     try {
@@ -229,7 +229,7 @@ export default function AdminEmbajadoresPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-vylta-bone">Red de Embajadores</h1>
           <p className="mt-1 text-sm text-vylta-muted">
-            Qui\u00e9n trae clientes nuevos, su nivel del mes y cu\u00e1nto le toca en el pr\u00f3ximo corte.
+            Quién trae clientes nuevos, su nivel del mes y cuánto le toca en el próximo corte.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start">
@@ -277,9 +277,9 @@ export default function AdminEmbajadoresPage() {
         {embajadores.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-20 text-center">
             <Users className="h-10 w-10 text-vylta-subtle" />
-            <p className="text-sm font-semibold text-vylta-bone">A\u00fan no hay embajadores</p>
+            <p className="text-sm font-semibold text-vylta-bone">Aún no hay embajadores</p>
             <p className="max-w-sm text-sm text-vylta-muted">
-              Cuando des de alta a tu primer embajador, aqu\u00ed ver\u00e1s sus clientes, su nivel y su comisi\u00f3n.
+              Cuando des de alta a tu primer embajador, aquí verás sus clientes, su nivel y su comisión.
             </p>
           </div>
         ) : (
@@ -292,7 +292,7 @@ export default function AdminEmbajadoresPage() {
                   <th className="px-4 py-3 text-center font-bold">Clientes</th>
                   <th className="px-4 py-3 text-center font-bold">Nuevos del mes</th>
                   <th className="px-4 py-3 text-center font-bold">Nivel</th>
-                  <th className="px-4 py-3 text-right font-bold">Comisi\u00f3n acumulada</th>
+                  <th className="px-4 py-3 text-right font-bold">Comisión acumulada</th>
                   <th className="px-4 py-3 text-right font-bold">Por pagar</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -363,8 +363,8 @@ export default function AdminEmbajadoresPage() {
       </div>
 
       <p className="text-center text-xs text-vylta-subtle">
-        El \u201cNivel\u201d es la comisi\u00f3n del mes seg\u00fan los clientes nuevos: 20% (1\u201310), 25% (11\u201315), 30% (16+).
-        Los cortes se calculan solos el d\u00eda 1 de cada mes y quedan pendientes hasta que pagas por SPEI.
+        El “Nivel” es la comisión del mes según los clientes nuevos: 20% (1–10), 25% (11–15), 30% (16+).
+        Los cortes se calculan solos el día 1 de cada mes y quedan pendientes hasta que pagas por SPEI.
       </p>
 
       {/* MODAL: Alta de embajador */}
@@ -389,9 +389,9 @@ export default function AdminEmbajadoresPage() {
             <div className="space-y-4">
               <Field label="Nombre *" value={nombre} onChange={setNombre} placeholder="Nombre completo del embajador" />
               <Field label="Correo (opcional)" value={email} onChange={setEmail} placeholder="correo@ejemplo.com" type="email" />
-              <Field label="Tel\u00e9fono (opcional)" value={telefono} onChange={setTelefono} placeholder="442 123 4567" />
+              <Field label="Teléfono (opcional)" value={telefono} onChange={setTelefono} placeholder="442 123 4567" />
               <p className="text-xs text-vylta-muted">
-                Se le asigna un c\u00f3digo de referido autom\u00e1ticamente. Sus datos bancarios (CLABE, RFC) los completar\u00e1 \u00e9l mismo en su portal m\u00e1s adelante.
+                Se le asigna un código de referido automáticamente. Sus datos bancarios (CLABE, RFC) los completará él mismo en su portal más adelante.
               </p>
             </div>
             <div className="mt-6 flex justify-end gap-2">
@@ -433,11 +433,11 @@ export default function AdminEmbajadoresPage() {
                   </button>
                 </div>
                 <p className="mb-4 text-sm text-vylta-muted">
-                  Para <span className="font-semibold text-vylta-bone">{accessTarget.nombre}</span>. Define su correo y una contrase\u00f1a; t\u00fa se la compartes y \u00e9l podr\u00e1 cambiarla dentro del portal.
+                  Para <span className="font-semibold text-vylta-bone">{accessTarget.nombre}</span>. Define su correo y una contraseña; tú se la compartes y él podrá cambiarla dentro del portal.
                 </p>
                 <div className="space-y-4">
                   <Field label="Correo de acceso *" value={accessEmail} onChange={setAccessEmail} placeholder="correo@ejemplo.com" type="email" />
-                  <Field label="Contrase\u00f1a *" value={accessPassword} onChange={setAccessPassword} placeholder="M\u00ednimo 6 caracteres" />
+                  <Field label="Contraseña *" value={accessPassword} onChange={setAccessPassword} placeholder="Mínimo 6 caracteres" />
                 </div>
                 <div className="mt-6 flex justify-end gap-2">
                   <button onClick={closeAccess} className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone">
@@ -462,12 +462,12 @@ export default function AdminEmbajadoresPage() {
                   <h3 className="text-lg font-bold text-vylta-bone">Acceso creado</h3>
                 </div>
                 <p className="text-sm text-vylta-muted">
-                  Comparte estos datos con {accessTarget.nombre} por WhatsApp. Podr\u00e1 cambiar su contrase\u00f1a dentro del portal.
+                  Comparte estos datos con {accessTarget.nombre} por WhatsApp. Podrá cambiar su contraseña dentro del portal.
                 </p>
                 <div className="mt-4 space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
                   <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Portal</span><span className="font-mono text-vylta-bone">app.vylta.lat/embajador</span></div>
                   <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Correo</span><span className="font-mono text-vylta-bone">{accessResult.email}</span></div>
-                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Contrase\u00f1a</span><span className="font-mono text-vylta-bone">{accessResult.password}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Contraseña</span><span className="font-mono text-vylta-bone">{accessResult.password}</span></div>
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
@@ -476,8 +476,8 @@ export default function AdminEmbajadoresPage() {
                         'Bienvenido a VYLTA como Embajador.',
                         'Entra a tu portal: https://app.vylta.lat/embajador',
                         `Correo: ${accessResult.email}`,
-                        `Contrase\u00f1a: ${accessResult.password}`,
-                        'Puedes cambiar tu contrase\u00f1a dentro del portal cuando entres.',
+                        `Contraseña: ${accessResult.password}`,
+                        'Puedes cambiar tu contraseña dentro del portal cuando entres.',
                       ].join('\n');
                       navigator.clipboard?.writeText(msg);
                       toast.success('Mensaje copiado para WhatsApp');
@@ -516,9 +516,9 @@ export default function AdminEmbajadoresPage() {
               <h3 className="text-lg font-bold text-vylta-bone">Eliminar embajador</h3>
             </div>
             <p className="text-sm text-vylta-muted">
-              Vas a eliminar a <span className="font-semibold text-vylta-bone">{deleteTarget.nombre}</span> de forma permanente: su registro, sus comisiones y cortes, y su cuenta de acceso (si la tiene). Los clientes que haya referido conservan su cuenta, pero se les quita la atribuci\u00f3n.
+              Vas a eliminar a <span className="font-semibold text-vylta-bone">{deleteTarget.nombre}</span> de forma permanente: su registro, sus comisiones y cortes, y su cuenta de acceso (si la tiene). Los clientes que haya referido conservan su cuenta, pero se les quita la atribución.
             </p>
-            <p className="mt-2 text-xs font-bold text-vylta-rose">Esta acci\u00f3n no se puede deshacer.</p>
+            <p className="mt-2 text-xs font-bold text-vylta-rose">Esta acción no se puede deshacer.</p>
             <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={() => !deleting && setDeleteTarget(null)}
