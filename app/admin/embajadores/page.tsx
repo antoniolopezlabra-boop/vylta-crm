@@ -3,12 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X,
+  Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
-import { useAdminEmbajadores } from '@/hooks/use-admin-embajadores';
+import { useAdminEmbajadores, type Embajador } from '@/hooks/use-admin-embajadores';
 
 const MXN = (n: number) => `$${(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
 
@@ -37,6 +37,8 @@ export default function AdminEmbajadoresPage() {
   const [telefono, setTelefono] = useState('');
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Embajador | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -127,6 +129,32 @@ export default function AdminEmbajadoresPage() {
     }
   }
 
+  async function handleEliminar() {
+    if (!deleteTarget) return;
+    try {
+      setDeleting(true);
+      const supabase = createClient();
+      const { data: res, error } = await supabase.functions.invoke('delete-ambassador', {
+        body: { embajadorId: deleteTarget.id },
+      });
+      if (error) throw error;
+      const r = res as { success: boolean; error?: string; warning?: string };
+      if (!r?.success) {
+        toast.error(r?.error || 'No se pudo eliminar el embajador');
+        return;
+      }
+      if (r.warning) toast.warning(r.warning);
+      else toast.success(`Embajador "${deleteTarget.nombre}" eliminado.`);
+      setDeleteTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['admin-embajadores'] });
+    } catch (e: any) {
+      console.error('[Embajadores] eliminar error:', e);
+      toast.error('No se pudo eliminar. Intenta de nuevo.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -202,7 +230,7 @@ export default function AdminEmbajadoresPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-vylta-subtle">
                   <th className="px-6 py-3 font-bold">Embajador</th>
@@ -211,7 +239,8 @@ export default function AdminEmbajadoresPage() {
                   <th className="px-4 py-3 text-center font-bold">Nuevos del mes</th>
                   <th className="px-4 py-3 text-center font-bold">Nivel</th>
                   <th className="px-4 py-3 text-right font-bold">Comisión acumulada</th>
-                  <th className="px-6 py-3 text-right font-bold">Por pagar</th>
+                  <th className="px-4 py-3 text-right font-bold">Por pagar</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -245,7 +274,16 @@ export default function AdminEmbajadoresPage() {
                         </span>
                       </td>
                       <td className="px-4 py-4 text-right font-semibold tabular-nums text-vylta-bone">{MXN(e.comision_total)}</td>
-                      <td className="px-6 py-4 text-right font-bold tabular-nums text-vylta-gold">{MXN(e.por_pagar)}</td>
+                      <td className="px-4 py-4 text-right font-bold tabular-nums text-vylta-gold">{MXN(e.por_pagar)}</td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          onClick={() => setDeleteTarget(e)}
+                          title="Eliminar embajador"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-vylta-subtle transition hover:border-vylta-rose/40 hover:bg-vylta-rose/10 hover:text-vylta-rose"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -301,6 +339,46 @@ export default function AdminEmbajadoresPage() {
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 {saving ? 'Creando...' : 'Crear embajador'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Confirmar eliminacion */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-vylta-rose/30 bg-vylta-surface p-6 shadow-card-lg"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-vylta-rose/10">
+                <Trash2 className="h-4 w-4 text-vylta-rose" />
+              </div>
+              <h3 className="text-lg font-bold text-vylta-bone">Eliminar embajador</h3>
+            </div>
+            <p className="text-sm text-vylta-muted">
+              Vas a eliminar a <span className="font-semibold text-vylta-bone">{deleteTarget.nombre}</span> de forma permanente: su registro, sus comisiones y cortes, y su cuenta de acceso (si la tiene). Los clientes que haya referido conservan su cuenta, pero se les quita la atribución.
+            </p>
+            <p className="mt-2 text-xs font-bold text-vylta-rose">Esta acción no se puede deshacer.</p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => !deleting && setDeleteTarget(null)}
+                className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminar}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-rose/40 bg-vylta-rose/10 px-4 py-2 text-sm font-bold text-vylta-rose transition hover:bg-vylta-rose/20 disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {deleting ? 'Eliminando...' : 'Eliminar definitivamente'}
               </button>
             </div>
           </div>
