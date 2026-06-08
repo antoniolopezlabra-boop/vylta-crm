@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Building2,
+  Users,
   Ticket,
   ShieldCheck,
   Crown,
@@ -18,7 +19,7 @@ import { cn } from '@/lib/utils';
 import { VyltaLogo } from '@/components/layout/vylta-logo';
 import type { AdminRole } from '@/lib/admin';
 
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════
 // AdminTabs — Top navigation bar para Control Center
 //
 // Reemplaza el AdminSidebar anterior. Estilo Linear/Vercel con underline
@@ -29,7 +30,7 @@ import type { AdminRole } from '@/lib/admin';
 //   • Mejor uso del espacio en pantallas grandes (1440px+)
 //   • Menos clicks: todo accesible desde la parte superior
 //   • Look profesional ejecutivo (similar a Stripe Dashboard, Linear)
-// ═════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════
 
 type NavItem = {
   href: string;
@@ -41,6 +42,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { href: '/admin',              label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/admin/tenants',      label: 'Negocios',    icon: Building2 },
+  { href: '/admin/embajadores',  label: 'Embajadores', icon: Users },
   { href: '/admin/promo-codes',  label: 'Promos',      icon: Ticket, superAdminOnly: true },
   { href: '/admin/admins',       label: 'Admins',      icon: ShieldCheck, superAdminOnly: true },
 ];
