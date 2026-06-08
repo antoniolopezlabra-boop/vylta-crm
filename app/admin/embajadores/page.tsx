@@ -1,11 +1,13 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown,
+  Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 import { useAdminEmbajadores } from '@/hooks/use-admin-embajadores';
 
 const MXN = (n: number) => `$${(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}`;
@@ -25,8 +27,16 @@ function estatusBadge(estatus: string): string {
 }
 
 export default function AdminEmbajadoresPage() {
+  const queryClient = useQueryClient();
   const { data, isLoading, isFetching, refetch } = useAdminEmbajadores();
   const embajadores = data || [];
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -40,6 +50,82 @@ export default function AdminEmbajadoresPage() {
       { activos: 0, clientes: 0, activosClientes: 0, porPagar: 0 },
     );
   }, [embajadores]);
+
+  async function handleCrear() {
+    if (!nombre.trim()) {
+      toast.error('El nombre es obligatorio');
+      return;
+    }
+    try {
+      setSaving(true);
+      const supabase = createClient();
+      const { data: res, error } = await supabase.rpc('admin_crear_embajador', {
+        p_nombre: nombre.trim(),
+        p_email: email.trim() || null,
+        p_telefono: telefono.trim() || null,
+      });
+      if (error) throw error;
+      const r = res as { ok: boolean; error?: string; ref_code?: string };
+      if (!r?.ok) {
+        toast.error(r?.error || 'No se pudo crear el embajador');
+        return;
+      }
+      toast.success(`Embajador creado · código ${r.ref_code}`);
+      setNombre('');
+      setEmail('');
+      setTelefono('');
+      setModalOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['admin-embajadores'] });
+    } catch (e: any) {
+      console.error('[Embajadores] crear error:', e);
+      toast.error('No se pudo crear. Intenta de nuevo.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleExport() {
+    try {
+      setExporting(true);
+      const supabase = createClient();
+      const { data: res, error } = await supabase.rpc('admin_export_cortes');
+      if (error) throw error;
+      const rows = (res as any[]) || [];
+      if (rows.length === 0) {
+        toast.info('No hay cortes pendientes para exportar.');
+        return;
+      }
+      const cols: [string, string][] = [
+        ['periodo', 'Periodo'], ['embajador', 'Embajador'], ['ref_code', 'Codigo'],
+        ['email', 'Correo'], ['telefono', 'Telefono'], ['banco', 'Banco'],
+        ['clabe', 'CLABE'], ['titular_cuenta', 'Titular'], ['rfc', 'RFC'],
+        ['clientes_nuevos', 'Clientes nuevos'], ['tier', 'Nivel'], ['tasa', 'Tasa'],
+        ['total_comision', 'Total a pagar (MXN)'], ['estatus', 'Estatus'],
+      ];
+      const esc = (v: any) => {
+        const s = v === null || v === undefined ? '' : String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const lines = [cols.map(([, h]) => h).join(',')];
+      for (const row of rows) lines.push(cols.map(([k]) => esc(row[k])).join(','));
+      const csv = '\ufeff' + lines.join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cortes-embajadores-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`${rows.length} corte(s) exportado(s).`);
+    } catch (e: any) {
+      console.error('[Embajadores] export error:', e);
+      toast.error('No se pudo exportar. Intenta de nuevo.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -64,7 +150,7 @@ export default function AdminEmbajadoresPage() {
             Quién trae clientes nuevos, su nivel del mes y cuánto le toca en el próximo corte.
           </p>
         </div>
-        <div className="flex items-center gap-2 self-start">
+        <div className="flex flex-wrap items-center gap-2 self-start">
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -74,7 +160,15 @@ export default function AdminEmbajadoresPage() {
             {isFetching ? 'Actualizando...' : 'Actualizar'}
           </button>
           <button
-            onClick={() => toast.info('El alta de embajadores llega en el siguiente paso.')}
+            onClick={handleExport}
+            disabled={exporting}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-vylta-card/40 px-3 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone disabled:opacity-50"
+          >
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Exportar pago
+          </button>
+          <button
+            onClick={() => setModalOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-3 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20"
           >
             <Plus className="h-4 w-4" />
@@ -165,6 +259,70 @@ export default function AdminEmbajadoresPage() {
         El “Nivel” es la comisión del mes según los clientes nuevos: 20% (1–10), 25% (11–15), 30% (16+).
         Los cortes se calculan solos el día 1 de cada mes y quedan pendientes hasta que pagas por SPEI.
       </p>
+
+      {/* MODAL: Alta de embajador */}
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => !saving && setModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-vylta-gold/20 bg-vylta-surface p-6 shadow-card-lg"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-vylta-bone">Nuevo embajador</h3>
+              <button
+                onClick={() => !saving && setModalOpen(false)}
+                className="text-vylta-subtle transition hover:text-vylta-bone"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <Field label="Nombre *" value={nombre} onChange={setNombre} placeholder="Nombre completo del embajador" />
+              <Field label="Correo (opcional)" value={email} onChange={setEmail} placeholder="correo@ejemplo.com" type="email" />
+              <Field label="Teléfono (opcional)" value={telefono} onChange={setTelefono} placeholder="442 123 4567" />
+              <p className="text-xs text-vylta-muted">
+                Se le asigna un código de referido automáticamente. Sus datos bancarios (CLABE, RFC) los completará él mismo en su portal más adelante.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => !saving && setModalOpen(false)}
+                className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCrear}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {saving ? 'Creando...' : 'Crear embajador'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, placeholder, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-vylta-subtle">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(ev) => onChange(ev.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-border bg-vylta-admin-bg px-3 py-2 text-sm text-vylta-bone placeholder:text-vylta-subtle/60 focus:border-vylta-gold/50 focus:outline-none"
+      />
     </div>
   );
 }
