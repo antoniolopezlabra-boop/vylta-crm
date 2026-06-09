@@ -3,20 +3,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 
-// ═══════════════════════════════════════════════════════════════════════
-// useAdminGrowthMetrics — Hook para los nuevos dashboards Fase 1
-// (May 23 2026)
+// ══════════════════════════════════════════════════════════════
+// useAdminGrowthMetrics — Hook para los dashboards Fase 1
 //
 // Cubre 3 RPCs que dan insights accionables:
-//   1. get_activation_funnel()         → Funnel de activacion
-//   2. get_top_bottom_performers()     → Top 10 + Bottom 10
+//   1. get_activation_funnel()          → Funnel de activacion
+//   2. get_top_bottom_performers()      → Top 10 + Bottom 10 (+ bloqueado)
 //   3. get_business_type_distribution() → Distribucion por business_type
 //
 // Todas las RPCs verifican internamente que el caller esta en
 // vylta_admins.is_active = true.
-//
-// Polling cada 60s alineado con el dashboard principal (sin Realtime).
-// ═══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 
 export interface FunnelStep {
   step: string;
@@ -34,6 +31,7 @@ export interface Performer {
   last_session: string | null;
   days_since_last_session: number | null;
   performer_type: 'top' | 'bottom';
+  bloqueado: boolean;
 }
 
 export interface BusinessTypeDistribution {
