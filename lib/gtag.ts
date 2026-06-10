@@ -13,10 +13,8 @@ declare global {
 }
 
 // Reporta una conversion de Google Ads desde el cliente.
-// `label` es la etiqueta de la accion de conversion (se obtiene en
-// Google Ads > Objetivos > Conversiones, formato corto tipo 'AbCdEfGh').
-// Uso previsto:
-//   reportAdsConversion(ADS_CONVERSION_LABELS.registro)
+// `label` es la etiqueta de la accion de conversion (Google Ads >
+// Objetivos > Conversiones > fragmento de evento).
 export function reportAdsConversion(label: string, value?: number) {
   if (typeof window === 'undefined' || typeof window.gtag !== 'function') {
     return;
@@ -27,8 +25,10 @@ export function reportAdsConversion(label: string, value?: number) {
   });
 }
 
-// Etiquetas de conversion. PENDIENTE: completar cuando las acciones de
-// conversion esten creadas en Google Ads (Registro y Suscripcion).
+// Etiquetas de conversion creadas en la cuenta 136-048-3356:
+// - registro: accion "Registro" (evento manual, se dispara en /setup).
+// - La accion "Suscripcion" NO requiere etiqueta: es por URL
+//   (vylta.lat/success.html) y la detecta la etiqueta base de Google.
 export const ADS_CONVERSION_LABELS = {
-  registro: '', // TODO: etiqueta de la accion 'Registro VYLTA'
+  registro: 'W9TQCLvbprwcEPXh_5kC',
 } as const;

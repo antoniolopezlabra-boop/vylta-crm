@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { SetupWizard } from '@/components/setup-wizard';
+import { AdsRegistroTracker } from '@/components/ads-registro-tracker';
 
 export const metadata: Metadata = {
   title: 'Configura tu negocio',
@@ -67,5 +68,11 @@ export default async function SetupPage() {
     || user.email?.split('@')[0]
     || '';
 
-  return <SetupWizard userId={user.id} userName={userName} />;
+  return (
+    <>
+      {/* Conversion "Registro" de Google Ads: /setup solo se muestra a cuentas nuevas */}
+      <AdsRegistroTracker userId={user.id} />
+      <SetupWizard userId={user.id} userName={userName} />
+    </>
+  );
 }
