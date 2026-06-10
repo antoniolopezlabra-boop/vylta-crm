@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from 'sonner';
+import { GoogleTag } from '@/components/google-tag';
 import './globals.css';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -84,6 +85,7 @@ export default function RootLayout({
             }}
           />
         </ThemeProvider>
+        <GoogleTag />
       </body>
     </html>
   );
