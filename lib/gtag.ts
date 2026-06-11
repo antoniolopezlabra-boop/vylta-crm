@@ -3,6 +3,10 @@
 
 export const GOOGLE_ADS_ID = 'AW-591393013';
 
+// Propiedad GA4 "VYLTA Web" (analytics.google.com, cuenta VYLTA).
+// Mide el embudo completo: landing (vylta.lat) → registro → suscripción.
+export const GA4_ID = 'G-DC4M60185V';
+
 type GtagFn = (...args: unknown[]) => void;
 
 declare global {

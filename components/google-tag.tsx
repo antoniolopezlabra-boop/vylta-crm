@@ -1,8 +1,9 @@
 import Script from 'next/script';
-import { GOOGLE_ADS_ID } from '@/lib/gtag';
+import { GA4_ID, GOOGLE_ADS_ID } from '@/lib/gtag';
 
-// Etiqueta de Google Ads (gtag.js) para medir conversiones de campañas.
-// Se monta una sola vez en el RootLayout. ID de cuenta: 136-048-3356.
+// Etiqueta de Google (gtag.js): Google Ads (conversiones de campañas) +
+// GA4 (analítica del embudo). Se monta una sola vez en el RootLayout.
+// Cuenta Ads: 136-048-3356 · Propiedad GA4: VYLTA Web.
 export function GoogleTag() {
   return (
     <>
@@ -16,6 +17,7 @@ export function GoogleTag() {
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
           gtag('config', '${GOOGLE_ADS_ID}');
+          gtag('config', '${GA4_ID}');
         `}
       </Script>
     </>

@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from 'sonner';
 import { GoogleTag } from '@/components/google-tag';
@@ -69,22 +68,6 @@ export default function RootLayout({
       className={inter.variable}
     >
       <body className="min-h-screen bg-background font-sans antialiased">
-        {/* Google Analytics 4 + Google Ads — misma etiqueta que vylta.lat para
-            medir el embudo completo (landing → registro → suscripción).
-            Subdominios comparten cookie en .vylta.lat, no requiere cross-domain. */}
-        <Script
-          src="https://www.googletagmanager.com/gtag/js?id=G-DC4M60185V"
-          strategy="afterInteractive"
-        />
-        <Script id="gtag-init" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', 'G-DC4M60185V');
-            gtag('config', 'AW-591393013');
-          `}
-        </Script>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
