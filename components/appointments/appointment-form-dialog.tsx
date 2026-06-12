@@ -143,6 +143,9 @@ export function AppointmentFormDialog({
   // ⚡ Empalme: se resuelve al abrir el dialog leyendo plan + toggle del negocio.
   // overlapEnabled = plan Premium+ Y business_profiles.allow_overlapping = true.
   const [overlapEnabled, setOverlapEnabled] = useState(false);
+  // Horario real del negocio por día (0=Dom..6=Sáb) → {open, start/end en minutos}.
+  // Vacío hasta cargar; sin fila para un día = fallback 8-21 (comportamiento legacy).
+  const [businessHours, setBusinessHours] = useState<Record<number, { open: boolean; start: number; end: number }>>({});
 
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -197,11 +200,22 @@ export function AppointmentFormDialog({
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || cancelled) return;
-      const [{ data: bp }, { data: sub }] = await Promise.all([
+      const [{ data: bp }, { data: sub }, { data: bh }] = await Promise.all([
         supabase.from('business_profiles').select('allow_overlapping').eq('user_id', user.id).maybeSingle(),
         supabase.from('subscription_plans').select('plan_type, status').eq('user_id', user.id).maybeSingle(),
+        supabase.from('business_hours').select('day_of_week, start_time, end_time, is_open').eq('user_id', user.id),
       ]);
       if (cancelled) return;
+      // Mapear horario por día. Solo se incluyen días con fila; los demás usan fallback 8-21.
+      const hoursMap: Record<number, { open: boolean; start: number; end: number }> = {};
+      (bh || []).forEach((r: any) => {
+        hoursMap[r.day_of_week] = {
+          open: !!r.is_open,
+          start: timeToMinutes(r.start_time || '08:00'),
+          end: timeToMinutes(r.end_time || '21:00'),
+        };
+      });
+      setBusinessHours(hoursMap);
       const planType = sub?.plan_type ?? 'Gratuito';
       const status = (sub?.status || '').toLowerCase();
       const planActive = status === '' || status === 'active' || status === 'pending_cancellation';
@@ -306,10 +320,20 @@ export function AppointmentFormDialog({
     const nowMinutes = now.getHours() * 60 + now.getMinutes() + PAST_SLOT_BUFFER_MIN;
     const blocksForDate = getBlocksForDate(timeBlocks, selectedDate, staffIdForCheck);
 
-    for (let h = SLOT_START_HOUR; h <= SLOT_END_HOUR; h++) {
-      for (let m = 0; m < 60; m += SLOT_INTERVAL_MIN) {
-        if (h === SLOT_END_HOUR && m > 0) break;
-        const minutes = h * 60 + m;
+    // ⚡ Horario real del negocio para el día seleccionado (no más 8-21 fijos).
+    // Parse local explícito para evitar corrimiento de día por zona horaria.
+    const [yy, moo, dd] = (selectedDate || '').split('-').map(Number);
+    const weekday = yy ? new Date(yy, (moo || 1) - 1, dd || 1).getDay() : 0;
+    const dayHours = businessHours[weekday];
+    // Negocio cerrado ese día → sin slots. Si no hay fila configurada → fallback 8-21.
+    if (dayHours && !dayHours.open) return result;
+    const openMin = dayHours ? dayHours.start : SLOT_START_HOUR * 60;
+    const closeMin = dayHours ? dayHours.end : SLOT_END_HOUR * 60;
+
+    for (let minutes = openMin; minutes <= closeMin; minutes += SLOT_INTERVAL_MIN) {
+      {
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
         const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
         if (!duration) {
@@ -373,7 +397,7 @@ export function AppointmentFormDialog({
           continue;
         }
 
-        if (slotEnd > SLOT_END_HOUR * 60) {
+        if (slotEnd > closeMin) {
           result.push({ time, minutes, blocked: true, reason: { kind: 'no-fit' }, overlap: false });
           continue;
         }
@@ -383,7 +407,7 @@ export function AppointmentFormDialog({
     }
 
     return result;
-  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now, isEditMode, initialAppointment, overlapEnabled]);
+  }, [bookedSlots, duration, selectedStaffId, selectedDate, timeBlocks, now, isEditMode, initialAppointment, overlapEnabled, businessHours]);
 
   useEffect(() => {
     if (!selectedTime) return;

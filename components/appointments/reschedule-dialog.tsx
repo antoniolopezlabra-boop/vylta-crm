@@ -69,6 +69,8 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
   const [bookedSlots, setBookedSlots] = useState<BookedSlot[]>([]);
   const [saving, setSaving] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  // Horario real del negocio por día (0=Dom..6=Sáb). Sin fila = fallback 8-21.
+  const [businessHours, setBusinessHours] = useState<Record<number, { open: boolean; start: number; end: number }>>({});
 
   // Calcular duración de la cita original
   const duration = useMemo(() => {
@@ -91,6 +93,32 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
     if (!open) return;
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
+  }, [open]);
+
+  // Cargar el horario real del negocio (una vez al abrir).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data: bh } = await supabase
+        .from('business_hours')
+        .select('day_of_week, start_time, end_time, is_open')
+        .eq('user_id', user.id);
+      if (cancelled) return;
+      const hoursMap: Record<number, { open: boolean; start: number; end: number }> = {};
+      (bh || []).forEach((r: any) => {
+        hoursMap[r.day_of_week] = {
+          open: !!r.is_open,
+          start: timeToMinutes(r.start_time || '08:00'),
+          end: timeToMinutes(r.end_time || '21:00'),
+        };
+      });
+      setBusinessHours(hoursMap);
+    })();
+    return () => { cancelled = true; };
   }, [open]);
 
   // Fetch citas del día seleccionado (excluyendo la cita actual)
@@ -140,10 +168,18 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
 
     const blocksForDate = getBlocksForDate(timeBlocks, date, staffId);
 
-    for (let h = SLOT_START_HOUR; h <= SLOT_END_HOUR; h++) {
-      for (let m = 0; m < 60; m += SLOT_INTERVAL_MIN) {
-        if (h === SLOT_END_HOUR && m > 0) break;
-        const minutes = h * 60 + m;
+    // ⚡ Horario real del negocio para el día (no más 8-21 fijos). Parse local.
+    const [yy, moo, dd] = (date || '').split('-').map(Number);
+    const weekday = yy ? new Date(yy, (moo || 1) - 1, dd || 1).getDay() : 0;
+    const dayHours = businessHours[weekday];
+    if (dayHours && !dayHours.open) return result; // cerrado ese día
+    const openMin = dayHours ? dayHours.start : SLOT_START_HOUR * 60;
+    const closeMin = dayHours ? dayHours.end : SLOT_END_HOUR * 60;
+
+    for (let minutes = openMin; minutes <= closeMin; minutes += SLOT_INTERVAL_MIN) {
+      {
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
         const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         const slotEnd = minutes + duration;
 
@@ -178,7 +214,7 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
           continue;
         }
 
-        if (slotEnd > SLOT_END_HOUR * 60) {
+        if (slotEnd > closeMin) {
           result.push({ time: timeStr, minutes, blocked: true, reason: { kind: 'no-fit' } });
           continue;
         }
@@ -188,7 +224,7 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
     }
 
     return result;
-  }, [bookedSlots, duration, appointment.staff_id, date, timeBlocks, now]);
+  }, [bookedSlots, duration, appointment.staff_id, date, timeBlocks, now, businessHours]);
 
   const availableCount = slots.filter(s => !s.blocked).length;
   const grouped = useMemo(() => {
