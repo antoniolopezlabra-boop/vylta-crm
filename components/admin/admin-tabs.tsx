@@ -11,6 +11,7 @@ import {
   Crown,
   Shield,
   LogOut,
+  Activity,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -40,8 +41,9 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/admin',              label: 'Dashboard',   icon: LayoutDashboard },
-  { href: '/admin/tenants',      label: 'Negocios',    icon: Building2 },
+  { href: '/admin',              label: 'Dashboard',     icon: LayoutDashboard },
+  { href: '/admin/trazabilidad', label: 'Trazabilidad',  icon: Activity },
+  { href: '/admin/tenants',      label: 'Negocios',      icon: Building2 },
   { href: '/admin/embajadores',  label: 'Embajadores', icon: Users },
   { href: '/admin/promo-codes',  label: 'Promos',      icon: Ticket, superAdminOnly: true },
   { href: '/admin/admins',       label: 'Admins',      icon: ShieldCheck, superAdminOnly: true },
