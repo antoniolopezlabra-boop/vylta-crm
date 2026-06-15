@@ -301,6 +301,41 @@ function Dashboard({ data }: { data: NonNullable<ReturnType<typeof useTrazabilid
         <BreakdownCard title="Por giro (clic en CTA)" rows={data.by_giro.map((g) => ({ label: g.giro, value: g.sessions }))} />
         <BreakdownCard title="Por origen del tráfico" rows={data.by_source.map((s) => ({ label: s.source, value: s.sessions }))} />
       </div>
+
+      {/* Fase 2 — clientes atribuidos al embudo */}
+      <section className="rounded-2xl border border-vylta-green/25 bg-vylta-green/5 p-5 md:p-6">
+        <h2 className="text-lg font-bold text-vylta-bone">💳 Clientes atribuidos al embudo</h2>
+        <p className="mt-1 mb-4 text-sm text-vylta-muted">
+          Registros y pagos que vinieron específicamente de la experiencia (sesión enlazada al cliente). Esto es lo que define dónde invertir.
+        </p>
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          <Kpi label="Registrados del embudo" value={fmt(data.attr_registered)} icon={UserPlus} accent="green" />
+          <Kpi label="Pagaron del embudo" value={fmt(data.attr_paid)} icon={CreditCard} accent="green" />
+          <Kpi
+            label="Conversión visitante→pago"
+            value={`${pct(data.attr_paid, data.entered)}%`}
+            sub={`${fmt(data.attr_paid)} de ${fmt(data.entered)}`}
+            icon={Activity}
+            accent="gold"
+          />
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <BreakdownCard
+            title="Clientes que PAGAN — por origen real"
+            rows={data.paid_by_source.map((s) => ({ label: s.source, value: s.customers }))}
+          />
+          <BreakdownCard
+            title="Clientes que PAGAN — por giro"
+            rows={data.paid_by_giro.map((g) => ({ label: g.giro, value: g.customers }))}
+          />
+        </div>
+
+        <p className="mt-3 text-xs text-vylta-subtle">
+          Cuenta solo registros que llegaron por el enlace de la experiencia (con sesión enlazada). Se puebla con el tráfico nuevo desde hoy.
+        </p>
+      </section>
     </div>
   );
 }

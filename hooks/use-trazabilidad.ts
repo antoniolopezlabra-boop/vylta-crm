@@ -18,6 +18,8 @@ import { useSupabaseRealtime } from '@/lib/hooks/use-supabase-realtime';
 export interface ScenePoint { scene: number; sessions: number }
 export interface GiroPoint { giro: string; sessions: number }
 export interface SourcePoint { source: string; sessions: number }
+export interface PaidSourcePoint { source: string; customers: number }
+export interface PaidGiroPoint { giro: string; customers: number }
 
 export interface TrazabilidadData {
   range_days: number;
@@ -35,6 +37,11 @@ export interface TrazabilidadData {
   registered: number;
   paid_new: number;
   paid_total: number;
+  // Fase 2 — atribución sesión → cliente
+  attr_registered: number;
+  attr_paid: number;
+  paid_by_source: PaidSourcePoint[];
+  paid_by_giro: PaidGiroPoint[];
 }
 
 async function fetchTrazabilidad(days: number): Promise<TrazabilidadData> {

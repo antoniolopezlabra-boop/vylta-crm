@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { RegisterForm } from '@/components/register-form';
+import { AttributionCapture } from '@/components/attribution-capture';
 
 export const metadata: Metadata = {
   title: 'Crear cuenta',
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 export default function RegisterPage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <AttributionCapture />
       <RegisterForm />
     </Suspense>
   );

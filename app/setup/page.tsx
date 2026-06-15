@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { SetupWizard } from '@/components/setup-wizard';
 import { AdsRegistroTracker } from '@/components/ads-registro-tracker';
+import { AttributionTracker } from '@/components/attribution-tracker';
 
 export const metadata: Metadata = {
   title: 'Configura tu negocio',
@@ -72,6 +73,8 @@ export default async function SetupPage() {
     <>
       {/* Conversion "Registro" de Google Ads: /setup solo se muestra a cuentas nuevas */}
       <AdsRegistroTracker userId={user.id} />
+      {/* Fase 2: enlaza la sesión del embudo con este registro (atribución) */}
+      <AttributionTracker userId={user.id} />
       <SetupWizard userId={user.id} userName={userName} />
     </>
   );
