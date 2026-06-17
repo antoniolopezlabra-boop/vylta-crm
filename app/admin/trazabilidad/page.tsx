@@ -14,6 +14,7 @@ import {
   TrendingDown,
   RefreshCw,
   Loader2,
+  Users,
 } from 'lucide-react';
 import {
   BarChart,
@@ -26,6 +27,7 @@ import {
   Cell,
 } from 'recharts';
 import { useTrazabilidad } from '@/hooks/use-trazabilidad';
+import { useAdminEmbajadores } from '@/hooks/use-admin-embajadores';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -134,7 +136,7 @@ function Dashboard({ data }: { data: NonNullable<ReturnType<typeof useTrazabilid
   const steps = [
     { key: 'entered', label: 'Entraron a la experiencia', value: data.entered, icon: Eye },
     { key: 'started', label: 'Tocaron "Empezar"', value: data.started, icon: Play },
-    { key: 'finished', label: 'Terminaron las 8 escenas', value: data.finished, icon: Flag },
+    { key: 'finished', label: 'Terminaron la experiencia', value: data.finished, icon: Flag },
     { key: 'cta', label: 'Clic "Activar VYLTA"', value: data.cta, icon: MousePointerClick },
     { key: 'giro_view', label: 'Llegaron a página de giro', value: data.giro_view, icon: FileText },
     { key: 'reg_click', label: 'Clic en registrarse', value: data.reg_click, icon: UserPlus },
@@ -159,6 +161,12 @@ function Dashboard({ data }: { data: NonNullable<ReturnType<typeof useTrazabilid
     name: `E${s.scene}`,
     sessions: s.sessions,
   }));
+
+  // Embajadores — registros por persona (RPC admin_get_embajadores, ya existente).
+  const { data: embajadores = [] } = useAdminEmbajadores();
+  const embRows = [...embajadores].sort((a, b) => (b.clientes_total || 0) - (a.clientes_total || 0));
+  const embRegistrados = embajadores.reduce((s, e) => s + (e.clientes_total || 0), 0);
+  const embNuevosMes = embajadores.reduce((s, e) => s + (e.nuevos_mes || 0), 0);
 
   return (
     <div className="space-y-7">
@@ -334,6 +342,60 @@ function Dashboard({ data }: { data: NonNullable<ReturnType<typeof useTrazabilid
 
         <p className="mt-3 text-xs text-vylta-subtle">
           Cuenta solo registros que llegaron por el enlace de la experiencia (con sesión enlazada). Se puebla con el tráfico nuevo desde hoy.
+        </p>
+      </section>
+
+      {/* Embajadores — registros por persona */}
+      <section className="rounded-2xl border border-vylta-sky/25 bg-vylta-sky/5 p-5 md:p-6">
+        <div className="mb-1 flex items-center gap-2">
+          <Users className="h-5 w-5 text-vylta-sky" />
+          <h2 className="text-lg font-bold text-vylta-bone">Embajadores — registros por persona</h2>
+        </div>
+        <p className="mb-4 text-sm text-vylta-muted">
+          Cuántos negocios registró cada embajador con su código (aplicado en el alta). El detalle de comisiones y accesos está en la pestaña <b>Embajadores</b>.
+        </p>
+
+        <div className="grid grid-cols-3 gap-4">
+          <Kpi label="Embajadores" value={fmt(embajadores.length)} icon={Users} accent="sky" />
+          <Kpi label="Registrados (total)" value={fmt(embRegistrados)} icon={UserPlus} accent="green" />
+          <Kpi label="Nuevos este mes" value={fmt(embNuevosMes)} icon={UserPlus} accent="gold" />
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-vylta-card/40 text-left text-xs uppercase tracking-wide text-vylta-muted">
+                <th className="px-4 py-2.5 font-semibold">Embajador</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Registrados</th>
+                <th className="px-3 py-2.5 text-right font-semibold">De pago</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Nuevos mes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {embRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-vylta-muted">
+                    Aún no hay embajadores. Créalos en la pestaña Embajadores.
+                  </td>
+                </tr>
+              ) : (
+                embRows.map((e) => (
+                  <tr key={e.id} className="border-t border-border/60">
+                    <td className="px-4 py-2.5 text-vylta-bone">
+                      {e.nombre} <span className="text-xs text-vylta-muted">· {e.ref_code}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-bold tabular-nums text-vylta-bone">{fmt(e.clientes_total)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-vylta-green">{fmt(e.clientes_activos)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-vylta-bone">{fmt(e.nuevos_mes)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-3 text-xs text-vylta-subtle">
+          “Registrados” = negocios dados de alta con el código del embajador (business_profiles.referido_por). “De pago” = los que tienen plan activo de pago. Se actualiza en vivo.
         </p>
       </section>
     </div>
