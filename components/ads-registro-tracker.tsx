@@ -11,15 +11,22 @@ import { reportAdsConversion, ADS_CONVERSION_LABELS } from '@/lib/gtag';
 export function AdsRegistroTracker({ userId }: { userId: string }) {
   useEffect(() => {
     if (!userId) return;
+    // Meta Pixel: conversión de registro (para que Facebook optimice por
+    // registros, no por clics). Mismo punto y misma deduplicación que Ads.
+    const reportMeta = () => {
+      try { (window as unknown as { fbq?: (...a: unknown[]) => void }).fbq?.('track', 'CompleteRegistration'); } catch { /* noop */ }
+    };
     try {
       const key = `vylta_ads_registro_${userId}`;
       if (window.localStorage.getItem(key)) return;
       reportAdsConversion(ADS_CONVERSION_LABELS.registro);
+      reportMeta();
       window.localStorage.setItem(key, '1');
     } catch {
       // localStorage no disponible (modo privado estricto):
-      // reportar de todos modos; Google deduplica por clic.
+      // reportar de todos modos; Google/Meta deduplican.
       reportAdsConversion(ADS_CONVERSION_LABELS.registro);
+      reportMeta();
     }
   }, [userId]);
 
