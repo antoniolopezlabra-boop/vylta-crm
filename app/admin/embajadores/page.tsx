@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X, Trash2,
-  KeyRound, CheckCircle2, Copy,
+  KeyRound, CheckCircle2, Copy, Eye, Phone, MapPin, Hash, User, Landmark, Mail,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -27,6 +27,26 @@ function estatusBadge(estatus: string): string {
   return 'text-vylta-rose border-vylta-rose/40 bg-vylta-rose/10';
 }
 
+// Detalle completo de un embajador (incl. datos bancarios), via RPC
+// admin_get_embajador_detalle. Solo se carga al abrir el modal.
+interface EmbajadorDetalle {
+  id: string;
+  nombre: string;
+  email: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  rfc: string | null;
+  banco: string | null;
+  clabe: string | null;
+  titular_cuenta: string | null;
+  ref_code: string;
+  estatus: string;
+  perfil_completo: boolean;
+  tiene_acceso: boolean;
+  notas: string | null;
+  created_at: string;
+}
+
 export default function AdminEmbajadoresPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, isFetching, refetch } = useAdminEmbajadores();
@@ -47,6 +67,11 @@ export default function AdminEmbajadoresPage() {
   const [accessPassword, setAccessPassword] = useState('');
   const [creatingAccess, setCreatingAccess] = useState(false);
   const [accessResult, setAccessResult] = useState<{ email: string; password: string | null; linked?: boolean } | null>(null);
+
+  // Ver detalle / datos bancarios
+  const [detalleTarget, setDetalleTarget] = useState<Embajador | null>(null);
+  const [detalle, setDetalle] = useState<EmbajadorDetalle | null>(null);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -105,6 +130,45 @@ export default function AdminEmbajadoresPage() {
     if (creatingAccess) return;
     setAccessTarget(null);
     setAccessResult(null);
+  }
+
+  // Abre el detalle del embajador y carga sus datos bancarios bajo demanda
+  // (no viven en la lista para no exponer datos sensibles de todos a la vez).
+  async function openDetalle(e: Embajador) {
+    setDetalleTarget(e);
+    setDetalle(null);
+    setLoadingDetalle(true);
+    try {
+      const supabase = createClient();
+      const { data: res, error } = await supabase.rpc('admin_get_embajador_detalle', { p_id: e.id });
+      if (error) throw error;
+      setDetalle(res as EmbajadorDetalle);
+    } catch (err) {
+      console.error('[Embajadores] detalle error:', err);
+      toast.error('No se pudo cargar el detalle del embajador.');
+      setDetalleTarget(null);
+    } finally {
+      setLoadingDetalle(false);
+    }
+  }
+
+  function closeDetalle() {
+    setDetalleTarget(null);
+    setDetalle(null);
+  }
+
+  // Copia un bloque listo para pegar al hacer la transferencia.
+  function copyDatosTransferencia(d: EmbajadorDetalle) {
+    const linea = (label: string, val: string | null) => `${label}: ${val && val.trim() ? val : '—'}`;
+    const msg = [
+      `Embajador: ${d.nombre}`,
+      linea('Banco', d.banco),
+      linea('CLABE', d.clabe),
+      linea('Titular', d.titular_cuenta),
+      linea('RFC', d.rfc),
+    ].join('\n');
+    navigator.clipboard?.writeText(msg);
+    toast.success('Datos de transferencia copiados');
   }
 
   async function handleCrearAcceso() {
@@ -312,7 +376,13 @@ export default function AdminEmbajadoresPage() {
                   return (
                     <tr key={e.id} className="border-b border-border/60 transition-colors hover:bg-vylta-card/30">
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-vylta-bone">{e.nombre}</div>
+                        <button
+                          onClick={() => openDetalle(e)}
+                          title="Ver datos bancarios"
+                          className="text-left font-semibold text-vylta-bone transition hover:text-vylta-gold hover:underline"
+                        >
+                          {e.nombre}
+                        </button>
                         <div className="mt-0.5 flex items-center gap-2">
                           <span className="rounded bg-vylta-card/60 px-1.5 py-0.5 font-mono text-[11px] text-vylta-gold">{e.ref_code}</span>
                           {!e.perfil_completo && (
@@ -340,6 +410,13 @@ export default function AdminEmbajadoresPage() {
                       <td className="px-4 py-4 text-right font-bold tabular-nums text-vylta-gold">{MXN(e.por_pagar)}</td>
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => openDetalle(e)}
+                            title="Ver datos bancarios"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-vylta-subtle transition hover:border-vylta-gold/40 hover:bg-vylta-gold/10 hover:text-vylta-gold"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
                           {e.tiene_acceso ? (
                             <span className="inline-flex items-center gap-1 rounded-md border border-vylta-green/30 bg-vylta-green/5 px-2 py-1 text-[11px] font-bold text-vylta-green">
                               <CheckCircle2 className="h-3 w-3" /> acceso
@@ -519,6 +596,85 @@ export default function AdminEmbajadoresPage() {
         </div>
       )}
 
+      {/* MODAL: Detalle del embajador (datos bancarios para transferir) */}
+      {detalleTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={closeDetalle}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border bg-vylta-surface p-6 shadow-card-lg"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-vylta-gold/10">
+                  <Wallet className="h-5 w-5 text-vylta-gold" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-vylta-bone">{detalleTarget.nombre}</h3>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <span className="rounded bg-vylta-card/60 px-1.5 py-0.5 font-mono text-[11px] text-vylta-gold">{detalleTarget.ref_code}</span>
+                    <span className={cn('inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide', estatusBadge(detalleTarget.estatus))}>{detalleTarget.estatus}</span>
+                  </div>
+                </div>
+              </div>
+              <button onClick={closeDetalle} className="rounded-lg p-1.5 text-vylta-subtle transition hover:bg-vylta-card hover:text-vylta-bone">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {loadingDetalle || !detalle ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-vylta-gold" />
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-vylta-subtle">
+                  <Landmark className="h-3.5 w-3.5" /> Datos bancarios
+                </div>
+                {(!detalle.banco && !detalle.clabe && !detalle.titular_cuenta) ? (
+                  <div className="rounded-xl border border-vylta-gold/30 bg-vylta-gold/5 p-4 text-sm text-vylta-gold">
+                    Este embajador aún no ha capturado sus datos bancarios. Pídele que los registre en su portal (Mi perfil) para poder depositarle.
+                  </div>
+                ) : (
+                  <div className="space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
+                    <DetalleRow icon={Building2} label="Banco" value={detalle.banco} />
+                    <DetalleRow icon={Hash} label="CLABE" value={detalle.clabe} mono copyable />
+                    <DetalleRow icon={User} label="Titular" value={detalle.titular_cuenta} />
+                    <DetalleRow icon={Hash} label="RFC" value={detalle.rfc} mono copyable />
+                  </div>
+                )}
+
+                <div className="mb-2 mt-5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-vylta-subtle">
+                  <Phone className="h-3.5 w-3.5" /> Contacto
+                </div>
+                <div className="space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
+                  <DetalleRow icon={Mail} label="Correo" value={detalle.email} copyable />
+                  <DetalleRow icon={Phone} label="Teléfono" value={detalle.telefono} copyable />
+                  <DetalleRow icon={MapPin} label="Dirección" value={detalle.direccion} />
+                </div>
+
+                <div className="mt-5 flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={() => copyDatosTransferencia(detalle)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20"
+                  >
+                    <Copy className="h-4 w-4" /> Copiar datos de transferencia
+                  </button>
+                  <button
+                    onClick={closeDetalle}
+                    className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* MODAL: Confirmar eliminacion */}
       {deleteTarget && (
         <div
@@ -575,6 +731,35 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
         placeholder={placeholder}
         className="w-full rounded-lg border border-border bg-vylta-admin-bg px-3 py-2 text-sm text-vylta-bone placeholder:text-vylta-subtle/60 focus:border-vylta-gold/50 focus:outline-none"
       />
+    </div>
+  );
+}
+
+// Fila del modal de detalle: icono + etiqueta a la izquierda, valor (o "—") a
+// la derecha, con botón de copiar opcional (útil para CLABE/RFC/correo).
+function DetalleRow({ icon: Icon, label, value, mono, copyable }: {
+  icon: typeof Wallet; label: string; value: string | null; mono?: boolean; copyable?: boolean;
+}) {
+  const has = !!(value && value.trim());
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex shrink-0 items-center gap-2 text-vylta-subtle">
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </span>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={cn('truncate', has ? 'text-vylta-bone' : 'text-vylta-subtle/60', mono && 'font-mono')}>
+          {has ? value : '—'}
+        </span>
+        {copyable && has && (
+          <button
+            onClick={() => { navigator.clipboard?.writeText(value as string); toast.success(`${label} copiado`); }}
+            title={`Copiar ${label}`}
+            className="shrink-0 rounded p-1 text-vylta-subtle transition hover:bg-vylta-card hover:text-vylta-gold"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </span>
     </div>
   );
 }
