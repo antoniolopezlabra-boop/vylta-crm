@@ -17,6 +17,7 @@ import {
   Bot,
   Sparkles,
   Loader2,
+  Crown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -85,9 +86,11 @@ interface SidebarProps {
   businessName?: string | null;
   /** URL del logo subido por el cliente (null si no tiene logo). */
   logoUrl?: string | null;
+  /** Cuenta dual: este negocio también es embajador → muestra el switcher al portal. */
+  isAmbassador?: boolean;
 }
 
-export function Sidebar({ businessName, logoUrl }: SidebarProps) {
+export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { open, setOpen } = useMobileNav();
@@ -204,6 +207,23 @@ export function Sidebar({ businessName, logoUrl }: SidebarProps) {
               ))}
             </ul>
           </div>
+
+          {/* Switcher solo para cuentas duales (negocio + embajador). */}
+          {isAmbassador && (
+            <div className="mt-5">
+              {!collapsed && <SectionLabel>Embajador</SectionLabel>}
+              <ul className="space-y-0.5">
+                <SidebarItem
+                  item={{ href: '/embajador', label: 'Portal embajador', icon: Crown }}
+                  collapsed={collapsed}
+                  active={isActiveItem(pathname, '/embajador', optimisticHref)}
+                  pending={optimisticHref === '/embajador' && isPending}
+                  onNavigate={handleNavigate}
+                  onPrefetch={handlePrefetch}
+                />
+              </ul>
+            </div>
+          )}
         </nav>
 
         <div className="border-t border-border">

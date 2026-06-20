@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Crown, LogOut, LayoutDashboard, UserCog } from 'lucide-react';
+import { Crown, LogOut, LayoutDashboard, UserCog, Store } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { VyltaLogo } from '@/components/layout/vylta-logo';
 
-export function EmbajadorTopbar({ nombre }: { nombre: string }) {
+export function EmbajadorTopbar({ nombre, hasBusiness }: { nombre: string; hasBusiness?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -38,6 +38,14 @@ export function EmbajadorTopbar({ nombre }: { nombre: string }) {
         </Link>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm font-semibold text-vylta-bone sm:inline">{nombre}</span>
+          {hasBusiness && (
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-vylta-card/40 px-2.5 py-1.5 text-xs font-bold text-vylta-muted transition hover:border-vylta-gold/40 hover:bg-vylta-gold/5 hover:text-vylta-gold"
+            >
+              <Store className="h-3 w-3" /> Mi negocio
+            </Link>
+          )}
           <button
             onClick={handleLogout}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-vylta-card/40 px-2.5 py-1.5 text-xs font-bold text-vylta-muted transition hover:border-vylta-rose/40 hover:bg-vylta-rose/5 hover:text-vylta-rose"

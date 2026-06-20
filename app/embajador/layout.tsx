@@ -28,10 +28,18 @@ export default async function EmbajadorLayout({
     redirect('/dashboard');
   }
 
+  // Cuenta dual: si este embajador TAMBIEN tiene un negocio, le ofrecemos un
+  // link de vuelta a su panel de negocio (switcher bidireccional).
+  const { data: business } = await supabase
+    .from('business_profiles')
+    .select('user_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
   return (
     <QueryProvider>
       <div className="flex min-h-screen flex-col bg-vylta-admin-bg">
-        <EmbajadorTopbar nombre={emb.nombre} />
+        <EmbajadorTopbar nombre={emb.nombre} hasBusiness={!!business} />
         <main className="flex-1">
           <div className="mx-auto w-full max-w-[1100px] p-5 md:p-8">{children}</div>
         </main>

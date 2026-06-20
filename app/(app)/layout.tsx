@@ -34,16 +34,13 @@ export default async function AppLayout({
     redirect('/admin');
   }
 
-  // Embajador -> su portal. Solo afecta a usuarios vinculados en embajadores;
-  // los negocios no tienen fila ahi, asi que no se ven afectados.
+  // Embajador? y perfil de negocio? Necesito ambos para decidir el routing
+  // de las cuentas DUALES (un negocio que tambien es embajador).
   const { data: embajador } = await supabase
     .from('embajadores')
     .select('id')
     .eq('user_id', user.id)
     .maybeSingle();
-  if (embajador) {
-    redirect('/embajador');
-  }
 
   // Solo columnas que existen en el schema real (owner_name NO existe -> rompia la query).
   const { data: profile } = await supabase
@@ -51,6 +48,15 @@ export default async function AppLayout({
     .select('business_name, logo_url')
     .eq('user_id', user.id)
     .maybeSingle();
+
+  // Embajador PURO (sin negocio) -> directo a su portal.
+  // Cuenta DUAL (negocio + embajador) -> se queda en su negocio y entra al
+  //   portal de embajador por el switcher del sidebar (no lo expulsamos).
+  if (embajador && !profile) {
+    redirect('/embajador');
+  }
+
+  const isAmbassador = !!embajador;
 
   const displayName =
     profile?.business_name ||
@@ -70,7 +76,7 @@ export default async function AppLayout({
         <div className="flex h-screen overflow-hidden bg-background">
           <RouteTransition />
 
-          <Sidebar businessName={businessName} logoUrl={logoUrl} />
+          <Sidebar businessName={businessName} logoUrl={logoUrl} isAmbassador={isAmbassador} />
           <div className="flex flex-1 flex-col overflow-hidden">
             <Topbar
               user={{

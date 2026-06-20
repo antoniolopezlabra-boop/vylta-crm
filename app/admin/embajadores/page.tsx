@@ -46,7 +46,7 @@ export default function AdminEmbajadoresPage() {
   const [accessEmail, setAccessEmail] = useState('');
   const [accessPassword, setAccessPassword] = useState('');
   const [creatingAccess, setCreatingAccess] = useState(false);
-  const [accessResult, setAccessResult] = useState<{ email: string; password: string } | null>(null);
+  const [accessResult, setAccessResult] = useState<{ email: string; password: string | null; linked?: boolean } | null>(null);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -113,7 +113,9 @@ export default function AdminEmbajadoresPage() {
       toast.error('El correo es obligatorio');
       return;
     }
-    if (accessPassword.length < 6) {
+    // La contraseña solo es obligatoria para cuentas NUEVAS. Si el correo ya
+    // existe, el servidor lo vincula sin tocar su contraseña (campo vacío OK).
+    if (accessPassword && accessPassword.length < 6) {
       toast.error('La contraseña debe tener al menos 6 caracteres');
       return;
     }
@@ -124,13 +126,20 @@ export default function AdminEmbajadoresPage() {
         body: { embajadorId: accessTarget.id, email: accessEmail.trim(), password: accessPassword },
       });
       if (error) throw error;
-      const r = res as { success: boolean; error?: string; email?: string };
+      const r = res as { success: boolean; error?: string; email?: string; mode?: string };
       if (!r?.success) {
         toast.error(r?.error || 'No se pudo crear el acceso');
         return;
       }
-      toast.success('Acceso creado');
-      setAccessResult({ email: accessEmail.trim(), password: accessPassword });
+      if (r.mode === 'linked_existing') {
+        // El correo ya tenía cuenta: NO se creó usuario nuevo ni se cambió su
+        // contraseña. Solo quedó dado de alta como embajador.
+        toast.success('Ese correo ya estaba registrado. Lo dimos de alta como embajador; entra con sus credenciales actuales.');
+        setAccessResult({ email: accessEmail.trim(), password: null, linked: true });
+      } else {
+        toast.success('Acceso creado');
+        setAccessResult({ email: accessEmail.trim(), password: accessPassword });
+      }
       queryClient.invalidateQueries({ queryKey: ['admin-embajadores'] });
     } catch (e: any) {
       console.error('[Embajadores] crear acceso error:', e);
@@ -434,10 +443,11 @@ export default function AdminEmbajadoresPage() {
                 </div>
                 <p className="mb-4 text-sm text-vylta-muted">
                   Para <span className="font-semibold text-vylta-bone">{accessTarget.nombre}</span>. Define su correo y una contraseña; tú se la compartes y él podrá cambiarla dentro del portal.
+                  <span className="mt-1.5 block text-xs text-vylta-subtle">Si ese correo <span className="font-semibold">ya tiene cuenta en VYLTA</span> (es cliente), lo damos de alta como embajador sin cambiar su contraseña — deja el campo de contraseña vacío.</span>
                 </p>
                 <div className="space-y-4">
                   <Field label="Correo de acceso *" value={accessEmail} onChange={setAccessEmail} placeholder="correo@ejemplo.com" type="email" />
-                  <Field label="Contraseña *" value={accessPassword} onChange={setAccessPassword} placeholder="Mínimo 6 caracteres" />
+                  <Field label="Contraseña (solo si es cuenta nueva)" value={accessPassword} onChange={setAccessPassword} placeholder="Mínimo 6 — vacío si el correo ya existe" />
                 </div>
                 <div className="mt-6 flex justify-end gap-2">
                   <button onClick={closeAccess} className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone">
@@ -459,26 +469,36 @@ export default function AdminEmbajadoresPage() {
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-vylta-green/10">
                     <CheckCircle2 className="h-4 w-4 text-vylta-green" />
                   </div>
-                  <h3 className="text-lg font-bold text-vylta-bone">Acceso creado</h3>
+                  <h3 className="text-lg font-bold text-vylta-bone">{accessResult.linked ? 'Embajador vinculado' : 'Acceso creado'}</h3>
                 </div>
                 <p className="text-sm text-vylta-muted">
-                  Comparte estos datos con {accessTarget.nombre} por WhatsApp. Podrá cambiar su contraseña dentro del portal.
+                  {accessResult.linked
+                    ? <>Ese correo ya tenía cuenta en VYLTA. {accessTarget.nombre} entra al portal con el <span className="font-semibold text-vylta-bone">mismo correo y contraseña que ya usa</span> — no se cambió nada de su cuenta.</>
+                    : <>Comparte estos datos con {accessTarget.nombre} por WhatsApp. Podrá cambiar su contraseña dentro del portal.</>}
                 </p>
                 <div className="mt-4 space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
                   <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Portal</span><span className="font-mono text-vylta-bone">app.vylta.lat/embajador</span></div>
                   <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Correo</span><span className="font-mono text-vylta-bone">{accessResult.email}</span></div>
-                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Contraseña</span><span className="font-mono text-vylta-bone">{accessResult.password}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Contraseña</span><span className="font-mono text-vylta-bone">{accessResult.linked ? 'La que ya usa en VYLTA' : accessResult.password}</span></div>
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
                     onClick={() => {
-                      const msg = [
-                        'Bienvenido a VYLTA como Embajador.',
-                        'Entra a tu portal: https://app.vylta.lat/embajador',
-                        `Correo: ${accessResult.email}`,
-                        `Contraseña: ${accessResult.password}`,
-                        'Puedes cambiar tu contraseña dentro del portal cuando entres.',
-                      ].join('\n');
+                      const msg = (accessResult.linked
+                        ? [
+                            'Bienvenido a VYLTA como Embajador.',
+                            'Entra a tu portal: https://app.vylta.lat/embajador',
+                            `Correo: ${accessResult.email}`,
+                            'Contraseña: la misma que ya usas en VYLTA.',
+                          ]
+                        : [
+                            'Bienvenido a VYLTA como Embajador.',
+                            'Entra a tu portal: https://app.vylta.lat/embajador',
+                            `Correo: ${accessResult.email}`,
+                            `Contraseña: ${accessResult.password}`,
+                            'Puedes cambiar tu contraseña dentro del portal cuando entres.',
+                          ]
+                      ).join('\n');
                       navigator.clipboard?.writeText(msg);
                       toast.success('Mensaje copiado para WhatsApp');
                     }}
