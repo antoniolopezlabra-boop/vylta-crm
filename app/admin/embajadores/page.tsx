@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Users, Loader2, RefreshCw, Wallet, Building2, TrendingUp, Plus, Crown, Download, X, Trash2,
-  KeyRound, CheckCircle2, Copy, Eye, Phone, MapPin, Hash, User, Landmark, Mail,
+  KeyRound, CheckCircle2, Copy, Eye, Phone, MapPin, Hash, User, Landmark, Mail, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -72,6 +72,13 @@ export default function AdminEmbajadoresPage() {
   const [detalleTarget, setDetalleTarget] = useState<Embajador | null>(null);
   const [detalle, setDetalle] = useState<EmbajadorDetalle | null>(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
+
+  // Restablecer contraseña
+  const [resetTarget, setResetTarget] = useState<Embajador | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetDual, setResetDual] = useState(false); // cuenta dual detectada -> pedir confirmación
+  const [resetResult, setResetResult] = useState<{ password: string } | null>(null);
 
   const totals = useMemo(() => {
     return embajadores.reduce(
@@ -169,6 +176,49 @@ export default function AdminEmbajadoresPage() {
     ].join('\n');
     navigator.clipboard?.writeText(msg);
     toast.success('Datos de transferencia copiados');
+  }
+
+  function openReset(e: Embajador) {
+    setResetTarget(e);
+    setResetPassword('');
+    setResetDual(false);
+    setResetResult(null);
+  }
+  function closeReset() {
+    if (resetting) return;
+    setResetTarget(null);
+    setResetPassword('');
+    setResetDual(false);
+    setResetResult(null);
+  }
+  // force=true confirma el cambio aun siendo cuenta dual (negocio + embajador).
+  async function handleReset(force = false) {
+    if (!resetTarget) return;
+    if (resetPassword.length < 6) {
+      toast.error('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    try {
+      setResetting(true);
+      const supabase = createClient();
+      const { data: res, error } = await supabase.functions.invoke('reset-ambassador-password', {
+        body: { embajadorId: resetTarget.id, password: resetPassword, force },
+      });
+      if (error) throw error;
+      const r = res as { success: boolean; error?: string; dual?: boolean };
+      if (!r?.success) {
+        if (r?.dual) { setResetDual(true); return; } // cuenta dual -> pedir confirmación explícita
+        toast.error(r?.error || 'No se pudo restablecer la contraseña');
+        return;
+      }
+      toast.success('Contraseña restablecida');
+      setResetResult({ password: resetPassword });
+    } catch (e: any) {
+      console.error('[Embajadores] reset password error:', e);
+      toast.error('No se pudo restablecer la contraseña. Intenta de nuevo.');
+    } finally {
+      setResetting(false);
+    }
   }
 
   async function handleCrearAcceso() {
@@ -430,6 +480,15 @@ export default function AdminEmbajadoresPage() {
                               <KeyRound className="h-3.5 w-3.5" /> Crear acceso
                             </button>
                           )}
+                          {e.tiene_acceso && (
+                            <button
+                              onClick={() => openReset(e)}
+                              title="Restablecer contraseña"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-vylta-subtle transition hover:border-vylta-sky/40 hover:bg-vylta-sky/10 hover:text-vylta-sky"
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => setDeleteTarget(e)}
                             title="Eliminar embajador"
@@ -585,6 +644,103 @@ export default function AdminEmbajadoresPage() {
                   </button>
                   <button
                     onClick={() => { setAccessTarget(null); setAccessResult(null); }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20"
+                  >
+                    Listo
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Restablecer contraseña */}
+      {resetTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={closeReset}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-vylta-surface p-6 shadow-card-lg"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            {!resetResult ? (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-vylta-sky/10">
+                    <RotateCcw className="h-4 w-4 text-vylta-sky" />
+                  </div>
+                  <h3 className="text-lg font-bold text-vylta-bone">Restablecer contraseña</h3>
+                </div>
+                <p className="text-sm text-vylta-muted">
+                  Defines una nueva contraseña para <span className="font-semibold text-vylta-bone">{resetTarget.nombre}</span>. Compártesela; podrá cambiarla luego desde su portal.
+                </p>
+
+                {resetDual && (
+                  <div className="mt-3 rounded-xl border border-vylta-gold/40 bg-vylta-gold/5 p-3 text-sm text-vylta-gold">
+                    ⚠️ Esta cuenta <span className="font-bold">también es un negocio</span> en VYLTA. La nueva contraseña cambiará su acceso a la <span className="font-bold">app de negocio</span> y al <span className="font-bold">portal de embajador</span> (es el mismo login). Confirma solo si estás seguro.
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  <Field label="Nueva contraseña *" value={resetPassword} onChange={setResetPassword} placeholder="Mínimo 6 caracteres" />
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button onClick={closeReset} disabled={resetting} className="rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone disabled:opacity-50">
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => handleReset(resetDual)}
+                    disabled={resetting}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition disabled:opacity-50',
+                      resetDual
+                        ? 'border-vylta-gold/40 bg-vylta-gold/10 text-vylta-gold hover:bg-vylta-gold/20'
+                        : 'border-vylta-sky/40 bg-vylta-sky/10 text-vylta-sky hover:bg-vylta-sky/20',
+                    )}
+                  >
+                    {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    {resetting ? 'Guardando...' : resetDual ? 'Sí, cambiar de ambos' : 'Restablecer contraseña'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-vylta-green/10">
+                    <CheckCircle2 className="h-4 w-4 text-vylta-green" />
+                  </div>
+                  <h3 className="text-lg font-bold text-vylta-bone">Contraseña actualizada</h3>
+                </div>
+                <p className="text-sm text-vylta-muted">
+                  Comparte la nueva contraseña con {resetTarget.nombre}. Podrá cambiarla dentro de su portal.
+                </p>
+                <div className="mt-4 space-y-2 rounded-xl border border-border bg-vylta-admin-bg p-4 text-sm">
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Portal</span><span className="font-mono text-vylta-bone">app.vylta.lat/embajador</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Correo</span><span className="font-mono text-vylta-bone">{resetTarget.email}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-vylta-subtle">Nueva contraseña</span><span className="font-mono text-vylta-bone">{resetResult.password}</span></div>
+                </div>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      const msg = [
+                        `Hola ${resetTarget.nombre}, actualizamos tu contraseña de VYLTA.`,
+                        'Entra a tu portal: https://app.vylta.lat/embajador',
+                        `Correo: ${resetTarget.email ?? ''}`,
+                        `Nueva contraseña: ${resetResult.password}`,
+                        'Puedes cambiarla dentro del portal cuando entres.',
+                      ].join('\n');
+                      navigator.clipboard?.writeText(msg);
+                      toast.success('Mensaje copiado para WhatsApp');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-vylta-card/40 px-4 py-2 text-sm font-bold text-vylta-muted transition hover:text-vylta-bone"
+                  >
+                    <Copy className="h-4 w-4" /> Copiar para WhatsApp
+                  </button>
+                  <button
+                    onClick={closeReset}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-vylta-gold/40 bg-vylta-gold/10 px-4 py-2 text-sm font-bold text-vylta-gold transition hover:bg-vylta-gold/20"
                   >
                     Listo
