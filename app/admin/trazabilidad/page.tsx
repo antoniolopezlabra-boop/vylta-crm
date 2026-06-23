@@ -28,6 +28,7 @@ import {
 } from 'recharts';
 import { useTrazabilidad } from '@/hooks/use-trazabilidad';
 import { useAdminEmbajadores } from '@/hooks/use-admin-embajadores';
+import { PaidAcquisition } from '@/components/admin/paid-acquisition';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -73,7 +74,7 @@ export default function TrazabilidadPage() {
             Trazabilidad de clientes
           </h1>
           <p className="mt-1 text-sm text-vylta-muted">
-            Embudo de adquisición en tiempo real — desde que entran a la experiencia hasta que pagan.
+            Adquisición en tiempo real: redes (Facebook + Google), experiencia y embajadores.
           </p>
         </div>
 
@@ -115,6 +116,9 @@ export default function TrazabilidadPage() {
           </button>
         </div>
       </div>
+
+      {/* Adquisición por redes (paid: FB + Google) — lo primero para el CEO */}
+      <PaidAcquisition days={days} />
 
       {isLoading ? (
         <div className="flex h-64 items-center justify-center text-vylta-muted">
