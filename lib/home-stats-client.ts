@@ -5,7 +5,7 @@ import {
   getTodayString,
   toLocalDateString,
 } from '@/lib/date-utils';
-import { getPlanTier, isFreeTier } from '@/lib/plan-labels';
+import { getPlanTier, isFreeTier, getEffectivePlanType } from '@/lib/plan-labels';
 import type { HomeStats, TodayAppointment, UnpaidAppointment, BirthdayClient, InactiveClientHint } from './home-stats';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -225,7 +225,7 @@ export async function getHomeStatsClient(): Promise<HomeStats> {
     .reduce((s: number, a: any) => s + (a.service_cost || 0), 0);
 
   // — Plan —
-  const rawPlanType = planData.data?.plan_type;
+  const rawPlanType = getEffectivePlanType(planData.data?.plan_type, planData.data?.status);
   const tier = getPlanTier(rawPlanType);
   const isGratuito = isFreeTier(rawPlanType);
   const used = monthActive.length;

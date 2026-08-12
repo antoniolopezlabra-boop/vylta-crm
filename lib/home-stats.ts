@@ -9,7 +9,7 @@ import {
   getTodayString,
   toLocalDateString,
 } from '@/lib/date-utils';
-import { getPlanTier, isFreeTier } from '@/lib/plan-labels';
+import { getPlanTier, isFreeTier, getEffectivePlanType } from '@/lib/plan-labels';
 
 export interface TodayAppointment {
   id: string;
@@ -298,9 +298,9 @@ export async function getHomeStats(): Promise<HomeStats> {
     .reduce((s: number, a: any) => s + (a.service_cost || 0), 0);
 
   // — Plan + uso (usando el mapping unificado de plan-labels.ts) —
-  const rawPlanType = planData.data?.plan_type;
+  const rawPlanType = getEffectivePlanType(planData.data?.plan_type, planData.data?.status);
   const tier = getPlanTier(rawPlanType); // 'basico' | 'premium' | 'luxury'
-  const isGratuito = isFreeTier(rawPlanType); // True solo si en BD es 'Gratuito'
+  const isGratuito = isFreeTier(rawPlanType); // True si es 'Gratuito' o sub inactiva (expired/cancelled)
   const used = monthActive.length;
   const limit = GRATUITO_MONTHLY_LIMIT;
   const remaining = Math.max(0, limit - used);

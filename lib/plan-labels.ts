@@ -116,6 +116,40 @@ export function hasLuxuryAccess(internal: string | null | undefined): boolean {
 }
 
 /**
+ * Estados de suscripción (Stripe) que NO otorgan un plan de pago.
+ * El stripe-webhook solo baja plan_type→Gratuito en `customer.subscription.deleted`;
+ * un pago fallido (past_due) deja plan_type pagado con status='expired', lo que
+ * daría features premium GRATIS. Estos estados terminales degradan el plan efectivo.
+ */
+const INACTIVE_STATUSES = new Set([
+  'expired',
+  'cancelled',
+  'canceled',
+  'past_due',
+  'unpaid',
+  'incomplete_expired',
+  'paused',
+]);
+
+/**
+ * Plan EFECTIVO considerando el status de la suscripción.
+ * Si el status es terminal (no active/trialing), degrada a 'Gratuito'.
+ * status null/active/trialing/desconocido → conserva plan_type (conservador:
+ * NUNCA lockea a un usuario cuyo status no sea explícitamente terminal).
+ *
+ * Usar SIEMPRE que se decida acceso/etiqueta a partir de plan_type + status:
+ *   hasPremiumAccess(getEffectivePlanType(plan_type, status))
+ */
+export function getEffectivePlanType(
+  planType: string | null | undefined,
+  status: string | null | undefined,
+): string {
+  const s = (status || '').toLowerCase().trim();
+  if (INACTIVE_STATUSES.has(s)) return 'Gratuito';
+  return planType ?? 'Gratuito';
+}
+
+/**
  * Devuelve clases Tailwind del badge para mostrar consistentemente la tier en UI.
  */
 export function getPlanBadgeClass(internal: string | null | undefined): string {

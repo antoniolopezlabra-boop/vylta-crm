@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { hasPremiumAccess } from '@/lib/plan-labels';
+import { hasPremiumAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { ComingSoon } from '@/components/coming-soon';
 import { ChatClient } from './chat-client';
 
@@ -34,7 +34,7 @@ export default async function ChatIaPage() {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (!hasPremiumAccess(plan?.plan_type)) {
+  if (!hasPremiumAccess(getEffectivePlanType(plan?.plan_type, plan?.status))) {
     return (
       <ComingSoon
         title="Chat IA"

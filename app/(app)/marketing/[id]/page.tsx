@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { hasLuxuryAccess } from '@/lib/plan-labels';
+import { hasLuxuryAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { CampaignDetailClient } from './campaign-detail-client';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -38,7 +38,7 @@ export default async function CampaignDetailPage({
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (!hasLuxuryAccess(plan?.plan_type)) {
+  if (!hasLuxuryAccess(getEffectivePlanType(plan?.plan_type, plan?.status))) {
     redirect('/marketing');
   }
 

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { hasLuxuryAccess } from '@/lib/plan-labels';
+import { hasLuxuryAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { ComingSoon } from '@/components/coming-soon';
 import { NewCampaignClient } from './new-campaign-client';
 
@@ -33,7 +33,7 @@ export default async function NewMarketingCampaignPage() {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (!hasLuxuryAccess(plan?.plan_type)) {
+  if (!hasLuxuryAccess(getEffectivePlanType(plan?.plan_type, plan?.status))) {
     return (
       <ComingSoon
         title="Marketing"

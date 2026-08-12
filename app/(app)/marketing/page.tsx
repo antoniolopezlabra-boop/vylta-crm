@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { hasLuxuryAccess } from '@/lib/plan-labels';
+import { hasLuxuryAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { ComingSoon } from '@/components/coming-soon';
 import { MarketingPageClient } from './marketing-page-client';
 
@@ -31,7 +31,7 @@ export default async function MarketingPage() {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  const isLuxury = hasLuxuryAccess(plan?.plan_type);
+  const isLuxury = hasLuxuryAccess(getEffectivePlanType(plan?.plan_type, plan?.status));
 
   // Si no tiene Luxury, mostrar el upsell (sigue siendo restricted)
   if (!isLuxury) {

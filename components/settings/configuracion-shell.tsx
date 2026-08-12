@@ -21,7 +21,7 @@ import { BlocksTab } from './tabs/blocks-tab';
 import { AccountTab } from './tabs/account-tab';
 import { HoursTab } from './tabs/hours-tab';
 import { BookingBlocksCard } from './tabs/booking-blocks-card';
-import { hasPremiumAccess, hasLuxuryAccess } from '@/lib/plan-labels';
+import { hasPremiumAccess, hasLuxuryAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
 // ═════════════════════════════════════════════════════════════════════
@@ -80,8 +80,9 @@ interface ConfigShellProps {
 }
 
 export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigShellProps) {
-  const isPremiumOrAbove = hasPremiumAccess(plan?.plan_type);
-  const isLuxury = hasLuxuryAccess(plan?.plan_type);
+  const effectivePlanType = getEffectivePlanType(plan?.plan_type, plan?.status);
+  const isPremiumOrAbove = hasPremiumAccess(effectivePlanType);
+  const isLuxury = hasLuxuryAccess(effectivePlanType);
 
   // null = (en móvil) mostrando la lista de secciones.
   // En escritorio se usa 'negocio' por defecto para que siempre haya contenido.

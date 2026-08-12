@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { getEffectivePlanType } from '@/lib/plan-labels';
 
 // ═════════════════════════════════════════════════════════════════════
 // Helpers de tenants (negocios) para el panel admin
@@ -113,8 +114,10 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
   const sessionMap = new Map<string, string>();
   sessions?.forEach((s: any) => sessionMap.set(s.user_id, s.last_seen_at));
 
-  const planMap = new Map<string, string>();
-  plans?.forEach((p: any) => planMap.set(p.user_id, p.plan_type));
+  // Guardamos plan_type + status para poder degradar al plan EFECTIVO
+  // (una sub expirada/cancelada NO debe listarse como Premium/Luxury).
+  const planMap = new Map<string, { plan_type: string; status: string | null }>();
+  plans?.forEach((p: any) => planMap.set(p.user_id, { plan_type: p.plan_type, status: p.status ?? null }));
 
   // Hacer count de clientes y citas para cada tenant en paralelo.
   // Esto es el patrón de la app móvil. No es escalable a miles de tenants
@@ -132,7 +135,8 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
           .eq('user_id', p.user_id),
       ]);
 
-      const planType = planMap.get(p.user_id) || 'Gratuito';
+      const planRow = planMap.get(p.user_id);
+      const planType = getEffectivePlanType(planRow?.plan_type, planRow?.status);
       const { label, price } = planInternalToVisible(planType);
       const lastSeen = sessionMap.get(p.user_id) || null;
 
@@ -213,7 +217,8 @@ export async function fetchTenantDetail(userId: string): Promise<TenantDetail | 
 
   if (!profile) return null;
 
-  const planType = plans?.find((p: any) => p.user_id === userId)?.plan_type || 'Gratuito';
+  const planRow = plans?.find((p: any) => p.user_id === userId);
+  const planType = getEffectivePlanType(planRow?.plan_type, planRow?.status);
   const { label, price } = planInternalToVisible(planType);
   const lastSeen = (session as any)?.last_seen_at || null;
   const isActive30d = !!lastSeen && new Date(lastSeen) > new Date(Date.now() - 30 * 86400000);
