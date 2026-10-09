@@ -13,7 +13,8 @@ export const config = {
      * - _next/image (optimización de imágenes)
      * - favicon.ico, robots.txt, sitemap.xml
      * - Imágenes (jpg, png, svg, etc.)
+     * - sb/ (ruta de respaldo hacia Supabase, ver next.config)
      */
-    '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!sb/|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
