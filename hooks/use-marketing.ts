@@ -168,9 +168,24 @@ export function useMarketing() {
         if (!row?.id) return;
         setRequests((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? row : x)) : [row, ...prev]));
       })
-      .subscribe();
+      .subscribe((status) => {
+        // Tras una reconexión se pudieron perder avisos: resincroniza.
+        if (status === 'SUBSCRIBED' && subscribedOnce) resync();
+        if (status === 'SUBSCRIBED') subscribedOnce = true;
+      });
+    let subscribedOnce = false;
+    // Red de seguridad: el estado de cada agente y sus tareas se vuelve a
+    // leer cada 30 s y al regresar a la pestaña, aunque se pierda un aviso.
+    const resync = () => {
+      supabase.from('mk_agents').select('*').order('rank').order('name').then(({ data }) => data && setAgents(data as MkAgent[]));
+      supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,kind,request,not_before,created_at,updated_at')
+        .order('created_at', { ascending: false }).limit(80).then(({ data }) => data && setTasks(data as MkTask[]));
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') { resync(); loadKpis(); } };
+    document.addEventListener('visibilitychange', onVisible);
+    const syncTimer = setInterval(resync, 30_000);
     const kpiTimer = setInterval(loadKpis, 120_000);
-    return () => { supabase.removeChannel(ch); clearInterval(kpiTimer); };
+    return () => { supabase.removeChannel(ch); clearInterval(kpiTimer); clearInterval(syncTimer); document.removeEventListener('visibilitychange', onVisible); };
   }, [supabase, loadAll, loadKpis]);
 
   // ── Acciones del fundador ──
