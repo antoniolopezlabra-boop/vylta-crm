@@ -43,6 +43,8 @@ const TOOL_INFO: Record<string, { label: string; desc: string; approval?: boolea
   comprometer_respuesta: { label: 'Comprometer respuestas', desc: 'Te promete una respuesta con hora.' },
   posponer_respuesta: { label: 'Pedir más tiempo', desc: 'Te avisa si necesita más tiempo y por qué.' },
   terminar_tarea: { label: 'Entregar tareas', desc: 'Cierra su trabajo con un resultado.' },
+  reportar_problema: { label: 'Reportar fallas', desc: 'Avisa a Soporte Técnico con el error exacto cuando algo no funciona.' },
+  ver_fallas: { label: 'Ver fallas del sistema', desc: 'Tareas fallidas, errores y alertas recientes para diagnosticar.' },
   web: { label: 'Búsqueda en internet', desc: 'Investiga fuentes actuales (máx. 4 por tarea).' },
 };
 
@@ -314,7 +316,8 @@ function TasksTab({ agent, tasks, byId, onAssign }: { agent: MkAgent; tasks: MkT
 // ── Expediente ───────────────────────────────────────────────────────
 
 function DossierTab({ agent, boss, model }: { agent: MkAgent; boss: MkAgent | null; model: { name: string; note: string; price: string } }) {
-  const tools = (agent.tools ?? []).filter((t) => TOOL_INFO[t]);
+  // reportar_problema y terminar_tarea las tiene todo el equipo (las agrega el motor).
+  const tools = [...new Set([...(agent.tools ?? []), 'reportar_problema', 'terminar_tarea'])].filter((t) => TOOL_INFO[t]);
   return (
     <div className="h-full space-y-5 overflow-y-auto p-4 text-[13px]">
       <section>
