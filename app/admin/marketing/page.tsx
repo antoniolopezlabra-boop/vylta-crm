@@ -1,12 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Loader2, Pause, Play, Zap, Users, Wallet, TrendingUp, UserPlus, Megaphone, Crown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarketing } from '@/hooks/use-marketing';
 import { OfficeFloor } from '@/components/admin/marketing/office-floor';
 import { AgentPanel } from '@/components/admin/marketing/agent-panel';
-import { ActivityFeed, KnowledgeView, MetaWarning, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
+import { ActivityFeed, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -38,7 +38,6 @@ export default function MarketingPage() {
   const paused = !!mk.settings.autopilot?.paused;
   const k = mk.kpis;
   const spendPct = k && k.tope_mes_usd ? Math.min(100, (k.gasto_mes_usd / k.tope_mes_usd) * 100) : 0;
-  const needsMeta = useMemo(() => mk.posts.some((p) => p.status === 'sin_conexion'), [mk.posts]);
   const workingNow = mk.agents.filter((a) => a.enabled && a.status !== 'idle' && a.status !== 'paused').length;
 
   if (mk.loading) {
@@ -87,7 +86,7 @@ export default function MarketingPage() {
         </div>
       </div>
 
-      {needsMeta && <MetaWarning />}
+      <MetaConnect status={mk.settings.meta_status ?? null} onConnect={mk.connectMeta} />
       {paused && <div className="rounded-2xl border border-slate-200 bg-slate-900 p-3 text-center text-sm font-semibold text-white">El equipo está en pausa: nadie trabaja ni publica hasta que lo reactives.</div>}
 
       {/* Oficina + ficha del agente */}

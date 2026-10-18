@@ -185,12 +185,56 @@ export function TeamCosts({ agents, spend, onSelect }: { agents: MkAgent[]; spen
   );
 }
 
-export function MetaWarning() {
+export function MetaConnect({ status, onConnect }: {
+  status: { facebook?: string; instagram?: string | null; expira?: string; conectado?: string } | null;
+  onConnect: (token: string) => Promise<any>;
+}) {
+  const [open, setOpen] = useState(!status);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const connect = async () => {
+    setBusy(true);
+    try {
+      const r = await onConnect(token.trim());
+      setToken(''); setOpen(false);
+      toast.success(`Conectado: Facebook "${r.facebook}"${r.instagram ? ` e Instagram ${r.instagram}` : ''}`);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
+  if (status && !open) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-1.5 font-semibold"><Facebook className="h-4 w-4 text-[#1877F2]" />{status.facebook}</span>
+          <span className={cn('inline-flex items-center gap-1.5 font-semibold', !status.instagram && 'text-amber-700')}>
+            <Instagram className="h-4 w-4 text-[#DD2A7B]" />{status.instagram ?? 'Instagram sin vincular a la página'}
+          </span>
+          <span className="text-[12px] text-emerald-700/80">Acceso {status.expira === 'nunca' ? 'permanente' : `hasta ${fmt(status.expira ?? null)}`}</span>
+        </div>
+        <button onClick={() => setOpen(true)} className="text-[12px] font-semibold text-emerald-800 underline">Reconectar</button>
+      </div>
+    );
+  }
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-      <div>
-        <b>Falta conectar Facebook e Instagram.</b> El equipo ya prepara y programa las publicaciones, pero no pueden salir hasta que autorices la conexión con la página de VYLTA en Meta.
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className="flex-1 space-y-2">
+          <b>Conectar Facebook e Instagram de VYLTA</b>
+          <ol className="list-decimal space-y-1 pl-5 text-[13px] leading-relaxed">
+            <li>En el <a className="font-semibold underline" target="_blank" rel="noreferrer" href="https://developers.facebook.com/tools/explorer/1130987362599712/">Explorador de la API Graph</a> (app VYLTA Marketing) genera el token con tus 7 permisos.</li>
+            <li>Da clic en el ícono <b>ⓘ</b> junto al token → <b>Abrir en la herramienta de token de acceso</b> → <b>Extender token de acceso</b> y copia el token nuevo.</li>
+            <li>Pégalo aquí. El servidor obtiene el acceso permanente de la página y lo guarda en privado; no se vuelve a mostrar.</li>
+          </ol>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token extendido"
+                   className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" autoComplete="off" />
+            <button onClick={connect} disabled={busy || token.trim().length < 40}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              {busy ? 'Conectando…' : 'Conectar'}
+            </button>
+            {status && <button onClick={() => setOpen(false)} className="text-[12px] font-semibold text-amber-800 underline">Cancelar</button>}
+          </div>
+        </div>
       </div>
     </div>
   );
