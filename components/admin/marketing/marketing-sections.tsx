@@ -114,7 +114,7 @@ export function RequestsList({ requests, agents, onDecide }: {
           {r.expected_results && <p className="mt-2 text-[13px] text-slate-600"><b className="text-slate-800">Resultados esperados:</b> {r.expected_results}</p>}
           {r.kind === 'contratacion' && (
             <p className="mt-2 text-[12px] text-slate-500">
-              Modelo: {String((r.payload as any).modelo)} · Herramientas: {((r.payload as any).herramientas ?? []).join(', ')}
+              Modelo: {String((r.payload as any)?.modelo ?? '—')} · Herramientas: {((r.payload as any)?.herramientas ?? []).join(', ')}
             </p>
           )}
           {r.status === 'pendiente' && (

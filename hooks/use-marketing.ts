@@ -148,6 +148,8 @@ export function useMarketing() {
           loadKpis();
         }
       })
+      // Los avisos de UPDATE no traen columnas grandes que no cambiaron
+      // (payload, look, skills…): siempre se fusionan con lo que ya había.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_agents' }, (e) => {
         const row = e.new as MkAgent;
         if (!row?.id) return;
@@ -161,12 +163,12 @@ export function useMarketing() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_posts' }, (e) => {
         const row = e.new as MkPost;
         if (!row?.id) return;
-        setPosts((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? row : x)) : [row, ...prev]));
+        setPosts((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_requests' }, (e) => {
         const row = e.new as MkRequest;
         if (!row?.id) return;
-        setRequests((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? row : x)) : [row, ...prev]));
+        setRequests((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
       })
       .subscribe((status) => {
         // Tras una reconexión se pudieron perder avisos: resincroniza.
