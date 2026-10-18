@@ -25,6 +25,8 @@ export type MkAgent = {
   color: string;
   look: { skin?: string; hair?: string; hairStyle?: string; outfit?: string; tie?: string; glasses?: boolean };
   skills: string[];
+  tools: string[];
+  objectives: string[];
   mission: string;
   status: 'idle' | 'working' | 'talking' | 'paused';
   current_action: string | null;
@@ -213,6 +215,23 @@ export function useMarketing() {
     return status;
   }, [supabase]);
 
+  const assignTask = useCallback(async (agentId: string, title: string, detail: string, priority: number) => {
+    const { error } = await supabase.functions.invoke('mk-engine', { body: { action: 'assign_task', agent_id: agentId, title, detail, priority } });
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* sin cuerpo */ }
+      throw new Error(msg);
+    }
+  }, [supabase]);
+
+  const loadLedger = useCallback(async (agentId: string) => {
+    const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+    const { data } = await supabase.from('mk_ledger')
+      .select('provider,model,input_tokens,output_tokens,cache_read,images,web_searches,cost_usd,created_at')
+      .eq('agent_id', agentId).gte('created_at', since).order('created_at');
+    return (data ?? []) as any[];
+  }, [supabase]);
+
   const setAgentEnabled = useCallback(async (id: string, enabled: boolean) => {
     const { error } = await supabase.from('mk_agents').update({ enabled, status: enabled ? 'idle' : 'paused' }).eq('id', id);
     if (error) throw new Error(error.message);
@@ -243,6 +262,6 @@ export function useMarketing() {
 
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings,
-    chat, runNow, connectMeta, connectInstagram, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
+    chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }

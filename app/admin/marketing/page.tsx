@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, Pause, Play, Zap, Users, Wallet, TrendingUp, UserPlus, Megaphone, Crown } from 'lucide-react';
+import { Loader2, Pause, Play, Zap, Users, Wallet, TrendingUp, UserPlus, Megaphone, Crown, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarketing } from '@/hooks/use-marketing';
 import { OfficeFloor } from '@/components/admin/marketing/office-floor';
@@ -31,6 +31,7 @@ export default function MarketingPage() {
   const mk = useMarketing();
   const [selected, setSelected] = useState<string | null>('director');
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('feed');
+  const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
   const agent = mk.agents.find((a) => a.id === selected) ?? mk.agents.find((a) => a.id === 'director');
@@ -95,35 +96,43 @@ export default function MarketingPage() {
           <div className="pointer-events-none absolute left-5 top-4 z-10 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 backdrop-blur">
             Pasa el cursor por una sala para acercarte · toca a un agente para hablar con él
           </div>
-          <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={setSelected} />
+          <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={setSelected} kpis={mk.kpis} posts={mk.posts} />
         </div>
         <div className="h-[720px] xl:h-auto xl:max-h-[760px]">
           {agent && (
             <AgentPanel agent={agent} agents={mk.agents} activity={mk.activity} tasks={mk.tasks}
                         spend={mk.spendByAgent[agent.id] ?? 0} supabase={mk.supabase}
-                        onChat={mk.chat} onToggle={mk.setAgentEnabled} />
+                        onChat={mk.chat} onToggle={mk.setAgentEnabled}
+                        onAssign={mk.assignTask} loadLedger={mk.loadLedger} />
           )}
         </div>
       </div>
 
-      {/* Secciones */}
-      <div className="rounded-3xl border border-slate-200 bg-white p-5">
-        <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-100 pb-3">
+      {/* Secciones: plegables para que el chat nunca quede empujado */}
+      <div className="rounded-3xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center gap-1 px-5 py-3">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-                    className={cn('relative rounded-lg px-3 py-1.5 text-sm font-semibold', tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100')}>
+            <button key={t.id} onClick={() => { setTab(t.id); setOpen(true); }}
+                    className={cn('relative rounded-lg px-3 py-1.5 text-sm font-semibold', open && tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100')}>
               {t.label}
               {t.id === 'requests' && pendingRequests > 0 && (
                 <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] text-white">{pendingRequests}</span>
               )}
             </button>
           ))}
+          <button onClick={() => setOpen(!open)} className="ml-auto inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-500 hover:bg-slate-100">
+            {open ? 'Minimizar' : 'Abrir'}<ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
+          </button>
         </div>
-        {tab === 'feed' && <ActivityFeed activity={mk.activity} agents={mk.agents} onSelect={setSelected} />}
-        {tab === 'posts' && <PostsGrid posts={mk.posts} onDiscard={mk.discardPost} />}
-        {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
-        {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
-        {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}
+        {open && (
+          <div className="border-t border-slate-100 p-5">
+            {tab === 'feed' && <ActivityFeed activity={mk.activity} agents={mk.agents} onSelect={setSelected} />}
+            {tab === 'posts' && <PostsGrid posts={mk.posts} onDiscard={mk.discardPost} />}
+            {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
+            {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
+            {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}
+          </div>
+        )}
       </div>
     </div>
   );
