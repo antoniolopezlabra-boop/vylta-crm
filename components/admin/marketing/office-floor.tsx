@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { walkBus } from './walk-bus';
 import type { MkActivity, MkAgent, MkKpis, MkPost } from '@/hooks/use-marketing';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -100,21 +101,41 @@ function doorOf(zone: string): [number, number] {
   const cx = z.x + z.w / 2;
   return z.y < HALL_Y ? [cx, z.y + z.d + 0.5] : [cx, z.y - 0.5];
 }
-function routeBetween(from: MkAgent, to: MkAgent): [number, number][] {
-  const [sx, sy] = seatOf(from);
-  const [fx] = deskOf(from);
-  const up: [number, number] = [fx - 0.45, sy];
-  const goal = visitSpot(to);
-  if (from.zone === to.zone) return [[sx, sy], up, [up[0], goal[1]], goal];
-  const d1 = doorOf(from.zone), d2 = doorOf(to.zone);
-  return [[sx, sy], up, [up[0], d1[1] - (d1[1] > sy ? 0.6 : -0.6)], d1, [d1[0], HALL_Y], [d2[0], HALL_Y], d2, [goal[0], d2[1]], goal];
+type P = [number, number];
+// Tramo desde un punto de pasillo de una sala hasta un punto de otra sala:
+// recto dentro de la misma sala; si cambia de sala, sale por la puerta,
+// recorre el pasillo central y entra por la puerta destino.
+function legPath(a: P, za: string, b: P, zb: string): P[] {
+  if (za === zb) return [[a[0], b[1]], b];
+  const d1 = doorOf(za), d2 = doorOf(zb);
+  return [[a[0], d1[1] + (d1[1] > a[1] ? -0.6 : 0.6)], d1, [d1[0], HALL_Y], [d2[0], HALL_Y], d2, [b[0], d2[1]], b];
+}
+// Se levanta, visita a cada destino en orden (con una pausa para hablar) y regresa a su silla.
+function planTrip(from: MkAgent, targets: MkAgent[]) {
+  const seat = seatOf(from);
+  const up: P = [deskOf(from)[0] - 0.45, seat[1]];
+  const path: P[] = [seat, up];
+  const stops: { at: number; ms: number; target: string }[] = [];
+  let cur = up, zone = from.zone;
+  for (const t of targets) {
+    const goal = visitSpot(t);
+    path.push(...legPath(cur, zone, goal, t.zone));
+    stops.push({ at: pathLen(path), ms: DWELL_MS, target: t.id });
+    cur = goal; zone = t.zone;
+  }
+  path.push(...legPath(cur, zone, up, from.zone), seat);
+  return { path, stops, total: pathLen(path) };
 }
 
 // ── Personaje ────────────────────────────────────────────────────────
 
 type Pose = { x: number; y: number; walking: boolean; away: boolean; facing: 1 | -1; visiting?: string };
 
-function Person({ a, pose, selected, onSelect, t }: {
+const Person = memo(PersonView, (p, n) => p.a === n.a && p.selected === n.selected && p.t === n.t && p.onSelect === n.onSelect &&
+  p.pose.x === n.pose.x && p.pose.y === n.pose.y && p.pose.walking === n.pose.walking && p.pose.away === n.pose.away &&
+  p.pose.facing === n.pose.facing && p.pose.visiting === n.pose.visiting);
+
+function PersonView({ a, pose, selected, onSelect, t }: {
   a: MkAgent; pose: Pose; selected: boolean; onSelect: (id: string) => void; t: number;
 }) {
   const [sx, sy] = iso(pose.x, pose.y);
@@ -352,16 +373,32 @@ function TalentBoard({ w, h, agents }: { w: number; h: number; agents: MkAgent[]
 
 // ── Caminatas ────────────────────────────────────────────────────────
 
-type Trip = { agent: string; path: [number, number][]; dwellAt: number; target: string; started: number; dwellMs: number };
-const SPEED = 3.0;
-function segLengths(path: [number, number][]) { const o: number[] = []; for (let i = 1; i < path.length; i++) o.push(Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1])); return o; }
-function along(path: [number, number][], dist: number): { p: [number, number]; dir: number } {
+type Trip = { agent: string; path: P[]; stops: { at: number; ms: number; target: string }[]; total: number; started: number; done?: () => void };
+const SPEED = 4.5;        // baldosas por segundo
+const DWELL_MS = 2800;    // pausa con cada persona
+function segLengths(path: P[]) { const o: number[] = []; for (let i = 1; i < path.length; i++) o.push(Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1])); return o; }
+function pathLen(path: P[]) { return segLengths(path).reduce((s, x) => s + x, 0); }
+function along(path: P[], dist: number): { p: P; dir: number } {
   const segs = segLengths(path);
   for (let i = 0; i < segs.length; i++) {
     if (dist <= segs[i]) { const k = segs[i] ? dist / segs[i] : 0; const a = path[i], b = path[i + 1]; return { p: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], dir: (b[0] - a[0]) - (b[1] - a[1]) }; }
     dist -= segs[i];
   }
   return { p: path[path.length - 1], dir: 0 };
+}
+// Dónde va la caminata en el instante `now`: distancia recorrida, con quién está
+// hablando (si está en una pausa), a quién va y si ya terminó.
+function tripState(tr: Trip, now: number): { dist: number; visiting?: string; next?: string; finished: boolean } {
+  let t = (now - tr.started) / 1000, prev = 0;
+  for (const s of tr.stops) {
+    const walk = (s.at - prev) / SPEED;
+    if (t < walk) return { dist: prev + t * SPEED, next: s.target, finished: false };
+    t -= walk;
+    if (t < s.ms / 1000) return { dist: s.at, visiting: s.target, finished: false };
+    t -= s.ms / 1000; prev = s.at;
+  }
+  const rest = (tr.total - prev) / SPEED;
+  return t < rest ? { dist: prev + t * SPEED, finished: false } : { dist: tr.total, finished: true };
 }
 
 // ── Oficina ──────────────────────────────────────────────────────────
@@ -378,24 +415,32 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(t); }, []);
   const byId = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
 
+  const byIdRef = useRef(byId); byIdRef.current = byId;
+  const tripsRef = useRef(trips); tripsRef.current = trips;
+  const startTrip = useCallback((fromId: string, targetIds: string[], done?: () => void) => {
+    const from = byIdRef.current[fromId];
+    const targets = targetIds.map((id) => byIdRef.current[id]).filter((t): t is MkAgent => !!t && t.id !== fromId);
+    if (!from || !targets.length) { done?.(); return; }
+    tripsRef.current[fromId]?.done?.();
+    const trip: Trip = { agent: fromId, ...planTrip(from, targets), started: performance.now(), done };
+    setTrips((cur) => ({ ...cur, [fromId]: trip }));
+  }, []);
+
+  // El chat pide caminatas y espera a que el agente regrese a su lugar.
+  useEffect(() => walkBus.register((from, targets) => new Promise<void>((res) => startTrip(from, targets, res))), [startTrip]);
+
+  // Encargos que ocurren fuera del chat (tareas del ciclo): caminata de un destino.
   useEffect(() => {
     if (!activity.length) return;
     const newest = activity[0].id;
     if (seen.current === 0) { seen.current = newest; return; }
     const fresh = activity.filter((e) => e.id > seen.current && e.kind === 'talk' && e.target_agent && e.target_agent !== e.agent_id).reverse();
     seen.current = Math.max(seen.current, newest);
-    if (!fresh.length) return;
-    setTrips((cur) => {
-      const next = { ...cur };
-      for (const e of fresh) {
-        const from = byId[e.agent_id], to = byId[e.target_agent!];
-        if (!from || !to || next[from.id]) continue;
-        const go = routeBetween(from, to);
-        next[from.id] = { agent: from.id, path: [...go, ...go.slice(0, -1).reverse()], dwellAt: segLengths(go).reduce((s, x) => s + x, 0), target: to.id, started: performance.now(), dwellMs: 3500 };
-      }
-      return next;
-    });
-  }, [activity, byId]);
+    for (const e of fresh) {
+      if (walkBus.busy.has(e.agent_id) || tripsRef.current[e.agent_id]) continue;
+      startTrip(e.agent_id, [e.target_agent!]);
+    }
+  }, [activity, startTrip]);
 
   useEffect(() => {
     if (!Object.keys(trips).length) return;
@@ -403,39 +448,40 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     const loop = () => {
       const t = performance.now();
       setFrame(t);
-      const done = Object.values(trips).filter((tr) => (t - tr.started) / 1000 * SPEED - tr.dwellMs / 1000 * SPEED > segLengths(tr.path).reduce((s, x) => s + x, 0) + 0.01);
-      if (done.length) setTrips((cur) => { const n = { ...cur }; done.forEach((d) => delete n[d.agent]); return n; });
-      else raf = requestAnimationFrame(loop);
+      const done = Object.values(trips).filter((tr) => tripState(tr, t).finished);
+      if (done.length) {
+        setTrips((cur) => { const n = { ...cur }; done.forEach((d) => { if (n[d.agent] === d) delete n[d.agent]; }); return n; });
+        done.forEach((d) => d.done?.());
+      } else raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [trips]);
 
-  const poseOf = useCallback((a: MkAgent): Pose => {
+  const poseOf = useCallback((a: MkAgent): Pose & { next?: string } => {
     const tr = trips[a.id];
     const [sx, sy] = seatOf(a);
     if (!tr) return { x: sx, y: sy, walking: false, away: false, facing: 1 };
-    let dist = (frame - tr.started) / 1000 * SPEED;
-    const dwell = tr.dwellMs / 1000 * SPEED;
-    let visiting: string | undefined; let walking = true;
-    if (dist > tr.dwellAt && dist < tr.dwellAt + dwell) { dist = tr.dwellAt; walking = false; visiting = tr.target; }
-    else if (dist >= tr.dwellAt + dwell) dist -= dwell;
-    const { p, dir } = along(tr.path, Math.max(0, dist));
-    const atSeat = Math.hypot(p[0] - sx, p[1] - sy) < 0.05 && dist > 0.1;
-    return { x: p[0], y: p[1], walking: walking && !atSeat, away: !atSeat || !walking, facing: dir < 0 ? -1 : 1, visiting };
+    const st = tripState(tr, frame);
+    const { p, dir } = along(tr.path, st.dist);
+    return { x: p[0], y: p[1], walking: !st.visiting && !st.finished, away: !st.finished, facing: dir < 0 ? -1 : 1, visiting: st.visiting, next: st.next };
   }, [trips, frame]);
 
   const bubbles = useMemo(() => {
     const out: Record<string, string | null> = {};
     for (const a of agents) {
-      const tr = trips[a.id];
-      if (tr) { out[a.id] = `Va con ${byId[tr.target]?.name.split(' ')[0] ?? 'el equipo'}`; continue; }
+      if (trips[a.id]) {
+        const st = poseOf(a);
+        const name = (id?: string) => byId[id ?? '']?.name.split(' ')[0] ?? 'el equipo';
+        out[a.id] = st.visiting ? `Revisando con ${name(st.visiting)}` : st.next ? `Va con ${name(st.next)}` : 'Regresa a su lugar';
+        continue;
+      }
       if (a.current_action) { out[a.id] = a.current_action; continue; }
       const last = activity.find((e) => e.agent_id === a.id);
       out[a.id] = last && now - new Date(last.created_at).getTime() < 3 * 60_000 ? last.text : null;
     }
     return out;
-  }, [agents, activity, now, trips, byId]);
+  }, [agents, activity, now, trips, byId, poseOf]);
 
   // ── Cámara ──
   const full = useMemo(() => {
@@ -444,7 +490,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     return [minX, minY, maxX - minX, maxY - minY] as const;
   }, []);
   const [focus, setFocus] = useState<string | null>(null);
-  const [vb, setVb] = useState<number[]>([...full]);
+  const fullStr = full.map((v) => v.toFixed(1)).join(' ');
+  const vbRef = useRef<number[]>([...full]);
   const target = useMemo(() => {
     if (!focus) return [...full];
     const z = zoneById[focus];
@@ -457,40 +504,55 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     else { const h = (x1 - x0) / aspect, cy = (y0 + y1) / 2; y0 = cy - h / 2; y1 = cy + h / 2; }
     return [x0, y0, x1 - x0, y1 - y0];
   }, [focus, full]);
+  // El acercamiento se anima directo sobre el SVG (sin volver a dibujar la
+  // oficina en cada cuadro): 520 ms con salida suave.
   useEffect(() => {
+    const svg = svgRef.current; if (!svg) return;
+    const from = [...vbRef.current], t0 = performance.now(), dur = 520;
     let raf = 0;
-    const step = () => {
-      setVb((cur) => {
-        const nxt = cur.map((v, i) => v + (target[i] - v) * 0.14);
-        const close = nxt.every((v, i) => Math.abs(v - target[i]) < 0.6);
-        if (!close) raf = requestAnimationFrame(step);
-        return close ? target : nxt;
-      });
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      vbRef.current = from.map((v, i) => v + (target[i] - v) * e);
+      svg.setAttribute('viewBox', vbRef.current.map((v) => v.toFixed(1)).join(' '));
+      if (k < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [target]);
+  // Histéresis: solo cambia de sala si el cursor se queda en otra sala; pasar
+  // por el pasillo o por los muros no suelta el acercamiento.
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<string | null | undefined>(undefined);
+  const focusRef = useRef(focus); focusRef.current = focus;
+  const schedule = (want: string | null, ms: number) => {
+    if (pending.current === want) return;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    pending.current = want;
+    hoverTimer.current = setTimeout(() => { pending.current = undefined; setFocus(want); }, ms);
+  };
+  const cancel = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = null; pending.current = undefined; };
   const onMove = (e: React.MouseEvent) => {
     const svg = svgRef.current; if (!svg) return;
     const ctm = svg.getScreenCTM(); if (!ctm) return;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
     const [wx, wy] = unIso(p.x, p.y);
-    const want = ZONES.find((zz) => wx >= zz.x && wx <= zz.x + zz.w && wy >= zz.y && wy <= zz.y + zz.d)?.id ?? null;
-    if (want === focus) { if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; } return; }
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setFocus(want), want ? 260 : 700);
+    const want = ZONES.find((zz) => wx >= zz.x + 0.3 && wx <= zz.x + zz.w - 0.3 && wy >= zz.y + 0.3 && wy <= zz.y + zz.d - 0.3)?.id ?? null;
+    if (!want || want === focusRef.current) { if (pending.current !== null) cancel(); return; }
+    schedule(want, focusRef.current ? 450 : 280);
   };
-  const onLeave = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setFocus(null), 350); };
+  const onLeave = () => schedule(null, 500);
 
   // ── Escena ──
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Mexico_City', hour: 'numeric', hourCycle: 'h23' }).format(new Date(now)));
   const night = hour < 7 || hour >= 19;
+  const awayKey = Object.keys(trips).sort().join(',');
+  const staticScene = useMemo(() => {
   const drawables: Drawable[] = [];
+  const away = new Set(awayKey ? awayKey.split(',') : []);
   const slot = (a: MkAgent) => `${a.zone}:${a.desk % (DESKS[a.zone]?.length ?? 1)}`;
-  const workingByDesk = new Set(agents.filter((a) => a.enabled && (a.status === 'working' || a.status === 'talking') && !trips[a.id]).map(slot));
+  const workingByDesk = new Set(agents.filter((a) => a.enabled && (a.status === 'working' || a.status === 'talking') && !away.has(a.id)).map(slot));
   const colorByDesk = Object.fromEntries(agents.map((a) => [slot(a), a.color]));
-  const awayByDesk = new Set(agents.filter((a) => trips[a.id]).map(slot));
+  const awayByDesk = new Set(agents.filter((a) => away.has(a.id)).map(slot));
 
   // Escritorios
   for (const [zone, list] of Object.entries(DESKS)) {
@@ -514,24 +576,39 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
         const cx = x + w / 2, cy = y - 0.38; const [px, py] = iso(cx, cy);
         drawables.push({ key: `chair-${id}`, depth: cx + cy + 0.8, node: <g key={`chair-${id}`} transform={`translate(${px},${py})`}><rect x={-12.5} y={-45} width={25} height={31} rx={8} fill="#1C2433" stroke="#3B4A61" strokeWidth={0.8} /><rect x={-13} y={-16} width={26} height={7} rx={3.5} fill="#111827" /></g> });
       }
-      // Monitores (dos en Dirección) con interfaz
-      const screens = exec ? [x + 0.55, x + 1.6] : [x + 0.65];
+      // Computadoras tipo iMac (dos en Dirección): marco de aluminio, pantalla
+      // de vidrio, barbilla plateada, pie delgado, teclado y mouse plateados.
+      const screens = exec ? [x + 0.45, x + 1.6] : [x + 0.62];
       screens.forEach((mx, si) => {
-        const sw = exec ? 0.95 : 0.95;
-        const scr = [iso(mx, y + 0.35, 0.84), iso(mx + sw, y + 0.35, 0.84), iso(mx + sw, y + 0.35, 1.55), iso(mx, y + 0.35, 1.55)];
+        const sw = 1.0, zt = 1.5, zb = 0.86, yy = y + 0.36;
+        const Wd = sw * T, H = (zt - zb) * T, scrH = H * 0.78, neck = (zb - 0.74) * T;
         drawables.push({
-          key: `mon-${id}-${si}`, depth: x + y + 2.1,
+          key: `mon-${id}-${si}`, depth: x + w + y + 1.05, // encima de la cubierta del escritorio
           node: (
             <g key={`mon-${id}-${si}`}>
-              <polygon points={pts([iso(mx + 0.42, y + 0.4, 0.74), iso(mx + 0.53, y + 0.4, 0.74), iso(mx + 0.53, y + 0.4, 0.86), iso(mx + 0.42, y + 0.4, 0.86)])} fill="#475569" />
-              {on && <polygon points={pts(scr)} fill={glow} opacity={0.45} filter="url(#glow)" />}
-              <polygon points={pts(scr)} fill={on ? '#0B1220' : '#0A0F1A'} stroke={on ? glow : '#1E293B'} strokeWidth={1.4} />
-              <g transform={alongX(mx + 0.06, y + 0.35, 1.5)} opacity={on ? 1 : 0.35}>
-                <rect width={sw * T - 3} height={3} rx={1} fill={on ? glow : '#334155'} />
-                {[0, 1, 2].map((r) => <rect key={r} y={5 + r * 3.4} width={(sw * T - 3) * (0.5 + ((r + si) % 3) * 0.15)} height={1.6} rx={0.8} fill="#94A3B8" opacity={0.7} className={on ? 'mk-code' : undefined} />)}
-                <polyline points={`0,16 4,13 8,14 12,10 16,11 20,7`} fill="none" stroke={on ? '#34D399' : '#334155'} strokeWidth={0.9} />
+              {/* pie sobre el escritorio */}
+              <polygon points={floorPoly(mx + sw / 2 - 0.2, yy - 0.02, 0.4, 0.26, 0.745)} fill="#C9CED6" stroke="#9AA1AB" strokeWidth={0.4} />
+              {/* grosor lateral del equipo */}
+              <polygon points={pts([iso(mx + sw, yy, zb - 0.02), iso(mx + sw, yy + 0.05, zb - 0.02), iso(mx + sw, yy + 0.05, zt), iso(mx + sw, yy, zt)])} fill="#8E959F" />
+              <g transform={alongX(mx, yy, zt)}>
+                <path d={`M${Wd / 2 - 3},${H} L${Wd / 2 + 3},${H} L${Wd / 2 + 2.4},${H + neck} L${Wd / 2 - 2.4},${H + neck} Z`} fill="url(#aluNeck)" />
+                {on && <rect x={-2} y={-2} width={Wd + 4} height={scrH + 4} rx={3} fill={glow} opacity={0.5} filter="url(#glow)" />}
+                <rect x={-0.8} y={-0.8} width={Wd + 1.6} height={H + 0.8} rx={1.8} fill="url(#alu)" stroke="#8E959F" strokeWidth={0.4} />
+                <rect x={0.4} y={0.4} width={Wd - 0.8} height={scrH} rx={0.8} fill="#05070C" />
+                <rect x={1.3} y={1.3} width={Wd - 2.6} height={scrH - 1.8} rx={0.4} fill={on ? '#0B1220' : '#0A0F1A'} />
+                <g transform="translate(1.3,1.3)" opacity={on ? 1 : 0.3}>
+                  <rect width={Wd - 2.6} height={2.2} fill={on ? glow : '#334155'} opacity={0.9} />
+                  <rect x={0.8} y={3.4} width={(Wd - 4) * 0.28} height={scrH - 6} rx={0.4} fill="#111A2E" />
+                  {[0, 1, 2].map((r) => <rect key={r} x={(Wd - 4) * 0.33} y={4 + r * 2.8} width={(Wd - 4) * (0.42 + ((r + si) % 3) * 0.12)} height={1.3} rx={0.6} fill="#94A3B8" opacity={0.75} className={on ? 'mk-code' : undefined} />)}
+                  <polyline points={`${(Wd - 4) * 0.33},${scrH - 3.5} ${(Wd - 4) * 0.45},${scrH - 5.5} ${(Wd - 4) * 0.57},${scrH - 4.6} ${(Wd - 4) * 0.7},${scrH - 7} ${(Wd - 4) * 0.85},${scrH - 6.2}`} fill="none" stroke={on ? '#34D399' : '#334155'} strokeWidth={0.8} />
+                </g>
+                {/* reflejo del vidrio */}
+                <path d={`M${Wd * 0.55},0.4 L${Wd - 0.4},0.4 L${Wd - 0.4},${scrH * 0.55} Z`} fill="#fff" opacity={0.05} />
               </g>
-              <polygon points={pts([iso(mx - 0.1, y + 0.72, 0.75), iso(mx + 0.9, y + 0.72, 0.75), iso(mx + 0.9, y + 0.92, 0.75), iso(mx - 0.1, y + 0.92, 0.75)])} fill="#1E293B" stroke={on ? `${glow}aa` : '#334155'} strokeWidth={0.5} />
+              {/* teclado y mouse */}
+              <polygon points={pts([iso(mx + 0.08, y + 0.68, 0.75), iso(mx + 0.86, y + 0.68, 0.75), iso(mx + 0.86, y + 0.86, 0.75), iso(mx + 0.08, y + 0.86, 0.75)])} fill="#E5E7EB" stroke="#9CA3AF" strokeWidth={0.4} />
+              {[0.72, 0.77, 0.82].map((ky) => <polyline key={ky} points={pts([iso(mx + 0.12, y + ky, 0.752), iso(mx + 0.82, y + ky, 0.752)])} stroke="#B8BEC7" strokeWidth={0.5} strokeDasharray="1.2 0.8" />)}
+              <ellipse cx={iso(mx + 1.02, y + 0.78, 0.75)[0]} cy={iso(mx + 1.02, y + 0.78, 0.75)[1]} rx={2.6} ry={1.7} fill="#F3F4F6" stroke="#9CA3AF" strokeWidth={0.4} />
             </g>
           ),
         });
@@ -612,9 +689,13 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     glass(`gw-s-${z.id}-b`, z.x + z.w * 0.62, z.y + z.d - 0.08, z.w * 0.38, 0.08);
   }
 
+  return drawables;
+  }, [agents, awayKey, posts]);
+
+  const drawables: Drawable[] = [...staticScene];
   for (const a of agents) {
     const pose = poseOf(a);
-    drawables.push({ key: `p-${a.id}`, depth: pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={frame} selected={selected === a.id} onSelect={(id) => onSelect(id)} /> });
+    drawables.push({ key: `p-${a.id}`, depth: pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={pose.walking ? frame : 0} selected={selected === a.id} onSelect={onSelect} /> });
   }
   drawables.sort((p, q) => p.depth - q.depth);
 
@@ -632,45 +713,9 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     { z: 'rh', at: [28.3, 16.2, 2.2] },
   ];
 
-  return (
-    <div className="relative">
-      <svg ref={svgRef} viewBox={vb.map((v) => v.toFixed(1)).join(' ')} className="h-auto w-full select-none"
-           onClick={() => onSelect(null)} onMouseMove={onMove} onMouseLeave={onLeave}>
-        <defs>
-          <pattern id="wood" width="22" height="10" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)">
-            <rect width="22" height="10" fill="#33241A" /><path d="M0,5 H22" stroke="#40301F" strokeWidth="0.8" /><path d="M11,0 V5" stroke="#40301F" strokeWidth="0.6" />
-          </pattern>
-          <pattern id="tileV" width="22.5" height="13" patternUnits="userSpaceOnUse">
-            <rect width="22.5" height="13" fill="#1B1F35" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#8B5CF61f" strokeWidth="0.8" />
-          </pattern>
-          <pattern id="tileG" width="22.5" height="13" patternUnits="userSpaceOnUse">
-            <rect width="22.5" height="13" fill="#14231F" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#10B9811f" strokeWidth="0.8" />
-          </pattern>
-          <pattern id="concrete" width="40" height="40" patternUnits="userSpaceOnUse">
-            <rect width="40" height="40" fill="#26202B" /><circle cx="8" cy="12" r="0.8" fill="#3A3140" /><circle cx="28" cy="30" r="0.7" fill="#3A3140" /><circle cx="33" cy="9" r="0.6" fill="#3A3140" />
-          </pattern>
-          <pattern id="carpet" width="6" height="6" patternUnits="userSpaceOnUse">
-            <rect width="6" height="6" fill="#1E1B33" /><circle cx="3" cy="3" r="0.6" fill="#EC489922" />
-          </pattern>
-          <pattern id="tech" width="22.5" height="13" patternUnits="userSpaceOnUse">
-            <rect width="22.5" height="13" fill="#0F1828" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#22D3EE2e" strokeWidth="0.8" />
-          </pattern>
-          <pattern id="hall" width="22.5" height="13" patternUnits="userSpaceOnUse">
-            <rect width="22.5" height="13" fill="#131A28" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#ffffff0a" strokeWidth="0.8" />
-          </pattern>
-          <radialGradient id="core" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#A5F3FC" /><stop offset="60%" stopColor="#22D3EE" stopOpacity="0.6" /><stop offset="100%" stopColor="#22D3EE" stopOpacity="0" /></radialGradient>
-          <radialGradient id="lightPool" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.22" /><stop offset="100%" stopColor="#E0F2FE" stopOpacity="0" /></radialGradient>
-          <linearGradient id="wallBack" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#1A2236" /><stop offset="1" stopColor="#0E1424" /></linearGradient>
-          <linearGradient id="wallLeft" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#141B2C" /><stop offset="1" stopColor="#0A0F1C" /></linearGradient>
-          <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor={night ? '#050B1F' : '#5EA8DD'} /><stop offset="1" stopColor={night ? '#1A2B55' : '#C9E6F7'} /></linearGradient>
-          <linearGradient id="screenBg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#0B1220" /><stop offset="1" stopColor="#060A14" /></linearGradient>
-          <linearGradient id="areaGreen" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#10B981" stopOpacity="0.55" /><stop offset="1" stopColor="#10B981" stopOpacity="0" /></linearGradient>
-          <linearGradient id="logoGrad" x1="0" x2="1"><stop offset="0" stopColor="#34D399" /><stop offset="1" stopColor="#10B981" /></linearGradient>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" /></filter>
-          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          <filter id="bigGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-        </defs>
-
+  // Fondo, muros con pantallas y letreros: solo cambian con los datos.
+  const backdrop = useMemo(() => (
+      <>
         {/* Edificio */}
         <polygon points={pts([iso(-0.6, -0.6), iso(W + 0.6, -0.6), iso(W + 0.6, D + 0.6), iso(-0.6, D + 0.6)])} fill="#1E293B" />
         <polygon points={pts([iso(-0.6, D + 0.6), iso(W + 0.6, D + 0.6), iso(W + 0.6, D + 0.6, -0.6), iso(-0.6, D + 0.6, -0.6)])} fill="#0F172A" />
@@ -727,8 +772,11 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
           </g>
         </g>
 
-        {drawables.map((d) => d.node)}
-
+      </>
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [kpis, posts, night, focus]);
+  const signs = useMemo(() => (
+      <>
         {/* Letreros de departamento */}
         {SIGNS.map((s) => {
           const z = zoneById[s.z];
@@ -751,6 +799,56 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
             </g>
           );
         })}
+
+      </>
+  ), []);
+
+  return (
+    <div className="relative">
+      <svg ref={svgRef} viewBox={fullStr} className="h-auto w-full select-none"
+           onClick={() => onSelect(null)} onMouseMove={onMove} onMouseLeave={onLeave} onMouseEnter={() => { if (pending.current === null) cancel(); }}>
+        <defs>
+          <pattern id="wood" width="22" height="10" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)">
+            <rect width="22" height="10" fill="#33241A" /><path d="M0,5 H22" stroke="#40301F" strokeWidth="0.8" /><path d="M11,0 V5" stroke="#40301F" strokeWidth="0.6" />
+          </pattern>
+          <pattern id="tileV" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#1B1F35" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#8B5CF61f" strokeWidth="0.8" />
+          </pattern>
+          <pattern id="tileG" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#14231F" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#10B9811f" strokeWidth="0.8" />
+          </pattern>
+          <pattern id="concrete" width="40" height="40" patternUnits="userSpaceOnUse">
+            <rect width="40" height="40" fill="#26202B" /><circle cx="8" cy="12" r="0.8" fill="#3A3140" /><circle cx="28" cy="30" r="0.7" fill="#3A3140" /><circle cx="33" cy="9" r="0.6" fill="#3A3140" />
+          </pattern>
+          <pattern id="carpet" width="6" height="6" patternUnits="userSpaceOnUse">
+            <rect width="6" height="6" fill="#1E1B33" /><circle cx="3" cy="3" r="0.6" fill="#EC489922" />
+          </pattern>
+          <pattern id="tech" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#0F1828" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#22D3EE2e" strokeWidth="0.8" />
+          </pattern>
+          <pattern id="hall" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#131A28" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#ffffff0a" strokeWidth="0.8" />
+          </pattern>
+          <radialGradient id="core" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#A5F3FC" /><stop offset="60%" stopColor="#22D3EE" stopOpacity="0.6" /><stop offset="100%" stopColor="#22D3EE" stopOpacity="0" /></radialGradient>
+          <radialGradient id="lightPool" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.22" /><stop offset="100%" stopColor="#E0F2FE" stopOpacity="0" /></radialGradient>
+          <linearGradient id="wallBack" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#1A2236" /><stop offset="1" stopColor="#0E1424" /></linearGradient>
+          <linearGradient id="wallLeft" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#141B2C" /><stop offset="1" stopColor="#0A0F1C" /></linearGradient>
+          <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor={night ? '#050B1F' : '#5EA8DD'} /><stop offset="1" stopColor={night ? '#1A2B55' : '#C9E6F7'} /></linearGradient>
+          <linearGradient id="screenBg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#0B1220" /><stop offset="1" stopColor="#060A14" /></linearGradient>
+          <linearGradient id="areaGreen" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#10B981" stopOpacity="0.55" /><stop offset="1" stopColor="#10B981" stopOpacity="0" /></linearGradient>
+          <linearGradient id="alu" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#F3F4F6" /><stop offset="0.8" stopColor="#D5DAE1" /><stop offset="1" stopColor="#BCC2CB" /></linearGradient>
+          <linearGradient id="aluNeck" x1="0" x2="1"><stop offset="0" stopColor="#A9B0BA" /><stop offset="0.5" stopColor="#D9DEE5" /><stop offset="1" stopColor="#9BA2AD" /></linearGradient>
+          <linearGradient id="logoGrad" x1="0" x2="1"><stop offset="0" stopColor="#34D399" /><stop offset="1" stopColor="#10B981" /></linearGradient>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" /></filter>
+          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+          <filter id="bigGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+        </defs>
+
+        {backdrop}
+
+        {drawables.map((d) => d.node)}
+
+        {signs}
 
         {/* Globos de lo que hace cada quien: capa superior, nada los tapa */}
         {agents.map((a) => {

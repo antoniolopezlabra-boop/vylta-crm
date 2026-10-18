@@ -8,6 +8,7 @@ import {
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { walkBus } from './walk-bus';
 import type { MkActivity, MkAgent, MkMessage, MkTask } from '@/hooks/use-marketing';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -73,7 +74,7 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
   tasks: MkTask[];
   spend: number;
   supabase: any;
-  onChat: (agentId: string, message: string) => Promise<string>;
+  onChat: (agentId: string, message: string) => Promise<{ reply: string; visits: string[] }>;
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onAssign: (agentId: string, title: string, detail: string, priority: number) => Promise<void>;
   loadLedger: (agentId: string) => Promise<any[]>;
@@ -143,7 +144,7 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === 'chat' && <ChatTab agent={agent} supabase={supabase} onChat={onChat} />}
+        {tab === 'chat' && <ChatTab agent={agent} agents={agents} supabase={supabase} onChat={onChat} />}
         {tab === 'tareas' && <TasksTab agent={agent} tasks={mine} byId={byId} onAssign={onAssign} />}
         {tab === 'expediente' && <DossierTab agent={agent} boss={boss} model={model} />}
         {tab === 'historial' && <HistoryTab agent={agent} activity={activity} byId={byId} />}
@@ -155,11 +156,18 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
 
 // ── Chat ─────────────────────────────────────────────────────────────
 
-function ChatTab({ agent, supabase, onChat }: { agent: MkAgent; supabase: any; onChat: (id: string, m: string) => Promise<string> }) {
+function ChatTab({ agent, agents, supabase, onChat }: {
+  agent: MkAgent; agents: MkAgent[]; supabase: any; onChat: (id: string, m: string) => Promise<{ reply: string; visits: string[] }>;
+}) {
   const [thread, setThread] = useState<MkMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [walking, setWalking] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  // Mientras el agente va a ver a su equipo, su respuesta se guarda y se
+  // muestra cuando regresa a su lugar.
+  const holdRef = useRef(false);
+  const heldRef = useRef<MkMessage[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -169,6 +177,7 @@ function ChatTab({ agent, supabase, onChat }: { agent: MkAgent; supabase: any; o
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mk_messages', filter: `agent_id=eq.${agent.id}` },
         (e: any) => setThread((t) => {
           if (t.some((m) => m.id === e.new.id)) return t;
+          if (holdRef.current && e.new.sender === 'agente') { heldRef.current.push(e.new); return t; }
           const tmp = t.findIndex((m) => m.id < 0 && m.sender === e.new.sender && m.body === e.new.body);
           if (tmp >= 0) { const n = [...t]; n[tmp] = e.new; return n; }
           return [...t, e.new];
@@ -181,14 +190,37 @@ function ChatTab({ agent, supabase, onChat }: { agent: MkAgent; supabase: any; o
   useEffect(() => {
     const el = boxRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [thread, sending]);
+  }, [thread, sending, walking]);
 
   const send = async () => {
     const msg = draft.trim();
     if (!msg || sending) return;
     setSending(true); setDraft('');
     setThread((t) => [...t, { id: -Date.now(), agent_id: agent.id, sender: 'fundador', body: msg, created_at: new Date().toISOString() }]);
-    try { await onChat(agent.id, msg); } catch (e) { toast.error((e as Error).message); } finally { setSending(false); }
+    holdRef.current = true; heldRef.current = []; walkBus.busy.add(agent.id);
+    let reply: string | null = null;
+    try {
+      const r = await onChat(agent.id, msg);
+      reply = r.reply;
+      if (r.visits.length) {
+        const names = r.visits.map((v) => agents.find((a) => a.id === v)?.name.split(' ')[0]).filter(Boolean) as string[];
+        setWalking(names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}` : names[0] ?? 'el equipo');
+        await walkBus.walk(agent.id, r.visits);
+      }
+    } catch (e) { toast.error((e as Error).message); }
+    finally {
+      holdRef.current = false; walkBus.busy.delete(agent.id);
+      const held = heldRef.current; heldRef.current = [];
+      setThread((t) => {
+        let n = [...t, ...held.filter((h) => !t.some((m) => m.id === h.id))];
+        // Si el aviso en vivo no llegó, se muestra la respuesta devuelta por el motor.
+        if (reply && !n.some((m) => m.sender === 'agente' && m.body === reply && Date.now() - new Date(m.created_at).getTime() < 10 * 60_000)) {
+          n = [...n, { id: -Date.now() - 1, agent_id: agent.id, sender: 'agente', body: reply, created_at: new Date().toISOString() }];
+        }
+        return n;
+      });
+      setWalking(null); setSending(false);
+    }
   };
 
   return (
@@ -210,7 +242,8 @@ function ChatTab({ agent, supabase, onChat }: { agent: MkAgent; supabase: any; o
         ))}
         {sending && (
           <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />{agent.name.split(' ')[0]} está revisando…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {walking ? `${agent.name.split(' ')[0]} fue con ${walking}; te responde en cuanto regrese a su lugar…` : `${agent.name.split(' ')[0]} está revisando…`}
           </div>
         )}
       </div>

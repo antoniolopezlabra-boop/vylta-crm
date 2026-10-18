@@ -199,7 +199,8 @@ export function useMarketing() {
       throw new Error(msg);
     }
     loadKpis();
-    return (data as { reply: string }).reply;
+    const r = data as { reply: string; visits?: string[] };
+    return { reply: r.reply, visits: r.visits ?? [] };
   }, [supabase, loadKpis]);
 
   const runNow = useCallback(async () => {
