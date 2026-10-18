@@ -86,7 +86,7 @@ const zoneById = Object.fromEntries(ZONES.map((z) => [z.id, z]));
 const DESKS: Record<string, [number, number][]> = {
   direccion: [[3, 2.4]],
   estrategia: [[10.7, 1.6], [13.6, 1.6], [16.5, 1.6], [10.7, 5.4], [16.5, 5.4]],
-  datos: [[24.0, 4.7], [26.9, 4.7], [24.0, 6.0]],
+  datos: [[24.0, 4.7], [26.9, 4.7], [20.5, 4.7]],
   creativo: [[1.4, 10.8], [4.5, 10.8], [7.4, 10.8], [1.4, 13.6], [4.5, 13.6]],
   social: [[12.0, 10.8], [15.6, 10.8], [12.0, 13.6], [15.6, 13.6]],
   rh: [[21.2, 10.8], [24.4, 10.8], [21.2, 13.8], [24.4, 13.8]],
@@ -114,8 +114,8 @@ function routeBetween(from: MkAgent, to: MkAgent): [number, number][] {
 
 type Pose = { x: number; y: number; walking: boolean; away: boolean; facing: 1 | -1; visiting?: string };
 
-function Person({ a, pose, selected, bubble, onSelect, t }: {
-  a: MkAgent; pose: Pose; selected: boolean; bubble: string | null; onSelect: (id: string) => void; t: number;
+function Person({ a, pose, selected, onSelect, t }: {
+  a: MkAgent; pose: Pose; selected: boolean; onSelect: (id: string) => void; t: number;
 }) {
   const [sx, sy] = iso(pose.x, pose.y);
   const L = a.look ?? {};
@@ -178,14 +178,6 @@ function Person({ a, pose, selected, bubble, onSelect, t }: {
         <circle cx={-25} cy={-1.5} r={3} fill={paused ? '#64748B' : working || pose.walking ? '#22C55E' : a.color} className={working ? 'mk-blink-fast' : undefined} />
         <text x={-19} y={2} fontSize={8.5} fontWeight={700} fill="#fff">{a.name.split(' ')[0]}</text>
       </g>
-      {bubble && (
-        <g transform={`translate(0,${(standing ? -84 : -76) - (a.desk % 2 ? 22 : 0)})`} className="mk-bubble">
-          <rect x={-80} y={-24} width={160} height={22} rx={11} fill="#ffffff" stroke={a.color} strokeWidth={1.4} />
-          <path d="M-5,-2.5 L0,5 L5,-2.5 Z" fill="#ffffff" stroke={a.color} strokeWidth={1.4} />
-          <rect x={-6} y={-4} width={12} height={3} fill="#ffffff" />
-          <text x={0} y={-9.5} fontSize={8.6} textAnchor="middle" fill="#0F172A" fontWeight={600}>{bubble.length > 35 ? `${bubble.slice(0, 34)}…` : bubble}</text>
-        </g>
-      )}
     </g>
   );
 }
@@ -622,7 +614,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
 
   for (const a of agents) {
     const pose = poseOf(a);
-    drawables.push({ key: `p-${a.id}`, depth: pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={frame} selected={selected === a.id} bubble={bubbles[a.id]} onSelect={(id) => onSelect(id)} /> });
+    drawables.push({ key: `p-${a.id}`, depth: pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={frame} selected={selected === a.id} onSelect={(id) => onSelect(id)} /> });
   }
   drawables.sort((p, q) => p.depth - q.depth);
 
@@ -636,8 +628,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     { z: 'estrategia', at: [13.4, 0.02, 4.7], wall: true },
     { z: 'datos', at: [24.0, 0.02, 4.7], wall: true },
     { z: 'creativo', at: [3.4, 9.2, 2.3] },
-    { z: 'social', at: [13.2, 9.2, 2.3] },
-    { z: 'rh', at: [22.2, 9.2, 2.3] },
+    { z: 'social', at: [16.6, 9.2, 2.3] },
+    { z: 'rh', at: [28.3, 16.2, 2.2] },
   ];
 
   return (
@@ -756,6 +748,22 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
               <line x1={0} y1={0} x2={0} y2={-14} stroke={z.accent} strokeWidth={1} opacity={0.6} />
               <rect x={-wpx / 2} y={-30} width={wpx} height={16} rx={8} fill="#060A14e6" stroke={z.accent} strokeWidth={1.2} filter="url(#softGlow)" />
               <text x={0} y={-19} fontSize={8} fontWeight={800} fill={z.accent} textAnchor="middle" letterSpacing={1.1}>{label}</text>
+            </g>
+          );
+        })}
+
+        {/* Globos de lo que hace cada quien: capa superior, nada los tapa */}
+        {agents.map((a) => {
+          const text = bubbles[a.id];
+          if (!text) return null;
+          const pose = poseOf(a);
+          const [bx, by] = iso(pose.x, pose.y);
+          return (
+            <g key={`b-${a.id}`} transform={`translate(${bx},${by + (pose.away ? -84 : -76) - (a.desk % 2 ? 22 : 0)})`} className="mk-bubble" pointerEvents="none">
+              <rect x={-80} y={-24} width={160} height={22} rx={11} fill="#ffffff" stroke={a.color} strokeWidth={1.4} />
+              <path d="M-5,-2.5 L0,5 L5,-2.5 Z" fill="#ffffff" stroke={a.color} strokeWidth={1.4} />
+              <rect x={-6} y={-4} width={12} height={3} fill="#ffffff" />
+              <text x={0} y={-9.5} fontSize={8.6} textAnchor="middle" fill="#0F172A" fontWeight={600}>{text.length > 35 ? `${text.slice(0, 34)}…` : text}</text>
             </g>
           );
         })}
