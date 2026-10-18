@@ -71,7 +71,7 @@ export type MkRequest = {
 
 export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente'; body: string; created_at: string };
 export type MkKnowledge = { slug: string; title: string; body: string; updated_by: string; updated_at: string };
-export type MkTask = { id: string; title: string; assigned_to: string; created_by: string; status: string; result: string | null; created_at: string; updated_at: string };
+export type MkTask = { id: string; title: string; assigned_to: string; created_by: string; status: string; result: string | null; kind: string; request: string | null; not_before: string; created_at: string; updated_at: string };
 
 export type MkKpis = {
   registros_7d: number;
@@ -119,7 +119,7 @@ export function useMarketing() {
       supabase.from('mk_posts').select('*').order('created_at', { ascending: false }).limit(40),
       supabase.from('mk_requests').select('*').order('created_at', { ascending: false }).limit(30),
       supabase.from('mk_knowledge').select('slug,title,body,updated_by,updated_at').order('slug'),
-      supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,created_at,updated_at').order('created_at', { ascending: false }).limit(80),
+      supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,kind,request,not_before,created_at,updated_at').order('created_at', { ascending: false }).limit(80),
       supabase.from('mk_settings').select('key,value'),
     ]);
     setAgents((a.data ?? []) as MkAgent[]);
@@ -141,7 +141,7 @@ export function useMarketing() {
         setActivity((prev) => [e.new as MkActivity, ...prev].slice(0, 200));
         // Cada avance puede mover tareas, gasto o publicaciones.
         if (['done', 'publish', 'work'].includes((e.new as MkActivity).kind)) {
-          supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,created_at,updated_at')
+          supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,kind,request,not_before,created_at,updated_at')
             .order('created_at', { ascending: false }).limit(80).then(({ data }) => data && setTasks(data as MkTask[]));
           loadKpis();
         }
@@ -150,6 +150,11 @@ export function useMarketing() {
         const row = e.new as MkAgent;
         if (!row?.id) return;
         setAgents((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [...prev, row]));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_tasks' }, (e) => {
+        const row = e.new as MkTask;
+        if (!row?.id) return;
+        setTasks((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_posts' }, (e) => {
         const row = e.new as MkPost;

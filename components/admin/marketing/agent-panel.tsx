@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Send, Crown, Cpu, Pause, Play } from 'lucide-react';
+import { Loader2, Send, Crown, Cpu, Pause, Play, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { MkActivity, MkAgent, MkMessage, MkTask } from '@/hooks/use-marketing';
@@ -44,7 +44,13 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
       .then(({ data }: any) => alive && setThread(data ?? []));
     const ch = supabase.channel(`mk-chat-${agent.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mk_messages', filter: `agent_id=eq.${agent.id}` },
-        (e: any) => setThread((t) => (t.some((m) => m.id === e.new.id) ? t : [...t, e.new])))
+        (e: any) => setThread((t) => {
+          if (t.some((m) => m.id === e.new.id)) return t;
+          // Reemplaza el mensaje provisional (el que se mostró al enviar) por el real.
+          const tmp = t.findIndex((m) => m.id < 0 && m.sender === e.new.sender && m.body === e.new.body);
+          if (tmp >= 0) { const n = [...t]; n[tmp] = e.new; return n; }
+          return [...t, e.new];
+        }))
       .subscribe();
     return () => { alive = false; supabase.removeChannel(ch); };
   }, [agent.id, supabase]);
@@ -67,7 +73,8 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
   };
 
   const mine = activity.filter((e) => e.agent_id === agent.id).slice(0, 8);
-  const open = tasks.filter((t) => t.assigned_to === agent.id && (t.status === 'pendiente' || t.status === 'en_progreso'));
+  const promises = tasks.filter((t) => t.assigned_to === agent.id && t.kind === 'seguimiento' && (t.status === 'pendiente' || t.status === 'en_progreso'));
+  const open = tasks.filter((t) => t.assigned_to === agent.id && t.kind !== 'seguimiento' && (t.status === 'pendiente' || t.status === 'en_progreso'));
   const done = tasks.filter((t) => t.assigned_to === agent.id && t.status === 'hecha').slice(0, 4);
   const model = MODEL_LABEL[agent.model] ?? { name: agent.model, note: '' };
   const boss = agent.reports_to ? byId[agent.reports_to] : null;
@@ -112,6 +119,21 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
       </div>
 
       <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        {/* Compromisos con el fundador */}
+        {promises.length > 0 && (
+          <section className="space-y-2">
+            {promises.map((p) => (
+              <div key={p.id} className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <b>Te responde a las {new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit' }).format(new Date(p.not_before))}</b>
+                  <div className="text-amber-800/80">{p.title.replace('Responder al fundador: ', '')}</div>
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
+
         {/* Tareas */}
         <section>
           <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Tareas</h4>

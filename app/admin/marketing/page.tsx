@@ -94,7 +94,7 @@ export default function MarketingPage() {
       <div className="grid gap-5 xl:grid-cols-[1fr_400px]">
         <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-[radial-gradient(ellipse_at_top,#1E293B,#0B1120)] p-3 shadow-lg">
           <div className="pointer-events-none absolute left-5 top-4 z-10 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 backdrop-blur">
-            Toca a cualquier agente para ver qué hace y hablar con él
+            Pasa el cursor por una sala para acercarte · toca a un agente para hablar con él
           </div>
           <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={setSelected} />
         </div>
