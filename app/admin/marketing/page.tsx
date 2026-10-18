@@ -86,7 +86,7 @@ export default function MarketingPage() {
         </div>
       </div>
 
-      <MetaConnect status={mk.settings.meta_status ?? null} onConnect={mk.connectMeta} />
+      <MetaConnect status={mk.settings.meta_status ?? null} onConnect={mk.connectMeta} onConnectInstagram={mk.connectInstagram} />
       {paused && <div className="rounded-2xl border border-slate-200 bg-slate-900 p-3 text-center text-sm font-semibold text-white">El equipo está en pausa: nadie trabaja ni publica hasta que lo reactives.</div>}
 
       {/* Oficina + ficha del agente */}

@@ -185,57 +185,64 @@ export function TeamCosts({ agents, spend, onSelect }: { agents: MkAgent[]; spen
   );
 }
 
-export function MetaConnect({ status, onConnect }: {
+export function MetaConnect({ status, onConnect, onConnectInstagram }: {
   status: { facebook?: string; instagram?: string | null; expira?: string; conectado?: string } | null;
   onConnect: (token: string) => Promise<any>;
+  onConnectInstagram: (token: string) => Promise<any>;
 }) {
-  const [open, setOpen] = useState(!status);
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const connect = async () => {
-    setBusy(true);
+  const [open, setOpen] = useState(!status?.facebook || !status?.instagram);
+  const [fbToken, setFbToken] = useState('');
+  const [igToken, setIgToken] = useState('');
+  const [busy, setBusy] = useState<'fb' | 'ig' | null>(null);
+  const run = async (kind: 'fb' | 'ig') => {
+    setBusy(kind);
     try {
-      const r = await onConnect(token.trim());
-      setToken(''); setOpen(false);
-      toast.success(`Conectado: Facebook "${r.facebook}"${r.instagram ? ` e Instagram ${r.instagram}` : ''}`);
-    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+      const r = kind === 'fb' ? await onConnect(fbToken.trim()) : await onConnectInstagram(igToken.trim());
+      if (kind === 'fb') setFbToken(''); else setIgToken('');
+      toast.success(kind === 'fb' ? `Facebook conectado: "${r.facebook}"` : `Instagram conectado: ${r.instagram}`);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(null); }
   };
-  if (status && !open) {
+  if (status?.facebook && status?.instagram && !open) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
         <div className="flex flex-wrap items-center gap-3">
           <span className="inline-flex items-center gap-1.5 font-semibold"><Facebook className="h-4 w-4 text-[#1877F2]" />{status.facebook}</span>
-          <span className={cn('inline-flex items-center gap-1.5 font-semibold', !status.instagram && 'text-amber-700')}>
-            <Instagram className="h-4 w-4 text-[#DD2A7B]" />{status.instagram ?? 'Instagram sin vincular a la página'}
-          </span>
-          <span className="text-[12px] text-emerald-700/80">Acceso {status.expira === 'nunca' ? 'permanente' : `hasta ${fmt(status.expira ?? null)}`}</span>
+          <span className="inline-flex items-center gap-1.5 font-semibold"><Instagram className="h-4 w-4 text-[#DD2A7B]" />{status.instagram}</span>
+          <span className="text-[12px] text-emerald-700/80">Conectado · las publicaciones salen solas</span>
         </div>
         <button onClick={() => setOpen(true)} className="text-[12px] font-semibold text-emerald-800 underline">Reconectar</button>
       </div>
     );
   }
+  const Step = ({ done, icon, title, children }: { done: boolean; icon: React.ReactNode; title: string; children: React.ReactNode }) => (
+    <div className={cn('rounded-xl border p-3', done ? 'border-emerald-200 bg-white' : 'border-amber-200 bg-white')}>
+      <div className="mb-1.5 flex items-center gap-2 font-semibold">{icon}{title}{done && <Check className="h-4 w-4 text-emerald-600" />}</div>
+      {children}
+    </div>
+  );
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-        <div className="flex-1 space-y-2">
-          <b>Conectar Facebook e Instagram de VYLTA</b>
-          <ol className="list-decimal space-y-1 pl-5 text-[13px] leading-relaxed">
-            <li>En el <a className="font-semibold underline" target="_blank" rel="noreferrer" href="https://developers.facebook.com/tools/explorer/1130987362599712/">Explorador de la API Graph</a> (app VYLTA Marketing) genera el token con tus 7 permisos.</li>
-            <li>Da clic en el ícono <b>ⓘ</b> junto al token → <b>Abrir en la herramienta de token de acceso</b> → <b>Extender token de acceso</b> y copia el token nuevo.</li>
-            <li>Pégalo aquí. El servidor obtiene el acceso permanente de la página y lo guarda en privado; no se vuelve a mostrar.</li>
-          </ol>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Pega aquí el token extendido"
-                   className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" autoComplete="off" />
-            <button onClick={connect} disabled={busy || token.trim().length < 40}
-                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-              {busy ? 'Conectando…' : 'Conectar'}
-            </button>
-            {status && <button onClick={() => setOpen(false)} className="text-[12px] font-semibold text-amber-800 underline">Cancelar</button>}
+    <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-5 w-5" />Conectar las redes sociales de VYLTA</div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Step done={!!status?.facebook} icon={<Facebook className="h-4 w-4 text-[#1877F2]" />} title={status?.facebook ? `Facebook: ${status.facebook}` : 'Facebook'}>
+          <p className="mb-2 text-[12.5px] leading-relaxed">Explorador de la API Graph (app VYLTA Marketing) → genera el token → ícono <b>ⓘ</b> → <b>Abrir en la herramienta de token</b> → <b>Extender token de acceso</b> → cópialo y pégalo:</p>
+          <div className="flex gap-2">
+            <input type="password" value={fbToken} onChange={(e) => setFbToken(e.target.value)} placeholder="Token extendido de Facebook" autoComplete="off"
+                   className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-slate-400" />
+            <button onClick={() => run('fb')} disabled={busy !== null || fbToken.trim().length < 40} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">{busy === 'fb' ? 'Conectando…' : 'Conectar'}</button>
           </div>
-        </div>
+        </Step>
+        <Step done={!!status?.instagram} icon={<Instagram className="h-4 w-4 text-[#DD2A7B]" />} title={status?.instagram ? `Instagram: ${status.instagram}` : 'Instagram'}>
+          <p className="mb-2 text-[12.5px] leading-relaxed">App VYLTA Marketing → Casos de uso → Instagram → <b>Configuración de la API con inicio de sesión de Instagram</b> → <b>Generar token de acceso</b> (agrega @vylta_pro) → cópialo y pégalo:</p>
+          <div className="flex gap-2">
+            <input type="password" value={igToken} onChange={(e) => setIgToken(e.target.value)} placeholder="Token de Instagram" autoComplete="off"
+                   className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-slate-400" />
+            <button onClick={() => run('ig')} disabled={busy !== null || igToken.trim().length < 40} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">{busy === 'ig' ? 'Conectando…' : 'Conectar'}</button>
+          </div>
+        </Step>
       </div>
+      <p className="text-[11.5px] text-amber-800/80">Los tokens se guardan en privado en el servidor y no se vuelven a mostrar. El de Instagram se renueva solo.</p>
+      {status?.facebook && status?.instagram && <button onClick={() => setOpen(false)} className="text-[12px] font-semibold underline">Cerrar</button>}
     </div>
   );
 }

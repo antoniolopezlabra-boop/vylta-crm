@@ -201,6 +201,18 @@ export function useMarketing() {
     return status;
   }, [supabase]);
 
+  const connectInstagram = useCallback(async (igToken: string) => {
+    const { data, error } = await supabase.functions.invoke('mk-engine', { body: { action: 'connect_instagram', ig_token: igToken } });
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* sin cuerpo */ }
+      throw new Error(msg);
+    }
+    const status = (data as any).status;
+    setSettings((s) => ({ ...s, meta_status: status }));
+    return status;
+  }, [supabase]);
+
   const setAgentEnabled = useCallback(async (id: string, enabled: boolean) => {
     const { error } = await supabase.from('mk_agents').update({ enabled, status: enabled ? 'idle' : 'paused' }).eq('id', id);
     if (error) throw new Error(error.message);
@@ -231,6 +243,6 @@ export function useMarketing() {
 
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings,
-    chat, runNow, connectMeta, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
+    chat, runNow, connectMeta, connectInstagram, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }
