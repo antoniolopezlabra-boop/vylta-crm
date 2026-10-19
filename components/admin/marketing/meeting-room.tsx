@@ -82,24 +82,24 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
       <div className="flex min-h-0 w-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0B1120] shadow-2xl">
         {/* Barra superior */}
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300"><Presentation className="h-5 w-5" /></div>
+          <div className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300 sm:flex"><Presentation className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-sky-300"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />Sala de juntas · {elapsed}</div>
             <h3 className="truncate text-base font-bold">{meeting.topic}</h3>
           </div>
-          <button onClick={onClose} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/10"><Minimize2 className="h-3.5 w-3.5" />Minimizar</button>
+          <button onClick={onClose} className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 px-3 py-1.5 text-[12px] font-semibold text-white/70 hover:bg-white/10"><Minimize2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">Minimizar</span></button>
           <button onClick={() => onEnd(meeting.id).then(onClose).catch((e) => toast.error(e.message))}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-1.5 text-[12px] font-semibold hover:bg-red-700"><LogOut className="h-3.5 w-3.5" />Terminar reunión</button>
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3 py-1.5 text-[12px] font-semibold hover:bg-red-700"><LogOut className="h-3.5 w-3.5" /><span className="hidden sm:inline">Terminar reunión</span></button>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
-          <div className="flex min-h-0 flex-col">
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,45%)] lg:grid-cols-[minmax(0,1fr)_380px] lg:grid-rows-1">
+          <div className="flex min-h-0 min-w-0 flex-col">
             {/* Participantes */}
-            <div className="flex gap-3 overflow-x-auto border-b border-white/10 px-5 py-3">
-              <Tile name="Tú" title="Fundador" color="#94A3B8" speaking={sending} />
+            <div className="flex min-w-0 gap-2.5 overflow-x-auto border-b border-white/10 px-5 py-3">
+              <Tile name="Tú" title="Fundador" color="#94A3B8" speaking={sending} compact={people.length > 4} />
               {people.map((p) => {
                 const b = busy.find((x) => x.id === p.id);
-                return <Tile key={p.id} name={p.name} title={p.title} color={p.color} speaking={!!b} note={b?.current_action ?? undefined} />;
+                return <Tile key={p.id} name={p.name} title={p.title} color={p.color} speaking={!!b} note={b?.current_action ?? undefined} compact={people.length > 4} />;
               })}
             </div>
             {/* Escenario */}
@@ -132,7 +132,7 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
           </div>
 
           {/* Conversación */}
-          <div className="flex min-h-0 flex-col border-t border-white/10 bg-[#0D1424] lg:border-l lg:border-t-0">
+          <div className="flex min-h-0 min-w-0 flex-col border-t border-white/10 bg-[#0D1424] lg:border-l lg:border-t-0">
             <div className="border-b border-white/10 px-4 py-3 text-[12px] font-bold uppercase tracking-wider text-white/50">Conversación de la reunión</div>
             <div ref={boxRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
               {thread.map((m) => {
@@ -184,11 +184,11 @@ function Avatar({ name, color }: { name: string; color: string }) {
   return <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ background: color }}>{name === 'Tú' ? 'TÚ' : initials(name)}</div>;
 }
 
-function Tile({ name, title, color, speaking, note }: { name: string; title: string; color: string; speaking?: boolean; note?: string }) {
+function Tile({ name, title, color, speaking, note, compact }: { name: string; title: string; color: string; speaking?: boolean; note?: string; compact?: boolean }) {
   return (
-    <div className={cn('relative flex h-28 w-40 shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border bg-gradient-to-b from-white/[.06] to-white/[.02] transition',
+    <div className={cn('relative flex shrink-0 flex-col items-center justify-center gap-1.5 rounded-2xl border bg-gradient-to-b from-white/[.06] to-white/[.02] transition', compact ? 'h-24 w-28' : 'h-28 w-40',
       speaking ? 'border-transparent' : 'border-white/10')} style={speaking ? { boxShadow: `0 0 0 2px ${color}, 0 0 24px ${color}55` } : undefined}>
-      <div className={cn('flex h-12 w-12 items-center justify-center rounded-full text-base font-bold text-white', speaking && 'animate-pulse')} style={{ background: color }}>{name === 'Tú' ? 'TÚ' : initials(name)}</div>
+      <div className={cn('flex items-center justify-center rounded-full font-bold text-white', compact ? 'h-10 w-10 text-sm' : 'h-12 w-12 text-base', speaking && 'animate-pulse')} style={{ background: color }}>{name === 'Tú' ? 'TÚ' : initials(name)}</div>
       <div className="max-w-[90%] truncate text-[12px] font-semibold">{name.split(' ')[0]}</div>
       <div className="max-w-[90%] truncate text-[10px] text-white/45">{speaking && note ? note : title}</div>
     </div>
