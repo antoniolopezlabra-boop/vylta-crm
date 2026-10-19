@@ -5,6 +5,7 @@ import { Facebook, Instagram, Check, X, Trash2, BookOpen, AlertTriangle } from '
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { MkActivity, MkAgent, MkKnowledge, MkPost, MkRequest } from '@/hooks/use-marketing';
+import type { MkComment } from '@/hooks/use-marketing';
 
 // Secciones bajo la oficina: bitácora en vivo, publicaciones, solicitudes
 // al fundador, manual del equipo y gasto por agente.
@@ -225,7 +226,7 @@ export function MetaConnect({ status, onConnect, onConnectInstagram }: {
       <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-5 w-5" />Conectar las redes sociales de VYLTA</div>
       <div className="grid gap-3 lg:grid-cols-2">
         <Step done={!!status?.facebook} icon={<Facebook className="h-4 w-4 text-[#1877F2]" />} title={status?.facebook ? `Facebook: ${status.facebook}` : 'Facebook'}>
-          <p className="mb-2 text-[12.5px] leading-relaxed">Explorador de la API Graph (app VYLTA Marketing) → genera el token → ícono <b>ⓘ</b> → <b>Abrir en la herramienta de token</b> → <b>Extender token de acceso</b> → cópialo y pégalo:</p>
+          <p className="mb-2 text-[12.5px] leading-relaxed">Explorador de la API Graph (app VYLTA Marketing) → en <b>Permisos</b> incluye <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_read_user_content</code> y <code>pages_manage_engagement</code> (estos dos últimos son para leer y contestar comentarios) → genera el token → ícono <b>ⓘ</b> → <b>Abrir en la herramienta de token</b> → <b>Extender token de acceso</b> → cópialo y pégalo:</p>
           <div className="flex gap-2">
             <input type="password" value={fbToken} onChange={(e) => setFbToken(e.target.value)} placeholder="Token extendido de Facebook" autoComplete="off"
                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-slate-400" />
@@ -249,4 +250,44 @@ export function MetaConnect({ status, onConnect, onConnectInstagram }: {
 
 function Empty({ text }: { text: string }) {
   return <p className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">{text}</p>;
+}
+
+const COMMENT_STATUS: Record<MkComment['status'], { label: string; cls: string }> = {
+  nuevo: { label: 'Nuevo', cls: 'bg-sky-100 text-sky-700' },
+  respondido: { label: 'Respondido', cls: 'bg-emerald-100 text-emerald-700' },
+  escalado: { label: 'Escalado al Director', cls: 'bg-amber-100 text-amber-800' },
+  ignorado: { label: 'Ignorado', cls: 'bg-slate-100 text-slate-500' },
+};
+
+// Comentarios de la gente en Facebook e Instagram y cómo los atendió Mariana.
+export function CommentsView({ comments }: { comments: MkComment[] }) {
+  const [filter, setFilter] = useState<'todos' | MkComment['status']>('todos');
+  const list = comments.filter((c) => filter === 'todos' || c.status === filter);
+  if (!comments.length) return <Empty text="Aún no hay comentarios en nuestras publicaciones. Cuando alguien comente, Mariana lo atiende y aquí verás su respuesta." />;
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {(['todos', 'nuevo', 'respondido', 'escalado', 'ignorado'] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className={cn('rounded-lg px-2.5 py-1 text-[12px] font-semibold', filter === f ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+            {f === 'todos' ? 'Todos' : COMMENT_STATUS[f].label} ({f === 'todos' ? comments.length : comments.filter((c) => c.status === f).length})
+          </button>
+        ))}
+      </div>
+      <ul className="space-y-2.5">
+        {list.map((c) => (
+          <li key={c.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className={cn('rounded-full px-2 py-0.5 font-bold text-white', c.channel === 'facebook' ? 'bg-[#1877F2]' : 'bg-gradient-to-r from-[#F58529] via-[#DD2A7B] to-[#8134AF]')}>{c.channel === 'facebook' ? 'Facebook' : 'Instagram'}</span>
+              <span className="font-semibold text-slate-700">{c.author ?? 'Usuario'}</span>
+              {c.commented_at && <span className="text-slate-400">{new Date(c.commented_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+              <span className={cn('ml-auto rounded-full px-2 py-0.5 font-bold', COMMENT_STATUS[c.status].cls)}>{COMMENT_STATUS[c.status].label}</span>
+            </div>
+            <p className="mt-2 text-[13px] text-slate-800">{c.text}</p>
+            {c.reply_text && <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[13px] text-emerald-900"><b>VYLTA:</b> {c.reply_text}</p>}
+            {c.note && c.status !== 'respondido' && <p className="mt-1.5 text-[12px] text-slate-500">Nota: {c.note}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }

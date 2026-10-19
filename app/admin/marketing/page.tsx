@@ -10,7 +10,7 @@ import { MeetingPanel, StartMeetingDialog } from '@/components/admin/marketing/m
 import { MeetingRoom } from '@/components/admin/marketing/meeting-room';
 import { ProjectionModal } from '@/components/admin/marketing/projection-viewer';
 import type { MkProjection } from '@/hooks/use-marketing';
-import { ActivityFeed, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
+import { ActivityFeed, CommentsView, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 const TABS = [
   { id: 'feed', label: 'En vivo' },
   { id: 'posts', label: 'Publicaciones' },
+  { id: 'comments', label: 'Comentarios' },
   { id: 'requests', label: 'Solicitudes' },
   { id: 'manual', label: 'Manual del equipo' },
   { id: 'costs', label: 'Equipo y costos' },
@@ -160,6 +161,9 @@ export default function MarketingPage() {
             <button key={t.id} onClick={() => { setTab(t.id); setOpen(true); }}
                     className={cn('relative rounded-lg px-3 py-1.5 text-sm font-semibold', open && tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100')}>
               {t.label}
+              {t.id === 'comments' && mk.comments.some((c) => c.status === 'nuevo' || c.status === 'escalado') && (
+                <span className="ml-1.5 rounded-full bg-sky-500 px-1.5 text-[10px] text-white">{mk.comments.filter((c) => c.status === 'nuevo' || c.status === 'escalado').length}</span>
+              )}
               {t.id === 'requests' && pendingRequests > 0 && (
                 <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] text-white">{pendingRequests}</span>
               )}
@@ -173,6 +177,7 @@ export default function MarketingPage() {
           <div className="border-t border-slate-100 p-5">
             {tab === 'feed' && <ActivityFeed activity={mk.activity} agents={mk.agents} onSelect={setSelected} />}
             {tab === 'posts' && <PostsGrid posts={mk.posts} onDiscard={mk.discardPost} />}
+            {tab === 'comments' && <CommentsView comments={mk.comments} />}
             {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
             {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
             {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}

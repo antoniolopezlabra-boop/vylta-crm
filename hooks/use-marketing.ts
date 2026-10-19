@@ -72,6 +72,10 @@ export type MkRequest = {
 };
 
 export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente' | 'sistema'; body: string; created_at: string; meeting_id?: string | null; attachments?: string[] };
+export type MkComment = {
+  id: string; channel: 'facebook' | 'instagram'; post_id: string | null; author: string | null; text: string; commented_at: string | null;
+  status: 'nuevo' | 'respondido' | 'escalado' | 'ignorado'; reply_text: string | null; replied_at: string | null; handled_by: string | null; note: string | null;
+};
 export type MkMeeting = { id: string; topic: string; attendees: string[]; status: 'en_curso' | 'terminada'; created_at: string; ended_at: string | null };
 export type MkProjection = {
   id: string; meeting_id: string | null; agent_id: string; created_at: string; title: string;
@@ -108,6 +112,7 @@ export function useMarketing() {
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [meeting, setMeeting] = useState<MkMeeting | null>(null);
   const [projections, setProjections] = useState<MkProjection[]>([]);
+  const [comments, setComments] = useState<MkComment[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadKpis = useCallback(async () => {
@@ -138,6 +143,8 @@ export function useMarketing() {
     ]);
     setMeeting(((mt.data ?? [])[0] as MkMeeting) ?? null);
     setProjections((pj.data ?? []) as MkProjection[]);
+    const cm = await supabase.from('mk_comments').select('*').order('commented_at', { ascending: false }).limit(100);
+    setComments((cm.data ?? []) as MkComment[]);
     setAgents((a.data ?? []) as MkAgent[]);
     setActivity((act.data ?? []) as MkActivity[]);
     setPosts((p.data ?? []) as MkPost[]);
@@ -183,6 +190,11 @@ export function useMarketing() {
         const row = e.new as MkMeeting;
         if (!row?.id) return;
         setMeeting((cur) => (row.status === 'en_curso' ? { ...(cur?.id === row.id ? cur : {}), ...row } as MkMeeting : cur?.id === row.id ? null : cur));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_comments' }, (e) => {
+        const row = e.new as MkComment;
+        if (!row?.id) return;
+        setComments((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mk_projections' }, (e) => {
         const row = e.new as MkProjection;
@@ -332,7 +344,7 @@ export function useMarketing() {
   }, [supabase]);
 
   return {
-    loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections,
+    loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
     startMeeting, endMeeting, meetingChat, getProjection,
     chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
