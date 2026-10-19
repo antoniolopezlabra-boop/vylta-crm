@@ -741,7 +741,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   drawables.push(box('jt-screen-stand', 21.5, 9.15, 0, 7, 0.2, 0.62, '#0B1220', { edge: '#38BDF8' }));
   const shown = meeting ? projections.find((p) => p.meeting_id === meeting.id) ?? null : null;
   drawables.push({ key: 'jt-screen', depth: 30, node: (
-    <g key="jt-screen" transform={alongX(21.5, 9.3, 3.0)} onClick={(e) => { e.stopPropagation(); if (meeting) onOpenMeeting(); else if (shown) onOpenProjection(shown); }}>
+    <g key="jt-screen" transform={alongX(21.5, 9.3, 3.0)} onClick={(e) => { e.stopPropagation(); onOpenMeeting(); }}>
       <RoomScreen w={7 * T} h={2.3 * T} p={shown} topic={meeting?.topic ?? null} live={!!meeting} />
     </g>
   ) });

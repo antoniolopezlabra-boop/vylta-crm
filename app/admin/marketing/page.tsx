@@ -42,7 +42,11 @@ export default function MarketingPage() {
   const [roomOpen, setRoomOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
-  const openRoom = useCallback(() => setRoomOpen(true), []);
+  const hasMeeting = !!mk.meeting;
+  // Clic en la pantalla de la sala: entra a la reunión o, si no hay, la convoca.
+  const openRoom = useCallback(() => (hasMeeting ? setRoomOpen(true) : setConvocar(true)), [hasMeeting]);
+  const meetingId = mk.meeting?.id;
+  useEffect(() => { if (meetingId) setSide('reunion'); }, [meetingId]);
   useEffect(() => { if (!mk.meeting) setRoomOpen(false); }, [mk.meeting]);
   const selectAgent = useCallback((id: string | null) => { setSelected(id); if (id) setSide('agente'); }, []);
   const closeRoom = useCallback(() => setRoomOpen(false), []);

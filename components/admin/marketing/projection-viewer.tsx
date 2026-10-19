@@ -237,12 +237,12 @@ export function RoomScreen({ w, h, p, topic, live }: { w: number; h: number; p: 
     }
   }
   return (
-    <g style={{ cursor: p || live ? 'pointer' : 'default' }}>
+    <g style={{ cursor: 'pointer' }}>
       <rect x={-3} y={-3} width={w + 6} height={h + 6} rx={4} fill="#05080F" />
       <rect width={w} height={h} rx={3} fill="url(#screenBg)" />
       <circle cx={6} cy={5} r={1.8} fill={live ? '#EF4444' : '#334155'} className={live ? 'mk-blink-fast' : undefined} />
       <text x={10} y={6.8} fontSize={4.2} fontWeight={800} fill="#E2E8F0">{p ? `${p.title}`.slice(0, 60).toUpperCase() : live ? `REUNIÓN · ${(topic ?? '').toUpperCase()}`.slice(0, 60) : 'SALA DE JUNTAS · DISPONIBLE'}</text>
-      {(p || live) && <text x={w - 4} y={6.8} fontSize={3.2} fill="#7DD3FC" textAnchor="end">{live ? 'clic para entrar a la reunión' : 'clic para ver en grande'}</text>}
+      <text x={w - 4} y={6.8} fontSize={3.2} fill="#7DD3FC" textAnchor="end">{live ? 'clic para entrar a la reunión' : 'clic para convocar una reunión'}</text>
       {body ?? (
         <g opacity={0.5}>
           <rect x={w / 2 - 9} y={h / 2 - 6} width={18} height={18} rx={4.5} fill="none" stroke="#34D399" strokeWidth={1.6} />
