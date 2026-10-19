@@ -53,10 +53,11 @@ export function StartMeetingDialog({ agents, onStart, onClose }: {
   );
 }
 
-export function MeetingPanel({ meeting, agents, projections, supabase, onSend, onEnd, onOpen, getProjection }: {
+export function MeetingPanel({ meeting, agents, projections, supabase, onSend, onEnd, onOpen, getProjection, onOpenRoom }: {
   meeting: MkMeeting; agents: MkAgent[]; projections: MkProjection[]; supabase: any;
   onSend: (id: string, message: string, to?: string) => Promise<{ reply: string; agent_id: string; projections: string[] }>;
   onEnd: (id: string) => Promise<void>; onOpen: (p: MkProjection) => void; getProjection: (id: string) => Promise<MkProjection | null>;
+  onOpenRoom: () => void;
 }) {
   const people = meeting.attendees.map((id) => agents.find((a) => a.id === id)).filter(Boolean) as MkAgent[];
   const [thread, setThread] = useState<MkMessage[]>([]);
@@ -104,6 +105,9 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
             <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-sky-700"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />Reunión en curso</div>
             <h3 className="truncate text-base font-bold text-slate-900">{meeting.topic}</h3>
           </div>
+          <button onClick={onOpenRoom} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-sky-700">
+            <Presentation className="h-3.5 w-3.5" />Entrar a la sala
+          </button>
           <button onClick={() => onEnd(meeting.id).catch((e) => toast.error(e.message))}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">
             <LogOut className="h-3.5 w-3.5" />Terminar
@@ -124,6 +128,7 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
           </p>
         )}
         {thread.map((m) => {
+          if (m.sender === 'sistema') return <div key={m.id} className="text-center text-[11px] italic text-slate-400">{m.body}</div>;
           const a = who(m.agent_id);
           return (
             <div key={m.id} className={cn('flex flex-col', m.sender === 'fundador' ? 'items-end' : 'items-start')}>

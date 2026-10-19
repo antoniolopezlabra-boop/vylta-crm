@@ -427,10 +427,10 @@ function tripState(tr: Trip, now: number): { dist: number; visiting?: string; ne
 
 // ── Oficina ──────────────────────────────────────────────────────────
 
-export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts, meeting, projections, onOpenProjection }: {
+export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts, meeting, projections, onOpenProjection, onOpenMeeting }: {
   agents: MkAgent[]; activity: MkActivity[]; selected: string | null; onSelect: (id: string | null) => void;
   kpis: MkKpis | null; posts: MkPost[];
-  meeting: MkMeeting | null; projections: MkProjection[]; onOpenProjection: (p: MkProjection) => void;
+  meeting: MkMeeting | null; projections: MkProjection[]; onOpenProjection: (p: MkProjection) => void; onOpenMeeting: () => void;
 }) {
   const [trips, setTrips] = useState<Record<string, Trip>>({});
   const [frame, setFrame] = useState(0);
@@ -470,6 +470,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
     }
   }, [activity, startTrip]);
 
+  const attendeesRef = useRef<string[]>([]);
+  const zoomWhenSeated = useRef(false);
   const attendeesKey = meeting?.status === 'en_curso' ? meeting.attendees.slice(0, ROOM_SEATS.length).join(',') : '';
   useEffect(() => {
     const want = attendeesKey ? attendeesKey.split(',') : [];
@@ -489,7 +491,10 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
     });
     if (leaving.length) setInRoom((cur) => { const n = { ...cur }; leaving.forEach(([id]) => delete n[id]); return n; });
     if (Object.keys(next).length) setTrips((cur) => ({ ...cur, ...next }));
-    if (want.length) setFocus('juntas');
+    // Al convocar: vista completa para ver a todos caminar; cuando el último
+    // se sienta, la cámara entra a la sala.
+    attendeesRef.current = want;
+    if (want.length && Object.keys(next).length && !Object.keys(inRoomRef.current).length) { zoomWhenSeated.current = true; setFocus(null); }
   }, [attendeesKey]);
 
   useEffect(() => {
@@ -503,7 +508,11 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
         setTrips((cur) => { const n = { ...cur }; done.forEach((d) => { if (n[d.agent] === d) delete n[d.agent]; }); return n; });
         done.forEach((d) => d.done?.());
         const seated = done.filter((d) => d.room?.dir === 'in');
-        if (seated.length) setInRoom((cur) => { const n = { ...cur }; seated.forEach((d) => { n[d.agent] = d.room!.seat; }); return n; });
+        if (seated.length) setInRoom((cur) => {
+          const n = { ...cur }; seated.forEach((d) => { n[d.agent] = d.room!.seat; });
+          if (zoomWhenSeated.current && attendeesRef.current.every((id) => n[id] !== undefined || !byIdRef.current[id])) { zoomWhenSeated.current = false; setTimeout(() => setFocus('juntas'), 400); }
+          return n;
+        });
       } else raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -589,6 +598,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   };
   const cancel = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); hoverTimer.current = null; pending.current = undefined; };
   const onMove = (e: React.MouseEvent) => {
+    if (zoomWhenSeated.current) return; // mientras llegan a la reunión, la cámara no se mueve
     const svg = svgRef.current; if (!svg) return;
     const ctm = svg.getScreenCTM(); if (!ctm) return;
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
@@ -597,7 +607,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
     if (!want || want === focusRef.current) { if (pending.current !== null) cancel(); return; }
     schedule(want, focusRef.current ? 450 : 280);
   };
-  const onLeave = () => schedule(null, 500);
+  const onLeave = () => { if (!zoomWhenSeated.current) schedule(null, 500); };
 
   // ── Escena ──
   const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Mexico_City', hour: 'numeric', hourCycle: 'h23' }).format(new Date(now)));
@@ -731,7 +741,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   drawables.push(box('jt-screen-stand', 21.5, 9.15, 0, 7, 0.2, 0.62, '#0B1220', { edge: '#38BDF8' }));
   const shown = meeting ? projections.find((p) => p.meeting_id === meeting.id) ?? null : null;
   drawables.push({ key: 'jt-screen', depth: 30, node: (
-    <g key="jt-screen" transform={alongX(21.5, 9.3, 3.0)} onClick={(e) => { e.stopPropagation(); if (shown) onOpenProjection(shown); }}>
+    <g key="jt-screen" transform={alongX(21.5, 9.3, 3.0)} onClick={(e) => { e.stopPropagation(); if (meeting) onOpenMeeting(); else if (shown) onOpenProjection(shown); }}>
       <RoomScreen w={7 * T} h={2.3 * T} p={shown} topic={meeting?.topic ?? null} live={!!meeting} />
     </g>
   ) });
@@ -755,7 +765,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   }
 
   return drawables;
-  }, [agents, awayKey, posts, meeting, projections, onOpenProjection]);
+  }, [agents, awayKey, posts, meeting, projections, onOpenProjection, onOpenMeeting]);
 
   const drawables: Drawable[] = [...staticScene];
   for (const a of agents) {

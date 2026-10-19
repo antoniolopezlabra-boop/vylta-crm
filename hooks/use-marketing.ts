@@ -71,7 +71,7 @@ export type MkRequest = {
   created_at: string;
 };
 
-export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente'; body: string; created_at: string; meeting_id?: string | null; attachments?: string[] };
+export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente' | 'sistema'; body: string; created_at: string; meeting_id?: string | null; attachments?: string[] };
 export type MkMeeting = { id: string; topic: string; attendees: string[]; status: 'en_curso' | 'terminada'; created_at: string; ended_at: string | null };
 export type MkProjection = {
   id: string; meeting_id: string | null; agent_id: string; created_at: string; title: string;
