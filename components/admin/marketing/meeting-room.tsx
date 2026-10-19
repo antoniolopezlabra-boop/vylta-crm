@@ -25,7 +25,8 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
   const people = meeting.attendees.map((id) => agents.find((a) => a.id === id)).filter(Boolean) as MkAgent[];
   const [thread, setThread] = useState<MkMessage[]>([]);
   const [draft, setDraft] = useState('');
-  const [to, setTo] = useState<string>('todos');
+  // 'modera' = sin destinatario (contesta el Director, o quien nombres); 'todos' = turno para todos.
+  const [to, setTo] = useState<string>('modera');
   const [sending, setSending] = useState(false);
   const [stageId, setStageId] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState('');
@@ -72,8 +73,8 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
   const send = async () => {
     const msg = draft.trim(); if (!msg || sending) return;
     setSending(true); setDraft('');
-    const target = to === 'todos' ? undefined : to;
-    setThread((t) => [...t, { id: -Date.now(), agent_id: target ?? 'director', sender: 'fundador', body: msg, created_at: new Date().toISOString(), meeting_id: meeting.id }]);
+    const target = to === 'modera' ? undefined : to;
+    setThread((t) => [...t, { id: -Date.now(), agent_id: target && target !== 'todos' ? target : 'director', sender: 'fundador', body: msg, created_at: new Date().toISOString(), meeting_id: meeting.id }]);
     try { await onSend(meeting.id, msg, target); } catch (e) { toast.error((e as Error).message); } finally { setSending(false); }
   };
 
@@ -158,16 +159,16 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
             <div className="border-t border-white/10 p-3">
               <div className="mb-2 flex items-center gap-1.5 overflow-x-auto text-[11px]">
                 <span className="shrink-0 font-semibold text-white/40">Para:</span>
-                {[{ id: 'todos', name: 'Todos', color: '#0EA5E9' }, ...people].map((p) => (
+                {[{ id: 'modera', name: `${people.find((p) => p.id === 'director')?.name.split(' ')[0] ?? 'Director'} (modera)`, color: '#F59E0B' }, ...people.filter((p) => p.id !== 'director'), { id: 'todos', name: 'Todos', color: '#0EA5E9' }].map((p) => (
                   <button key={p.id} onClick={() => setTo(p.id)}
                           className={cn('shrink-0 rounded-full px-2.5 py-1 font-semibold transition', to === p.id ? 'text-white' : 'bg-white/5 text-white/60 hover:bg-white/10')}
-                          style={to === p.id ? { background: p.color } : undefined}>{p.name.split(' ')[0]}</button>
+                          style={to === p.id ? { background: p.color } : undefined}>{p.id === 'modera' || p.id === 'todos' ? p.name : p.name.split(' ')[0]}</button>
                 ))}
               </div>
               <div className="flex items-end gap-2">
                 <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} disabled={sending}
                           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                          placeholder={to === 'todos' ? 'Escribe a la reunión (modera el Director)…' : `Escribe a ${people.find((p) => p.id === to)?.name.split(' ')[0]}…`}
+                          placeholder={to === 'todos' ? 'Pregunta a todos (contestan por turnos)…' : to === 'modera' ? 'Escribe a la reunión; contesta quien nombres o el Director…' : `Escribe a ${people.find((p) => p.id === to)?.name.split(' ')[0]}…`}
                           className="min-h-[44px] flex-1 resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-sky-400" />
                 <button onClick={send} disabled={!draft.trim() || sending} aria-label="Enviar"
                         className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-40"><Send className="h-4 w-4" /></button>

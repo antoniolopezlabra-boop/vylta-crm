@@ -62,7 +62,7 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
   const people = meeting.attendees.map((id) => agents.find((a) => a.id === id)).filter(Boolean) as MkAgent[];
   const [thread, setThread] = useState<MkMessage[]>([]);
   const [draft, setDraft] = useState('');
-  const [to, setTo] = useState(people.some((p) => p.id === 'director') ? 'director' : people[0]?.id ?? '');
+  const [to, setTo] = useState('modera');
   const [sending, setSending] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -92,8 +92,8 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
   const send = async () => {
     const msg = draft.trim(); if (!msg || sending) return;
     setSending(true); setDraft('');
-    setThread((t) => [...t, { id: -Date.now(), agent_id: to, sender: 'fundador', body: msg, created_at: new Date().toISOString(), meeting_id: meeting.id }]);
-    try { await onSend(meeting.id, msg, to); } catch (e) { toast.error((e as Error).message); } finally { setSending(false); }
+    setThread((t) => [...t, { id: -Date.now(), agent_id: to === 'modera' || to === 'todos' ? 'director' : to, sender: 'fundador', body: msg, created_at: new Date().toISOString(), meeting_id: meeting.id }]);
+    try { await onSend(meeting.id, msg, to === 'modera' ? undefined : to); } catch (e) { toast.error((e as Error).message); } finally { setSending(false); }
   };
   const who = (id: string) => agents.find((a) => a.id === id);
 
@@ -143,17 +143,17 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
         })}
         {sending && (
           <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 text-[13px] text-slate-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />{who(to)?.name.split(' ')[0]} está preparando su respuesta…
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />{to === 'todos' ? 'El equipo está contestando por turnos…' : `${who(to === 'modera' ? 'director' : to)?.name.split(' ')[0] ?? 'El equipo'} está preparando su respuesta…`}
           </div>
         )}
       </div>
       <div className="border-t border-slate-100 p-3">
         <div className="mb-2 flex items-center gap-1.5 overflow-x-auto text-[11px]">
           <span className="shrink-0 font-semibold text-slate-400">Pregúntale a:</span>
-          {people.map((p) => (
+          {[{ id: 'modera', name: `${people.find((p) => p.id === 'director')?.name.split(' ')[0] ?? 'Director'} (modera)`, color: '#F59E0B' }, ...people.filter((p) => p.id !== 'director'), { id: 'todos', name: 'Todos', color: '#0EA5E9' }].map((p) => (
             <button key={p.id} onClick={() => setTo(p.id)}
                     className={cn('shrink-0 rounded-full px-2.5 py-1 font-semibold transition', to === p.id ? 'text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
-                    style={to === p.id ? { background: p.color } : undefined}>{p.name.split(' ')[0]}</button>
+                    style={to === p.id ? { background: p.color } : undefined}>{p.id === 'modera' || p.id === 'todos' ? p.name : p.name.split(' ')[0]}</button>
           ))}
         </div>
         <div className="flex items-end gap-2">
