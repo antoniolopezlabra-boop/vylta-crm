@@ -9,7 +9,8 @@ import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { walkBus } from './walk-bus';
-import type { MkActivity, MkAgent, MkMessage, MkTask } from '@/hooks/use-marketing';
+import type { MkActivity, MkAgent, MkMessage, MkProjection, MkTask } from '@/hooks/use-marketing';
+import { ProjectionCard } from './projection-viewer';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Expediente del agente
@@ -67,7 +68,7 @@ function ago(iso: string) {
   return h < 24 ? `hace ${h} h` : `hace ${Math.round(h / 24)} d`;
 }
 
-export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, onChat, onToggle, onAssign, loadLedger }: {
+export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, onChat, onToggle, onAssign, loadLedger, projections, onOpenProjection, getProjection }: {
   agent: MkAgent;
   agents: MkAgent[];
   activity: MkActivity[];
@@ -78,6 +79,9 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
   onToggle: (id: string, enabled: boolean) => Promise<void>;
   onAssign: (agentId: string, title: string, detail: string, priority: number) => Promise<void>;
   loadLedger: (agentId: string) => Promise<any[]>;
+  projections: MkProjection[];
+  onOpenProjection: (p: MkProjection) => void;
+  getProjection: (id: string) => Promise<MkProjection | null>;
 }) {
   const [tab, setTab] = useState<Tab>('chat');
   const byId = Object.fromEntries(agents.map((a) => [a.id, a]));
@@ -144,7 +148,7 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === 'chat' && <ChatTab agent={agent} agents={agents} supabase={supabase} onChat={onChat} />}
+        {tab === 'chat' && <ChatTab agent={agent} agents={agents} supabase={supabase} onChat={onChat} projections={projections} onOpenProjection={onOpenProjection} getProjection={getProjection} />}
         {tab === 'tareas' && <TasksTab agent={agent} tasks={mine} byId={byId} onAssign={onAssign} />}
         {tab === 'expediente' && <DossierTab agent={agent} boss={boss} model={model} />}
         {tab === 'historial' && <HistoryTab agent={agent} activity={activity} byId={byId} />}
@@ -156,8 +160,9 @@ export function AgentPanel({ agent, agents, activity, tasks, spend, supabase, on
 
 // ── Chat ─────────────────────────────────────────────────────────────
 
-function ChatTab({ agent, agents, supabase, onChat }: {
+function ChatTab({ agent, agents, supabase, onChat, projections, onOpenProjection, getProjection }: {
   agent: MkAgent; agents: MkAgent[]; supabase: any; onChat: (id: string, m: string) => Promise<{ reply: string; visits: string[] }>;
+  projections: MkProjection[]; onOpenProjection: (p: MkProjection) => void; getProjection: (id: string) => Promise<MkProjection | null>;
 }) {
   const [thread, setThread] = useState<MkMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -191,6 +196,9 @@ function ChatTab({ agent, agents, supabase, onChat }: {
     const el = boxRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [thread, sending, walking]);
+  useEffect(() => {
+    thread.flatMap((m) => m.attachments ?? []).filter((id) => !projections.some((p) => p.id === id)).forEach((id) => { getProjection(id); });
+  }, [thread, projections, getProjection]);
 
   const send = async () => {
     const msg = draft.trim();
@@ -237,6 +245,7 @@ function ChatTab({ agent, agents, supabase, onChat }: {
               m.sender === 'fundador' ? 'rounded-br-md bg-slate-900 text-white' : 'rounded-bl-md bg-slate-100 text-slate-800')}>
               {m.body}
             </div>
+            {(m.attachments ?? []).map((id) => { const p = projections.find((x) => x.id === id); return p ? <ProjectionCard key={id} p={p} agent={agents.find((a) => a.id === p.agent_id)} onOpen={onOpenProjection} /> : null; })}
             <span className="mt-0.5 px-1 text-[10px] text-slate-400">{hhmm(m.created_at)}</span>
           </div>
         ))}

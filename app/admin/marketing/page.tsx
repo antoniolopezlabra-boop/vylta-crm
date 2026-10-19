@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, Pause, Play, Zap, Users, Wallet, TrendingUp, UserPlus, Megaphone, Crown, ChevronDown } from 'lucide-react';
+import { Loader2, Pause, Play, Zap, Users, Wallet, TrendingUp, UserPlus, Megaphone, Crown, ChevronDown, Presentation } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMarketing } from '@/hooks/use-marketing';
 import { OfficeFloor } from '@/components/admin/marketing/office-floor';
 import { AgentPanel } from '@/components/admin/marketing/agent-panel';
+import { MeetingPanel, StartMeetingDialog } from '@/components/admin/marketing/meeting-panel';
+import { ProjectionModal } from '@/components/admin/marketing/projection-viewer';
+import type { MkProjection } from '@/hooks/use-marketing';
 import { ActivityFeed, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +35,9 @@ export default function MarketingPage() {
   const [selected, setSelected] = useState<string | null>('director');
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('feed');
   const [open, setOpen] = useState(false);
+  const [convocar, setConvocar] = useState(false);
+  const [viewing, setViewing] = useState<MkProjection | null>(null);
+  const [side, setSide] = useState<'reunion' | 'agente'>('reunion');
   const [running, setRunning] = useState(false);
 
   const agent = mk.agents.find((a) => a.id === selected) ?? mk.agents.find((a) => a.id === 'director');
@@ -57,6 +63,12 @@ export default function MarketingPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {!mk.meeting && (
+            <button onClick={() => setConvocar(true)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-100">
+              <Presentation className="h-4 w-4" />Convocar reunión
+            </button>
+          )}
           <button
             onClick={async () => { setRunning(true); try { await mk.runNow(); toast.success('El equipo revisó su trabajo pendiente'); } catch (e) { toast.error((e as Error).message); } finally { setRunning(false); } }}
             disabled={running || paused}
@@ -96,17 +108,36 @@ export default function MarketingPage() {
           <div className="pointer-events-none absolute left-5 top-4 z-10 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 backdrop-blur">
             Pasa el cursor por una sala para acercarte · toca a un agente para hablar con él
           </div>
-          <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={setSelected} kpis={mk.kpis} posts={mk.posts} />
+          <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={(id) => { setSelected(id); if (id) setSide('agente'); }} kpis={mk.kpis} posts={mk.posts}
+                       meeting={mk.meeting} projections={mk.projections} onOpenProjection={setViewing} />
         </div>
         <div className="h-[720px] xl:h-auto xl:max-h-[760px]">
-          {agent && (
+          {mk.meeting && (
+            <div className="mb-2 flex gap-1 rounded-xl bg-slate-100 p-1 text-[12px] font-semibold">
+              {(['reunion', 'agente'] as const).map((k) => (
+                <button key={k} onClick={() => setSide(k)} className={cn('flex-1 rounded-lg py-1.5', side === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')}>
+                  {k === 'reunion' ? 'Sala de juntas' : `Expediente${agent ? ` · ${agent.name.split(' ')[0]}` : ''}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {mk.meeting && side === 'reunion' ? (
+            <div className="h-[calc(100%-44px)]">
+              <MeetingPanel meeting={mk.meeting} agents={mk.agents} projections={mk.projections} supabase={mk.supabase}
+                            onSend={mk.meetingChat} onEnd={mk.endMeeting} onOpen={setViewing} getProjection={mk.getProjection} />
+            </div>
+          ) : agent && (
             <AgentPanel agent={agent} agents={mk.agents} activity={mk.activity} tasks={mk.tasks}
                         spend={mk.spendByAgent[agent.id] ?? 0} supabase={mk.supabase}
                         onChat={mk.chat} onToggle={mk.setAgentEnabled}
-                        onAssign={mk.assignTask} loadLedger={mk.loadLedger} />
+                        onAssign={mk.assignTask} loadLedger={mk.loadLedger}
+                        projections={mk.projections} onOpenProjection={setViewing} getProjection={mk.getProjection} />
           )}
         </div>
       </div>
+
+      {convocar && <StartMeetingDialog agents={mk.agents} onStart={async (t, a) => { await mk.startMeeting(t, a); setSide('reunion'); }} onClose={() => setConvocar(false)} />}
+      {viewing && <ProjectionModal p={viewing} agents={mk.agents} onClose={() => setViewing(null)} />}
 
       {/* Secciones: plegables para que el chat nunca quede empujado */}
       <div className="rounded-3xl border border-slate-200 bg-white">

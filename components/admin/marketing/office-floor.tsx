@@ -2,7 +2,8 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { walkBus } from './walk-bus';
-import type { MkActivity, MkAgent, MkKpis, MkPost } from '@/hooks/use-marketing';
+import type { MkActivity, MkAgent, MkKpis, MkMeeting, MkPost, MkProjection } from '@/hooks/use-marketing';
+import { RoomScreen } from './projection-viewer';
 
 // ═══════════════════════════════════════════════════════════════════════
 // OfficeFloor — cuartel de marketing de VYLTA (vista isométrica)
@@ -80,7 +81,8 @@ const ZONES: Zone[] = [
   { id: 'datos', label: 'Datos e IA', x: 20, y: 0, w: 10, d: 7, floor: '#0F1828', pattern: 'tech', accent: '#22D3EE', icon: '⬡' },
   { id: 'creativo', label: 'Estudio creativo', x: 0, y: 9, w: 10, d: 11, floor: '#26202B', pattern: 'concrete', accent: '#F43F5E', icon: '✦' },
   { id: 'social', label: 'Social media', x: 11, y: 9, w: 8, d: 11, floor: '#1E1B33', pattern: 'carpet', accent: '#EC4899', icon: '♥' },
-  { id: 'rh', label: 'Recursos Humanos', x: 20, y: 9, w: 10, d: 11, floor: '#14231F', pattern: 'tileG', accent: '#10B981', icon: '●' },
+  { id: 'juntas', label: 'Sala de juntas', x: 20, y: 9, w: 10, d: 5.6, floor: '#151A2B', pattern: 'juntasP', accent: '#38BDF8', icon: '▣' },
+  { id: 'rh', label: 'Recursos Humanos', x: 20, y: 15.2, w: 10, d: 4.8, floor: '#14231F', pattern: 'tileG', accent: '#10B981', icon: '●' },
 ];
 const zoneById = Object.fromEntries(ZONES.map((z) => [z.id, z]));
 
@@ -90,13 +92,17 @@ const DESKS: Record<string, [number, number][]> = {
   datos: [[24.0, 4.7], [26.9, 4.7], [20.5, 4.7]],
   creativo: [[1.4, 10.8], [4.5, 10.8], [7.4, 10.8], [1.4, 13.6], [4.5, 13.6]],
   social: [[12.0, 10.8], [15.6, 10.8], [12.0, 13.6], [15.6, 13.6]],
-  rh: [[21.2, 10.8], [24.4, 10.8], [21.2, 13.8], [24.4, 13.8]],
+  rh: [[21.0, 16.3], [23.9, 16.3], [21.0, 18.6], [23.9, 18.6]],
 };
 const deskW = (zone: string) => (zone === 'direccion' ? 3 : 2.2);
 function deskOf(a: MkAgent): [number, number] { const l = DESKS[a.zone] ?? DESKS.estrategia; return l[a.desk % l.length]; }
 function seatOf(a: MkAgent): [number, number] { const [dx, dy] = deskOf(a); return [dx + deskW(a.zone) / 2, dy - 0.38]; }
 function visitSpot(a: MkAgent): [number, number] { const [dx, dy] = deskOf(a); return [dx - 0.45, dy + 0.35]; }
 function doorOf(zone: string): [number, number] {
+  // RH sale por el pasillo lateral (entre Social media y RH); la sala de
+  // juntas tiene su puerta en la esquina, junto a la pantalla.
+  if (zone === 'rh') return [19.5, 17.4];
+  if (zone === 'juntas') return [20.6, 8.5];
   const z = zoneById[zone] ?? ZONES[1];
   const cx = z.x + z.w / 2;
   return z.y < HALL_Y ? [cx, z.y + z.d + 0.5] : [cx, z.y - 0.5];
@@ -125,6 +131,24 @@ function planTrip(from: MkAgent, targets: MkAgent[]) {
   }
   path.push(...legPath(cur, zone, up, from.zone), seat);
   return { path, stops, total: pathLen(path) };
+}
+
+// ── Sala de juntas ──
+// Orden de llegada alternado (izquierda/derecha, salteando filas) para que las etiquetas no se encimen.
+const ROOM_SEATS: P[] = [[23.35, 11.0], [26.65, 12.1], [23.35, 13.2], [26.65, 11.0], [26.65, 13.2], [23.35, 12.1], [25.0, 14.15]];
+const TABLE_DEPTH = 23.9 + 2.2 + 10.5 + 3.3;
+// Desde la puerta de la sala hasta el asiento, rodeando la mesa.
+function roomRoute(i: number): P[] {
+  const s = ROOM_SEATS[i];
+  if (s[0] < 25) return [[20.6, s[1]], s];
+  return [[20.6, 14.3], [s[0] === 25 ? 25 : 27.3, 14.3], ...(s[0] === 25 ? [] : [[27.3, s[1]] as P]), s];
+}
+function roomTrip(from: MkAgent, i: number) {
+  const seat = seatOf(from);
+  const up: P = [deskOf(from)[0] - 0.45, seat[1]];
+  const d1 = doorOf(from.zone);
+  const path: P[] = [seat, up, [up[0], d1[1] + (d1[1] > up[1] ? -0.6 : 0.6)], d1, [d1[0], HALL_Y], [20.6, HALL_Y], [20.6, 8.5], ...roomRoute(i)];
+  return { path, stops: [], total: pathLen(path) };
 }
 
 // ── Personaje ────────────────────────────────────────────────────────
@@ -373,7 +397,7 @@ function TalentBoard({ w, h, agents }: { w: number; h: number; agents: MkAgent[]
 
 // ── Caminatas ────────────────────────────────────────────────────────
 
-type Trip = { agent: string; path: P[]; stops: { at: number; ms: number; target: string }[]; total: number; started: number; done?: () => void };
+type Trip = { agent: string; path: P[]; stops: { at: number; ms: number; target: string }[]; total: number; started: number; done?: () => void; room?: { seat: number; dir: 'in' | 'out' } };
 const SPEED = 4.5;        // baldosas por segundo
 const DWELL_MS = 2800;    // pausa con cada persona
 function segLengths(path: P[]) { const o: number[] = []; for (let i = 1; i < path.length; i++) o.push(Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1])); return o; }
@@ -403,9 +427,10 @@ function tripState(tr: Trip, now: number): { dist: number; visiting?: string; ne
 
 // ── Oficina ──────────────────────────────────────────────────────────
 
-export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts }: {
+export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts, meeting, projections, onOpenProjection }: {
   agents: MkAgent[]; activity: MkActivity[]; selected: string | null; onSelect: (id: string | null) => void;
   kpis: MkKpis | null; posts: MkPost[];
+  meeting: MkMeeting | null; projections: MkProjection[]; onOpenProjection: (p: MkProjection) => void;
 }) {
   const [trips, setTrips] = useState<Record<string, Trip>>({});
   const [frame, setFrame] = useState(0);
@@ -416,11 +441,14 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
   const byId = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a])), [agents]);
 
   const byIdRef = useRef(byId); byIdRef.current = byId;
+  // Quién está sentado en la sala de juntas (id → asiento).
+  const [inRoom, setInRoom] = useState<Record<string, number>>({});
+  const inRoomRef = useRef(inRoom); inRoomRef.current = inRoom;
   const tripsRef = useRef(trips); tripsRef.current = trips;
   const startTrip = useCallback((fromId: string, targetIds: string[], done?: () => void) => {
     const from = byIdRef.current[fromId];
     const targets = targetIds.map((id) => byIdRef.current[id]).filter((t): t is MkAgent => !!t && t.id !== fromId);
-    if (!from || !targets.length) { done?.(); return; }
+    if (!from || !targets.length || inRoomRef.current[fromId] !== undefined || tripsRef.current[fromId]?.room) { done?.(); return; }
     tripsRef.current[fromId]?.done?.();
     const trip: Trip = { agent: fromId, ...planTrip(from, targets), started: performance.now(), done };
     setTrips((cur) => ({ ...cur, [fromId]: trip }));
@@ -437,10 +465,32 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     const fresh = activity.filter((e) => e.id > seen.current && e.kind === 'talk' && e.target_agent && e.target_agent !== e.agent_id).reverse();
     seen.current = Math.max(seen.current, newest);
     for (const e of fresh) {
-      if (walkBus.busy.has(e.agent_id) || tripsRef.current[e.agent_id]) continue;
+      if (walkBus.busy.has(e.agent_id) || tripsRef.current[e.agent_id] || inRoomRef.current[e.agent_id] !== undefined) continue;
       startTrip(e.agent_id, [e.target_agent!]);
     }
   }, [activity, startTrip]);
+
+  const attendeesKey = meeting?.status === 'en_curso' ? meeting.attendees.slice(0, ROOM_SEATS.length).join(',') : '';
+  useEffect(() => {
+    const want = attendeesKey ? attendeesKey.split(',') : [];
+    const now = performance.now();
+    const next: Record<string, Trip> = {};
+    want.forEach((id, i) => {
+      const a = byIdRef.current[id];
+      if (!a || inRoomRef.current[id] !== undefined || tripsRef.current[id]?.room?.dir === 'in') return;
+      tripsRef.current[id]?.done?.();
+      next[id] = { agent: id, ...roomTrip(a, i), started: now, room: { seat: i, dir: 'in' } };
+    });
+    const leaving = Object.entries(inRoomRef.current).filter(([id]) => !want.includes(id));
+    leaving.forEach(([id, seatIdx]) => {
+      const a = byIdRef.current[id]; if (!a) return;
+      const t = roomTrip(a, seatIdx);
+      next[id] = { agent: id, path: [...t.path].reverse(), stops: [], total: t.total, started: now, room: { seat: seatIdx, dir: 'out' } };
+    });
+    if (leaving.length) setInRoom((cur) => { const n = { ...cur }; leaving.forEach(([id]) => delete n[id]); return n; });
+    if (Object.keys(next).length) setTrips((cur) => ({ ...cur, ...next }));
+    if (want.length) setFocus('juntas');
+  }, [attendeesKey]);
 
   useEffect(() => {
     if (!Object.keys(trips).length) return;
@@ -452,6 +502,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
       if (done.length) {
         setTrips((cur) => { const n = { ...cur }; done.forEach((d) => { if (n[d.agent] === d) delete n[d.agent]; }); return n; });
         done.forEach((d) => d.done?.());
+        const seated = done.filter((d) => d.room?.dir === 'in');
+        if (seated.length) setInRoom((cur) => { const n = { ...cur }; seated.forEach((d) => { n[d.agent] = d.room!.seat; }); return n; });
       } else raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -461,15 +513,20 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
   const poseOf = useCallback((a: MkAgent): Pose & { next?: string } => {
     const tr = trips[a.id];
     const [sx, sy] = seatOf(a);
-    if (!tr) return { x: sx, y: sy, walking: false, away: false, facing: 1 };
+    if (!tr) {
+      const r = inRoom[a.id];
+      if (r !== undefined) return { x: ROOM_SEATS[r][0], y: ROOM_SEATS[r][1], walking: false, away: false, facing: 1 };
+      return { x: sx, y: sy, walking: false, away: false, facing: 1 };
+    }
     const st = tripState(tr, frame);
     const { p, dir } = along(tr.path, st.dist);
     return { x: p[0], y: p[1], walking: !st.visiting && !st.finished, away: !st.finished, facing: dir < 0 ? -1 : 1, visiting: st.visiting, next: st.next };
-  }, [trips, frame]);
+  }, [trips, frame, inRoom]);
 
   const bubbles = useMemo(() => {
     const out: Record<string, string | null> = {};
     for (const a of agents) {
+      if (trips[a.id]?.room) { out[a.id] = trips[a.id].room!.dir === 'in' ? 'Va a la sala de juntas' : 'Regresa a su lugar'; continue; }
       if (trips[a.id]) {
         const st = poseOf(a);
         const name = (id?: string) => byId[id ?? '']?.name.split(' ')[0] ?? 'el equipo';
@@ -665,12 +722,20 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
   drawables.push(box('beanbag-a', 17.0, 18.6, 0, 0.9, 0.9, 0.45, '#BE185D'));
   drawables.push(box('beanbag-b', 12.0, 18.7, 0, 0.9, 0.9, 0.45, '#4338CA'));
   // ── Recursos Humanos
-  drawables.push(glowMat('rh-rug', 23.4, 16.4, 3.4, 2.4, '#10B981'));
-  drawables.push(box('rh-table', 23.9, 16.9, 0, 2.3, 1.2, 0.7, '#14231F', { top: '#1C3A33', edge: '#34D399' }));
-  drawables.push(box('rh-chair-a', 24.2, 16.35, 0, 0.5, 0.4, 0.45, '#065F46'));
-  drawables.push(box('rh-chair-b', 25.4, 18.3, 0, 0.5, 0.4, 0.45, '#065F46'));
-  drawables.push(box('rh-board-stand', 27.0, 12.4, 0, 2.7, 0.25, 0.4, '#111827', { edge: '#10B981' }));
-  drawables.push({ key: 'rh-board', depth: 27 + 12.4 + 3, node: <g key="rh-board" transform={alongX(27.0, 12.4, 2.6)}><TalentBoard w={2.7 * T} h={2.0 * T} agents={agents} /></g> });
+  drawables.push(box('rh-board-stand', 26.9, 15.7, 0, 2.7, 0.25, 0.4, '#111827', { edge: '#10B981' }));
+  drawables.push({ key: 'rh-board', depth: 26.9 + 15.7 + 3, node: <g key="rh-board" transform={alongX(26.9, 15.7, 2.6)}><TalentBoard w={2.7 * T} h={2.0 * T} agents={agents} /></g> });
+  // ── Sala de juntas: mesa larga, sillas, pantalla grande al fondo
+  drawables.push(glowMat('jt-rug', 22.6, 10.0, 4.8, 4.4, '#38BDF8'));
+  drawables.push(box('jt-table', 23.9, 10.5, 0, 2.2, 3.3, 0.72, '#1E293B', { top: '#2A3548', edge: '#38BDF8' }));
+  ROOM_SEATS.forEach(([cx, cy], i) => drawables.push(box(`jt-chair-${i}`, cx - 0.25, cy - 0.2, 0, 0.5, 0.4, 0.42, '#1E3A5F', { top: '#24466F' })));
+  drawables.push(box('jt-screen-stand', 21.5, 9.15, 0, 7, 0.2, 0.62, '#0B1220', { edge: '#38BDF8' }));
+  const shown = meeting ? projections.find((p) => p.meeting_id === meeting.id) ?? null : null;
+  drawables.push({ key: 'jt-screen', depth: 30, node: (
+    <g key="jt-screen" transform={alongX(21.5, 9.3, 3.0)} onClick={(e) => { e.stopPropagation(); if (shown) onOpenProjection(shown); }}>
+      <RoomScreen w={7 * T} h={2.3 * T} p={shown} topic={meeting?.topic ?? null} live={!!meeting} />
+    </g>
+  ) });
+  drawables.push(plant('jt-plant', 29.2, 13.7));
   drawables.push(plant('rh-plant', 29.2, 19.2));
   // ── Pasillo
   drawables.push(box('reception', 18.9, 7.35, 0, 1.0, 1.3, 0.95, '#0B1220', { top: '#111A2E', edge: '#10B981' }));
@@ -690,17 +755,18 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
   }
 
   return drawables;
-  }, [agents, awayKey, posts]);
+  }, [agents, awayKey, posts, meeting, projections, onOpenProjection]);
 
   const drawables: Drawable[] = [...staticScene];
   for (const a of agents) {
     const pose = poseOf(a);
-    drawables.push({ key: `p-${a.id}`, depth: pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={pose.walking ? frame : 0} selected={selected === a.id} onSelect={onSelect} /> });
+    const nearSide = !trips[a.id] && inRoom[a.id] !== undefined && pose.x > 25 ;
+    drawables.push({ key: `p-${a.id}`, depth: nearSide ? TABLE_DEPTH + 0.2 : pose.x + pose.y + (pose.away ? 1.4 : 0.9), node: <Person key={`p-${a.id}`} a={a} pose={pose} t={pose.walking ? frame : 0} selected={selected === a.id} onSelect={onSelect} /> });
   }
   drawables.sort((p, q) => p.depth - q.depth);
 
   const focusZone = focus ? zoneById[focus] : null;
-  const zoneAgents = focusZone ? agents.filter((a) => a.zone === focusZone.id) : [];
+  const zoneAgents = focusZone ? (focusZone.id === 'juntas' ? agents.filter((a) => inRoom[a.id] !== undefined) : agents.filter((a) => a.zone === focusZone.id)) : [];
 
   // Letreros de departamento: en los muros (salas del fondo) o flotando en
   // esquinas despejadas (salas del frente). Se dibujan al final: nada los tapa.
@@ -710,7 +776,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
     { z: 'datos', at: [24.0, 0.02, 4.7], wall: true },
     { z: 'creativo', at: [3.4, 9.2, 2.3] },
     { z: 'social', at: [16.6, 9.2, 2.3] },
-    { z: 'rh', at: [28.3, 16.2, 2.2] },
+    { z: 'rh', at: [28.2, 18.4, 2.1] },
+    { z: 'juntas', at: [21.6, 9.32, 3.85], wall: true },
   ];
 
   // Fondo, muros con pantallas y letreros: solo cambian con los datos.
@@ -819,6 +886,9 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts 
           </pattern>
           <pattern id="concrete" width="40" height="40" patternUnits="userSpaceOnUse">
             <rect width="40" height="40" fill="#26202B" /><circle cx="8" cy="12" r="0.8" fill="#3A3140" /><circle cx="28" cy="30" r="0.7" fill="#3A3140" /><circle cx="33" cy="9" r="0.6" fill="#3A3140" />
+          </pattern>
+          <pattern id="juntasP" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#151A2B" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#38BDF824" strokeWidth="0.8" />
           </pattern>
           <pattern id="carpet" width="6" height="6" patternUnits="userSpaceOnUse">
             <rect width="6" height="6" fill="#1E1B33" /><circle cx="3" cy="3" r="0.6" fill="#EC489922" />

@@ -71,7 +71,13 @@ export type MkRequest = {
   created_at: string;
 };
 
-export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente'; body: string; created_at: string };
+export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente'; body: string; created_at: string; meeting_id?: string | null; attachments?: string[] };
+export type MkMeeting = { id: string; topic: string; attendees: string[]; status: 'en_curso' | 'terminada'; created_at: string; ended_at: string | null };
+export type MkProjection = {
+  id: string; meeting_id: string | null; agent_id: string; created_at: string; title: string;
+  kind: 'publicaciones' | 'resultados' | 'presentacion' | 'imagenes' | 'video' | 'grafica';
+  payload: Record<string, any>;
+};
 export type MkKnowledge = { slug: string; title: string; body: string; updated_by: string; updated_at: string };
 export type MkTask = { id: string; title: string; assigned_to: string; created_by: string; status: string; result: string | null; kind: string; request: string | null; not_before: string; created_at: string; updated_at: string };
 
@@ -100,6 +106,8 @@ export function useMarketing() {
   const [kpis, setKpis] = useState<MkKpis | null>(null);
   const [spendByAgent, setSpendByAgent] = useState<Record<string, number>>({});
   const [settings, setSettings] = useState<Record<string, any>>({});
+  const [meeting, setMeeting] = useState<MkMeeting | null>(null);
+  const [projections, setProjections] = useState<MkProjection[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadKpis = useCallback(async () => {
@@ -124,6 +132,12 @@ export function useMarketing() {
       supabase.from('mk_tasks').select('id,title,assigned_to,created_by,status,result,kind,request,not_before,created_at,updated_at').order('created_at', { ascending: false }).limit(80),
       supabase.from('mk_settings').select('key,value'),
     ]);
+    const [mt, pj] = await Promise.all([
+      supabase.from('mk_meetings').select('*').eq('status', 'en_curso').order('created_at', { ascending: false }).limit(1),
+      supabase.from('mk_projections').select('*').order('created_at', { ascending: false }).limit(100),
+    ]);
+    setMeeting(((mt.data ?? [])[0] as MkMeeting) ?? null);
+    setProjections((pj.data ?? []) as MkProjection[]);
     setAgents((a.data ?? []) as MkAgent[]);
     setActivity((act.data ?? []) as MkActivity[]);
     setPosts((p.data ?? []) as MkPost[]);
@@ -165,6 +179,15 @@ export function useMarketing() {
         if (!row?.id) return;
         setPosts((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_meetings' }, (e) => {
+        const row = e.new as MkMeeting;
+        if (!row?.id) return;
+        setMeeting((cur) => (row.status === 'en_curso' ? { ...(cur?.id === row.id ? cur : {}), ...row } as MkMeeting : cur?.id === row.id ? null : cur));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mk_projections' }, (e) => {
+        const row = e.new as MkProjection;
+        if (row?.id) setProjections((prev) => (prev.some((x) => x.id === row.id) ? prev : [row, ...prev].slice(0, 150)));
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_requests' }, (e) => {
         const row = e.new as MkRequest;
         if (!row?.id) return;
@@ -202,6 +225,36 @@ export function useMarketing() {
     const r = data as { reply: string; visits?: string[] };
     return { reply: r.reply, visits: r.visits ?? [] };
   }, [supabase, loadKpis]);
+
+  const invoke = useCallback(async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke('mk-engine', { body });
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* sin cuerpo */ }
+      throw new Error(msg);
+    }
+    return data as any;
+  }, [supabase]);
+  const startMeeting = useCallback(async (topic: string, attendees: string[]) => {
+    const r = await invoke({ action: 'meeting_start', topic, attendees });
+    setMeeting(r.meeting as MkMeeting);
+    return r.meeting as MkMeeting;
+  }, [invoke]);
+  const endMeeting = useCallback(async (id: string) => {
+    await invoke({ action: 'meeting_end', meeting_id: id });
+    setMeeting((cur) => (cur?.id === id ? null : cur));
+  }, [invoke]);
+  const meetingChat = useCallback(async (id: string, message: string, to?: string) => {
+    const r = await invoke({ action: 'meeting_chat', meeting_id: id, message, to });
+    loadKpis();
+    return r as { reply: string; agent_id: string; projections: string[] };
+  }, [invoke, loadKpis]);
+  // Una proyección que aún no llegó por tiempo real se trae directo.
+  const getProjection = useCallback(async (id: string) => {
+    const { data } = await supabase.from('mk_projections').select('*').eq('id', id).maybeSingle();
+    if (data) setProjections((prev) => (prev.some((x) => x.id === id) ? prev : [data as MkProjection, ...prev]));
+    return (data as MkProjection) ?? null;
+  }, [supabase]);
 
   const runNow = useCallback(async () => {
     const { data, error } = await supabase.functions.invoke('mk-engine', { body: { action: 'run_now' } });
@@ -279,7 +332,8 @@ export function useMarketing() {
   }, [supabase]);
 
   return {
-    loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings,
+    loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections,
+    startMeeting, endMeeting, meetingChat, getProjection,
     chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }
