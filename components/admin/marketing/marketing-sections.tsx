@@ -257,17 +257,18 @@ const COMMENT_STATUS: Record<MkComment['status'], { label: string; cls: string }
   respondido: { label: 'Respondido', cls: 'bg-emerald-100 text-emerald-700' },
   escalado: { label: 'Escalado al Director', cls: 'bg-amber-100 text-amber-800' },
   ignorado: { label: 'Ignorado', cls: 'bg-slate-100 text-slate-500' },
+  oculto: { label: 'Oculto (dañino)', cls: 'bg-red-100 text-red-700' },
 };
 
 // Comentarios de la gente en Facebook e Instagram y cómo los atendió Mariana.
-export function CommentsView({ comments }: { comments: MkComment[] }) {
+export function CommentsView({ comments, onUnhide }: { comments: MkComment[]; onUnhide: (id: string) => Promise<void> }) {
   const [filter, setFilter] = useState<'todos' | MkComment['status']>('todos');
   const list = comments.filter((c) => filter === 'todos' || c.status === filter);
   if (!comments.length) return <Empty text="Aún no hay comentarios en nuestras publicaciones. Cuando alguien comente, Mariana lo atiende y aquí verás su respuesta." />;
   return (
     <div>
       <div className="mb-3 flex flex-wrap gap-1.5">
-        {(['todos', 'nuevo', 'respondido', 'escalado', 'ignorado'] as const).map((f) => (
+        {(['todos', 'nuevo', 'respondido', 'escalado', 'oculto', 'ignorado'] as const).map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={cn('rounded-lg px-2.5 py-1 text-[12px] font-semibold', filter === f ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
             {f === 'todos' ? 'Todos' : COMMENT_STATUS[f].label} ({f === 'todos' ? comments.length : comments.filter((c) => c.status === f).length})
           </button>
@@ -285,6 +286,10 @@ export function CommentsView({ comments }: { comments: MkComment[] }) {
             <p className="mt-2 text-[13px] text-slate-800">{c.text}</p>
             {c.reply_text && <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-[13px] text-emerald-900"><b>VYLTA:</b> {c.reply_text}</p>}
             {c.note && c.status !== 'respondido' && <p className="mt-1.5 text-[12px] text-slate-500">Nota: {c.note}</p>}
+            {c.status === 'oculto' && (
+              <button onClick={() => onUnhide(c.id).then(() => toast.success('El comentario vuelve a estar visible')).catch((e) => toast.error(e.message))}
+                      className="mt-2 rounded-lg border border-slate-200 px-2.5 py-1 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">Mostrar de nuevo</button>
+            )}
           </li>
         ))}
       </ul>

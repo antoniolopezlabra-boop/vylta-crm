@@ -177,7 +177,7 @@ export default function MarketingPage() {
           <div className="border-t border-slate-100 p-5">
             {tab === 'feed' && <ActivityFeed activity={mk.activity} agents={mk.agents} onSelect={setSelected} />}
             {tab === 'posts' && <PostsGrid posts={mk.posts} onDiscard={mk.discardPost} />}
-            {tab === 'comments' && <CommentsView comments={mk.comments} />}
+            {tab === 'comments' && <CommentsView comments={mk.comments} onUnhide={mk.unhideComment} />}
             {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
             {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
             {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}

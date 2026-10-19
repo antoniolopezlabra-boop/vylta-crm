@@ -74,7 +74,7 @@ export type MkRequest = {
 export type MkMessage = { id: number; agent_id: string; sender: 'fundador' | 'agente' | 'sistema'; body: string; created_at: string; meeting_id?: string | null; attachments?: string[] };
 export type MkComment = {
   id: string; channel: 'facebook' | 'instagram'; post_id: string | null; author: string | null; text: string; commented_at: string | null;
-  status: 'nuevo' | 'respondido' | 'escalado' | 'ignorado'; reply_text: string | null; replied_at: string | null; handled_by: string | null; note: string | null;
+  status: 'nuevo' | 'respondido' | 'escalado' | 'ignorado' | 'oculto'; reply_text: string | null; replied_at: string | null; handled_by: string | null; note: string | null;
 };
 export type MkMeeting = { id: string; topic: string; attendees: string[]; status: 'en_curso' | 'terminada'; created_at: string; ended_at: string | null };
 export type MkProjection = {
@@ -247,6 +247,9 @@ export function useMarketing() {
     }
     return data as any;
   }, [supabase]);
+  const unhideComment = useCallback(async (id: string) => {
+    await invoke({ action: 'comment_unhide', comment_id: id });
+  }, [invoke]);
   const startMeeting = useCallback(async (topic: string, attendees: string[]) => {
     const r = await invoke({ action: 'meeting_start', topic, attendees });
     setMeeting(r.meeting as MkMeeting);
@@ -345,7 +348,7 @@ export function useMarketing() {
 
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
-    startMeeting, endMeeting, meetingChat, getProjection,
+    startMeeting, endMeeting, meetingChat, getProjection, unhideComment,
     chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }
