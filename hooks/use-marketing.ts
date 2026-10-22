@@ -268,7 +268,7 @@ export function useMarketing() {
     }
     return data as any;
   }, [supabase]);
-  const previewOutreach = useCallback(async () => (await invoke({ action: 'outreach_preview' })) as { subject: string; html: string }, [invoke]);
+  const previewOutreach = useCallback(async () => (await invoke({ action: 'outreach_preview' })) as { subject: string; html: string; elegibles?: string[] }, [invoke]);
   const decideInnovation = useCallback(async (id: string, approve: boolean, note?: string) => {
     const r = await invoke({ action: 'innovation_decide', id, approve, note });
     const { data } = await supabase.from('mk_innovations').select('*').eq('id', id).maybeSingle();

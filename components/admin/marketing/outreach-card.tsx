@@ -11,8 +11,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 type Sent = { id: string; business: string | null; subject: string; status: string; created_at: string };
 
-export function OutreachCard({ supabase, policy, onPreview }: { supabase: SupabaseClient; policy: any; onPreview: () => Promise<{ subject: string; html: string }> }) {
-  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
+export function OutreachCard({ supabase, policy, onPreview }: { supabase: SupabaseClient; policy: any; onPreview: () => Promise<{ subject: string; html: string; elegibles?: string[] }> }) {
+  const [preview, setPreview] = useState<{ subject: string; html: string; elegibles?: string[] } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const openPreview = async () => { setLoadingPreview(true); try { setPreview(await onPreview()); } catch (e) { toast.error((e as Error).message); } finally { setLoadingPreview(false); } };
   const [on, setOn] = useState<boolean>(!!policy?.activo);
@@ -38,10 +38,10 @@ export function OutreachCard({ supabase, policy, onPreview }: { supabase: Supaba
     <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl">
-          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400"><Mail className="h-3.5 w-3.5 text-emerald-500" />Seguimiento por correo a negocios registrados</div>
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400"><Mail className="h-3.5 w-3.5 text-emerald-500" />Oferta por correo: Premium 1 mes gratis</div>
           <p className="mt-1 text-[13px] leading-relaxed text-slate-600">
-            Iván (Growth) revisa en qué etapa se quedó cada negocio que se registró y no paga (sin servicios, sin citas, poco uso…) y le escribe un correo corto y personalizado a nombre de VYLTA.
-            Máximo {policy?.max_por_dia ?? 10} al día, uno cada {policy?.dias_entre_correos ?? 14} días por negocio, con enlace para darse de baja. Tú no mandas nada.
+            A los negocios que ya agendaron citas y aún no son Premium les llega un correo con su código personal de un solo uso (100% el primer mes, vence en {policy?.vigencia_dias ?? 14} días),
+            un botón que abre el pago con el código ya aplicado y el paso a paso. Una sola oferta por negocio, máximo {policy?.max_por_dia ?? 10} al día (lunes, miércoles y viernes), con enlace para darse de baja. Tú no mandas nada.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -61,11 +61,12 @@ export function OutreachCard({ supabase, policy, onPreview }: { supabase: Supaba
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Vista previa · así lo recibe el negocio</p>
                 <p className="truncate text-sm font-semibold text-slate-900">Asunto (ejemplo): {preview.subject}</p>
+                {preview.elegibles && <p className="truncate text-[12px] text-slate-500">Lo recibirían hoy ({preview.elegibles.length}): {preview.elegibles.join(', ') || 'nadie por ahora'}</p>}
               </div>
               <button onClick={() => setPreview(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Cerrar"><X className="h-5 w-5" /></button>
             </div>
             <iframe title="Vista previa del correo" srcDoc={preview.html} className="w-full flex-1 bg-[#F3F4F8]" sandbox="" />
-            <p className="border-t border-slate-200 px-5 py-2.5 text-[12px] text-slate-500">El texto cambia en cada correo: Iván lo escribe según la etapa de cada negocio. El diseño, el botón, las tiendas y la baja son fijos.</p>
+            <p className="border-t border-slate-200 px-5 py-2.5 text-[12px] text-slate-500">Ejemplo con datos ficticios. En cada correo cambian el nombre del negocio, sus citas y servicios reales, y su código personal.</p>
           </div>
         </div>
       )}
