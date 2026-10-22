@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ProjectionCard } from './projection-viewer';
 import type { MkAgent, MkMeeting, MkMessage, MkProjection } from '@/hooks/use-marketing';
+import { RichText } from './rich-text';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Sala de juntas: convocar una reunión y conversar con el equipo reunido.
@@ -133,9 +134,9 @@ export function MeetingPanel({ meeting, agents, projections, supabase, onSend, o
           return (
             <div key={m.id} className={cn('flex flex-col', m.sender === 'fundador' ? 'items-end' : 'items-start')}>
               {m.sender === 'agente' && a && <span className="mb-0.5 px-1 text-[11px] font-bold" style={{ color: a.color }}>{a.name.split(' ')[0]}</span>}
-              <div className={cn('max-w-[92%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-relaxed',
-                m.sender === 'fundador' ? 'rounded-br-md bg-slate-900 text-white' : 'rounded-bl-md bg-slate-100 text-slate-800')}>
-                {m.sender === 'fundador' && a && <span className="mr-1 text-white/50">@{a.name.split(' ')[0]}</span>}{m.body}
+              <div className={cn('max-w-[92%] space-y-1 rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
+                m.sender === 'fundador' ? 'mk-me rounded-br-md' : 'mk-them rounded-bl-md')}>
+                {m.sender === 'fundador' && a && <span className="mr-1 opacity-60">@{a.name.split(' ')[0]}</span>}<RichText text={m.body} />
               </div>
               {(m.attachments ?? []).map((id) => { const p = projections.find((x) => x.id === id); return p ? <ProjectionCard key={id} p={p} agent={who(p.agent_id)} onOpen={onOpen} /> : null; })}
             </div>

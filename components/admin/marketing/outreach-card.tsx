@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Mail, Loader2 } from 'lucide-react';
+import { Mail, Loader2, Eye, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -11,7 +11,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 type Sent = { id: string; business: string | null; subject: string; status: string; created_at: string };
 
-export function OutreachCard({ supabase, policy }: { supabase: SupabaseClient; policy: any }) {
+export function OutreachCard({ supabase, policy, onPreview }: { supabase: SupabaseClient; policy: any; onPreview: () => Promise<{ subject: string; html: string }> }) {
+  const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const openPreview = async () => { setLoadingPreview(true); try { setPreview(await onPreview()); } catch (e) { toast.error((e as Error).message); } finally { setLoadingPreview(false); } };
   const [on, setOn] = useState<boolean>(!!policy?.activo);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<Sent[]>([]);
@@ -41,11 +44,31 @@ export function OutreachCard({ supabase, policy }: { supabase: SupabaseClient; p
             Máximo {policy?.max_por_dia ?? 10} al día, uno cada {policy?.dias_entre_correos ?? 14} días por negocio, con enlace para darse de baja. Tú no mandas nada.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <button onClick={openPreview} disabled={loadingPreview} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3.5 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+          {loadingPreview ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}Ver plantilla
+        </button>
         <button onClick={toggle} disabled={busy}
                 className={cn('inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-semibold', on ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-slate-200 text-slate-600 hover:bg-slate-50')}>
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}{on ? 'Activado' : 'Apagado · Activar'}
         </button>
+        </div>
       </div>
+      {preview && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setPreview(null)}>
+          <div className="mk-light flex h-[88vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Vista previa · así lo recibe el negocio</p>
+                <p className="truncate text-sm font-semibold text-slate-900">Asunto (ejemplo): {preview.subject}</p>
+              </div>
+              <button onClick={() => setPreview(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Cerrar"><X className="h-5 w-5" /></button>
+            </div>
+            <iframe title="Vista previa del correo" srcDoc={preview.html} className="w-full flex-1 bg-[#F3F4F8]" sandbox="" />
+            <p className="border-t border-slate-200 px-5 py-2.5 text-[12px] text-slate-500">El texto cambia en cada correo: Iván lo escribe según la etapa de cada negocio. El diseño, el botón, las tiendas y la baja son fijos.</p>
+          </div>
+        </div>
+      )}
       {sent.length > 0 && (
         <ul className="mt-3 divide-y divide-slate-100 text-[12px]">
           {sent.map((s) => (

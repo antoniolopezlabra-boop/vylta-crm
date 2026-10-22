@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { ProjectionBody, ProjectionCard } from './projection-viewer';
 import type { MkAgent, MkMeeting, MkMessage, MkProjection } from '@/hooks/use-marketing';
+import { RichText } from './rich-text';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Sala de reunión estilo Teams: arriba los participantes (con quién está
@@ -144,7 +145,7 @@ export function MeetingRoom({ meeting, agents, projections, supabase, onSend, on
                     <Avatar name={mine ? 'Tú' : a?.name ?? '?'} color={mine ? '#475569' : a?.color ?? '#475569'} />
                     <div className={cn('min-w-0 max-w-[85%]', mine && 'text-right')}>
                       <div className="text-[11px] font-semibold text-white/50">{mine ? `Tú${m.agent_id && m.agent_id !== 'director' ? ` → ${who(m.agent_id)?.name.split(' ')[0] ?? ''}` : ''}` : a?.name.split(' ')[0]} · {hhmm(m.created_at)}</div>
-                      <div className={cn('mt-0.5 inline-block whitespace-pre-wrap rounded-2xl px-3 py-2 text-left text-[13px] leading-relaxed', mine ? 'rounded-tr-md bg-sky-600 text-white' : 'rounded-tl-md bg-white/[.06] text-white/90')}>{m.body}</div>
+                      <div className={cn('mt-0.5 inline-block space-y-1 rounded-2xl px-3 py-2 text-left text-[13px] leading-relaxed', mine ? 'rounded-tr-md bg-sky-600 text-white' : 'rounded-tl-md bg-white/[.06] text-white/90')}><RichText text={m.body} /></div>
                       {(m.attachments ?? []).map((id) => { const p = projections.find((x) => x.id === id); return p ? <div key={id} className="text-left"><ProjectionCard p={p} agent={who(p.agent_id)} onOpen={(q) => setStageId(q.id)} /></div> : null; })}
                     </div>
                   </div>

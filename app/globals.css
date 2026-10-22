@@ -346,3 +346,72 @@
     .animate-new-pulse::after { animation: none; opacity: 1; transform: scale(1); }
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════
+   Marketing (admin) — tema oscuro del Control Center.
+   Los paneles de la oficina se escribieron en claro; dentro de .mk-dark se
+   reasignan a superficies oscuras con acentos de la marca. Para dejar algo
+   en claro a propósito, envolverlo en .mk-light.
+   ═════════════════════════════════════════════════════════════════════ */
+.mk-dark{
+  --mk-s1:#0C1220; --mk-s2:#101828; --mk-s3:#162036; --mk-s4:#1D2942;
+  --mk-line:rgba(148,163,184,.13); --mk-line2:rgba(148,163,184,.24);
+  --mk-text:#E9EEF6; --mk-t2:#CBD5E1; --mk-t3:#A7B2C4; --mk-muted:#8B97AB; --mk-subtle:#6B778C;
+  --mk-aurora:linear-gradient(100deg,#2EE6A8 0%,#3B82F6 48%,#8B5CF6 100%);
+  color:var(--mk-text);
+}
+.mk-dark :is(.bg-white):not(.mk-light,.mk-light *){background-color:var(--mk-s1)!important}
+.mk-dark :is(.bg-slate-50,.bg-slate-50\/60):not(.mk-light,.mk-light *){background-color:var(--mk-s2)!important}
+.mk-dark .bg-slate-100:not(.mk-light,.mk-light *){background-color:var(--mk-s3)!important}
+.mk-dark .bg-slate-200:not(.mk-light,.mk-light *){background-color:var(--mk-s4)!important}
+.mk-dark .bg-slate-300:not(.mk-light,.mk-light *){background-color:#334155!important}
+.mk-dark :is(.hover\:bg-slate-50,.hover\:bg-slate-100):hover:not(.mk-light,.mk-light *){background-color:var(--mk-s4)!important}
+.mk-dark .hover\:bg-slate-200:hover:not(.mk-light,.mk-light *){background-color:#26344F!important}
+.mk-dark :is(.text-slate-900,.text-slate-800):not(.mk-light,.mk-light *){color:var(--mk-text)!important}
+.mk-dark .text-slate-700:not(.mk-light,.mk-light *){color:var(--mk-t2)!important}
+.mk-dark .text-slate-600:not(.mk-light,.mk-light *){color:var(--mk-t3)!important}
+.mk-dark .text-slate-500:not(.mk-light,.mk-light *){color:var(--mk-muted)!important}
+.mk-dark .text-slate-400:not(.mk-light,.mk-light *){color:var(--mk-subtle)!important}
+.mk-dark .hover\:text-slate-600:hover:not(.mk-light,.mk-light *){color:var(--mk-text)!important}
+.mk-dark :is(.border-slate-100,.border-slate-200,.border-white):not(.mk-light,.mk-light *){border-color:var(--mk-line)!important}
+.mk-dark :is(.divide-slate-100)>*+*:not(.mk-light,.mk-light *){border-color:var(--mk-line)!important}
+.mk-dark :is(.ring-slate-100,.ring-slate-200,.ring-white):not(.mk-light,.mk-light *){--tw-ring-color:var(--mk-line)!important}
+.mk-dark .hover\:border-slate-400:hover,.mk-dark .focus\:border-slate-400:focus{border-color:#64748B!important}
+/* Pastillas activas (antes negras sobre blanco): claras sobre oscuro */
+.mk-dark .bg-slate-900.text-white:not(.mk-light,.mk-light *):not(.mk-keep){background-color:#EEF2F8!important;color:#0B1020!important}
+.mk-dark .bg-slate-900.text-white.hover\:bg-slate-800:hover:not(.mk-keep),.mk-dark .bg-slate-900.text-white.hover\:bg-slate-700:hover:not(.mk-keep){background-color:#fff!important}
+/* Tintes de color: translúcidos y con texto claro */
+.mk-dark :is(.bg-emerald-50,.bg-emerald-100):not(.mk-light,.mk-light *){background-color:rgba(16,185,129,.13)!important}
+.mk-dark :is(.text-emerald-900,.text-emerald-800,.text-emerald-800\/80,.text-emerald-700,.text-emerald-700\/80):not(.mk-light,.mk-light *){color:#6EE7B7!important}
+.mk-dark .text-emerald-600:not(.mk-light,.mk-light *){color:#34D399!important}
+.mk-dark :is(.bg-amber-50,.bg-amber-100):not(.mk-light,.mk-light *){background-color:rgba(245,158,11,.14)!important}
+.mk-dark :is(.text-amber-950,.text-amber-900,.text-amber-800,.text-amber-800\/80,.text-amber-700):not(.mk-light,.mk-light *){color:#FCD34D!important}
+.mk-dark :is(.bg-sky-50,.bg-sky-100):not(.mk-light,.mk-light *){background-color:rgba(14,165,233,.13)!important}
+.mk-dark .hover\:bg-sky-100:hover{background-color:rgba(14,165,233,.22)!important}
+.mk-dark :is(.text-sky-700,.text-sky-600):not(.mk-light,.mk-light *){color:#7DD3FC!important}
+.mk-dark .bg-violet-100:not(.mk-light,.mk-light *){background-color:rgba(139,92,246,.16)!important}
+.mk-dark :is(.text-violet-700,.text-violet-600):not(.mk-light,.mk-light *){color:#C4B5FD!important}
+.mk-dark :is(.bg-rose-50,.bg-rose-100,.bg-red-100):not(.mk-light,.mk-light *){background-color:rgba(244,63,94,.13)!important}
+.mk-dark :is(.text-rose-700,.text-red-700,.text-red-600):not(.mk-light,.mk-light *){color:#FDA4AF!important}
+.mk-dark .text-pink-600:not(.mk-light,.mk-light *){color:#F9A8D4!important}
+.mk-dark :is(.text-lime-700,.text-lime-600):not(.mk-light,.mk-light *){color:#BEF264!important}
+.mk-dark :is(.border-emerald-200):not(.mk-light,.mk-light *){border-color:rgba(16,185,129,.3)!important}
+.mk-dark :is(.border-amber-200):not(.mk-light,.mk-light *){border-color:rgba(245,158,11,.3)!important}
+.mk-dark :is(.border-sky-200):not(.mk-light,.mk-light *){border-color:rgba(14,165,233,.3)!important}
+.mk-dark :is(.border-lime-200):not(.mk-light,.mk-light *){border-color:rgba(163,230,53,.28)!important}
+.mk-dark .ring-lime-100:not(.mk-light,.mk-light *){--tw-ring-color:rgba(163,230,53,.2)!important}
+.mk-dark .from-white:not(.mk-light,.mk-light *){--tw-gradient-from:var(--mk-s1) var(--tw-gradient-from-position)!important;--tw-gradient-to:var(--mk-s1) var(--tw-gradient-to-position)!important;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)!important}
+.mk-dark .to-white:not(.mk-light,.mk-light *){--tw-gradient-to:var(--mk-s1) var(--tw-gradient-to-position)!important}
+.mk-dark .from-lime-50:not(.mk-light,.mk-light *){--tw-gradient-from:rgba(163,230,53,.09) var(--tw-gradient-from-position)!important;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)!important}
+.mk-dark .from-sky-50:not(.mk-light,.mk-light *){--tw-gradient-from:rgba(14,165,233,.09) var(--tw-gradient-from-position)!important;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)!important}
+/* Campos de texto */
+.mk-dark :is(input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea,select):not(.mk-light,.mk-light *){background-color:var(--mk-s3)!important;color:var(--mk-text)!important;border-color:var(--mk-line2)!important}
+.mk-dark :is(input,textarea)::placeholder{color:var(--mk-subtle)!important}
+/* Sombras sobre oscuro */
+.mk-dark :is(.shadow-sm,.shadow):not(.mk-light,.mk-light *){box-shadow:0 1px 0 rgba(255,255,255,.03) inset,0 8px 24px -12px rgba(0,0,0,.6)!important}
+/* Burbujas del chat */
+.mk-dark .mk-me{background:linear-gradient(135deg,#2563EB,#6D28D9);color:#fff}
+.mk-dark .mk-them{background:var(--mk-s3);color:var(--mk-text);box-shadow:inset 0 0 0 1px var(--mk-line)}
+.mk-dark ::-webkit-scrollbar{width:8px;height:8px}
+.mk-dark ::-webkit-scrollbar-thumb{background:rgba(148,163,184,.22);border-radius:8px}
+.mk-dark ::-webkit-scrollbar-track{background:transparent}

@@ -268,6 +268,7 @@ export function useMarketing() {
     }
     return data as any;
   }, [supabase]);
+  const previewOutreach = useCallback(async () => (await invoke({ action: 'outreach_preview' })) as { subject: string; html: string }, [invoke]);
   const decideInnovation = useCallback(async (id: string, approve: boolean, note?: string) => {
     const r = await invoke({ action: 'innovation_decide', id, approve, note });
     const { data } = await supabase.from('mk_innovations').select('*').eq('id', id).maybeSingle();
@@ -375,7 +376,7 @@ export function useMarketing() {
 
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
-    startMeeting, endMeeting, meetingChat, getProjection, unhideComment, innovations, decideInnovation,
+    startMeeting, endMeeting, meetingChat, getProjection, unhideComment, innovations, decideInnovation, previewOutreach,
     chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }

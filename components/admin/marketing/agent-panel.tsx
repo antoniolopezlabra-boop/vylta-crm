@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { walkBus } from './walk-bus';
 import type { MkActivity, MkAgent, MkMessage, MkProjection, MkTask } from '@/hooks/use-marketing';
 import { ProjectionCard } from './projection-viewer';
+import { RichText } from './rich-text';
 
 // ═══════════════════════════════════════════════════════════════════════
 // Expediente del agente
@@ -246,9 +247,9 @@ function ChatTab({ agent, agents, supabase, onChat, projections, onOpenProjectio
         )}
         {thread.map((m) => (
           <div key={m.id} className={cn('flex flex-col', m.sender === 'fundador' ? 'items-end' : 'items-start')}>
-            <div className={cn('max-w-[92%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-relaxed',
-              m.sender === 'fundador' ? 'rounded-br-md bg-slate-900 text-white' : 'rounded-bl-md bg-slate-100 text-slate-800')}>
-              {m.body}
+            <div className={cn('max-w-[92%] space-y-1 rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed',
+              m.sender === 'fundador' ? 'mk-me rounded-br-md' : 'mk-them rounded-bl-md')}>
+              <RichText text={m.body} />
             </div>
             {(m.attachments ?? []).map((id) => { const p = projections.find((x) => x.id === id); return p ? <ProjectionCard key={id} p={p} agent={agents.find((a) => a.id === p.agent_id)} onOpen={onOpenProjection} /> : null; })}
             <span className="mt-0.5 px-1 text-[10px] text-slate-400">{hhmm(m.created_at)}</span>
