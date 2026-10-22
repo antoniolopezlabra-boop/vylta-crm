@@ -85,12 +85,25 @@ export type MkProjection = {
 export type MkKnowledge = { slug: string; title: string; body: string; updated_by: string; updated_at: string };
 export type MkTask = { id: string; title: string; assigned_to: string; created_by: string; status: string; result: string | null; kind: string; request: string | null; not_before: string; created_at: string; updated_at: string };
 
+export type MkInnovation = {
+  id: string; week: string; area: string; target_agent: string | null;
+  kind: 'mejorar_agente' | 'nueva_herramienta' | 'nuevo_puesto' | 'proceso' | 'producto';
+  title: string; que_es: string; para_que: string; como_funciona: string; extra: string | null;
+  impacto: string | null; costo: string | null; esfuerzo: 'bajo' | 'medio' | 'alto' | null; prioridad: number;
+  change: Record<string, any>;
+  status: 'en_revision' | 'pendiente' | 'aprobada' | 'aplicada' | 'en_construccion' | 'rechazada' | 'fallida';
+  support_review: { viable: boolean; recomendacion: 'aprobar' | 'aprobar_con_ajustes' | 'no_recomendada'; nota: string; riesgos: string | null } | null;
+  founder_note: string | null; decided_at: string | null; applied_at: string | null;
+  baseline: { pagando?: number } | null; result: string | null; created_at: string; updated_at: string;
+};
+
 export type MkKpis = {
   registros_7d: number;
   registros_30d: number;
   registros_mes: number;
   negocios_total: number;
   pagados_activos: number;
+  pagando_reales?: number;
   mrr_mxn: number;
   pagados_nuevos_mes: number;
   vencidos: number;
@@ -113,6 +126,7 @@ export function useMarketing() {
   const [meeting, setMeeting] = useState<MkMeeting | null>(null);
   const [projections, setProjections] = useState<MkProjection[]>([]);
   const [comments, setComments] = useState<MkComment[]>([]);
+  const [innovations, setInnovations] = useState<MkInnovation[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadKpis = useCallback(async () => {
@@ -145,6 +159,8 @@ export function useMarketing() {
     setProjections((pj.data ?? []) as MkProjection[]);
     const cm = await supabase.from('mk_comments').select('*').order('commented_at', { ascending: false }).limit(100);
     setComments((cm.data ?? []) as MkComment[]);
+    const inv = await supabase.from('mk_innovations').select('*').order('created_at', { ascending: false }).limit(60);
+    setInnovations((inv.data ?? []) as MkInnovation[]);
     setAgents((a.data ?? []) as MkAgent[]);
     setActivity((act.data ?? []) as MkActivity[]);
     setPosts((p.data ?? []) as MkPost[]);
@@ -200,6 +216,11 @@ export function useMarketing() {
         const row = e.new as MkProjection;
         if (row?.id) setProjections((prev) => (prev.some((x) => x.id === row.id) ? prev : [row, ...prev].slice(0, 150)));
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_innovations' }, (e) => {
+        const row = e.new as MkInnovation;
+        if (!row?.id) return;
+        setInnovations((prev) => (prev.some((x) => x.id === row.id) ? prev.map((x) => (x.id === row.id ? { ...x, ...row } : x)) : [row, ...prev]));
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mk_requests' }, (e) => {
         const row = e.new as MkRequest;
         if (!row?.id) return;
@@ -247,6 +268,12 @@ export function useMarketing() {
     }
     return data as any;
   }, [supabase]);
+  const decideInnovation = useCallback(async (id: string, approve: boolean, note?: string) => {
+    const r = await invoke({ action: 'innovation_decide', id, approve, note });
+    const { data } = await supabase.from('mk_innovations').select('*').eq('id', id).maybeSingle();
+    if (data) setInnovations((prev) => prev.map((x) => (x.id === id ? (data as MkInnovation) : x)));
+    return r as { status: string; result?: string };
+  }, [invoke, supabase]);
   const unhideComment = useCallback(async (id: string) => {
     await invoke({ action: 'comment_unhide', comment_id: id });
   }, [invoke]);
@@ -348,7 +375,7 @@ export function useMarketing() {
 
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
-    startMeeting, endMeeting, meetingChat, getProjection, unhideComment,
+    startMeeting, endMeeting, meetingChat, getProjection, unhideComment, innovations, decideInnovation,
     chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }

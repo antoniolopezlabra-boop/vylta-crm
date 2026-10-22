@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { walkBus } from './walk-bus';
-import type { MkActivity, MkAgent, MkKpis, MkMeeting, MkPost, MkProjection } from '@/hooks/use-marketing';
+import type { MkActivity, MkAgent, MkInnovation, MkKpis, MkMeeting, MkPost, MkProjection } from '@/hooks/use-marketing';
 import { RoomScreen } from './projection-viewer';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -25,7 +25,7 @@ import { RoomScreen } from './projection-viewer';
 
 const T = 26;
 const COS = 0.866, SIN = 0.5;
-const W = 30, D = 20;
+const W = 37, D = 20;
 const WALL_H = 4.9;
 const HALL_Y = 8.0;
 
@@ -83,6 +83,8 @@ const ZONES: Zone[] = [
   { id: 'social', label: 'Social media', x: 11, y: 9, w: 8, d: 11, floor: '#1E1B33', pattern: 'carpet', accent: '#EC4899', icon: '♥' },
   { id: 'juntas', label: 'Sala de juntas', x: 20, y: 9, w: 10, d: 5.6, floor: '#151A2B', pattern: 'juntasP', accent: '#38BDF8', icon: '▣' },
   { id: 'rh', label: 'Recursos Humanos', x: 20, y: 15.2, w: 10, d: 4.8, floor: '#14231F', pattern: 'tileG', accent: '#10B981', icon: '●' },
+  // Ala derecha completa: oficina de la gerencia arriba y laboratorio de IA abajo.
+  { id: 'innovacion', label: 'Gerencia e Innovación', x: 31, y: 0, w: 6, d: 20, floor: '#141C12', pattern: 'innoP', accent: '#A3E635', icon: '✺' },
 ];
 const zoneById = Object.fromEntries(ZONES.map((z) => [z.id, z]));
 
@@ -93,8 +95,9 @@ const DESKS: Record<string, [number, number][]> = {
   creativo: [[1.4, 10.8], [4.5, 10.8], [7.4, 10.8], [1.4, 13.6], [4.5, 13.6]],
   social: [[12.0, 10.8], [15.6, 10.8], [12.0, 13.6], [15.6, 13.6]],
   rh: [[21.0, 16.3], [23.9, 16.3], [21.0, 18.6], [23.9, 18.6]],
+  innovacion: [[32.2, 2.6], [32.2, 5.4]],
 };
-const deskW = (zone: string) => (zone === 'direccion' ? 3 : 2.2);
+const deskW = (zone: string) => (zone === 'direccion' || zone === 'innovacion' ? 3 : 2.2);
 function deskOf(a: MkAgent): [number, number] { const l = DESKS[a.zone] ?? DESKS.estrategia; return l[a.desk % l.length]; }
 function seatOf(a: MkAgent): [number, number] { const [dx, dy] = deskOf(a); return [dx + deskW(a.zone) / 2, dy - 0.38]; }
 function visitSpot(a: MkAgent): [number, number] { const [dx, dy] = deskOf(a); return [dx - 0.45, dy + 0.35]; }
@@ -103,6 +106,7 @@ function doorOf(zone: string): [number, number] {
   // juntas tiene su puerta en la esquina, junto a la pantalla.
   if (zone === 'rh') return [19.5, 17.4];
   if (zone === 'juntas') return [20.6, 8.5];
+  if (zone === 'innovacion') return [30.4, 8.0]; // puerta lateral, al final del pasillo
   const z = zoneById[zone] ?? ZONES[1];
   const cx = z.x + z.w / 2;
   return z.y < HALL_Y ? [cx, z.y + z.d + 0.5] : [cx, z.y - 0.5];
@@ -395,6 +399,57 @@ function TalentBoard({ w, h, agents }: { w: number; h: number; agents: MkAgent[]
   );
 }
 
+// Muro de la gerencia: cuántos negocios pagan contra la meta del ciclo.
+function GoalBoard({ w, h, k, items }: { w: number; h: number; k: MkKpis | null; items: MkInnovation[] }) {
+  const meta = 200, paying = k?.pagando_reales ?? 0;
+  const pct = Math.min(1, paying / meta);
+  const live = items.filter((i) => ['aplicada', 'en_construccion'].includes(i.status)).length;
+  return (
+    <g>
+      <rect x={-3} y={-3} width={w + 6} height={h + 6} rx={4} fill="#05080F" />
+      <rect width={w} height={h} rx={3} fill="url(#screenBg)" />
+      <text x={4} y={6.5} fontSize={4.2} fontWeight={800} fill="#BEF264">META · {meta} NEGOCIOS PAGANDO</text>
+      <text x={4} y={24} fontSize={15} fontWeight={900} fill="#ECFCCB">{paying}</text>
+      <text x={4 + String(paying).length * 9 + 2} y={24} fontSize={6} fontWeight={700} fill="#65A30D">/ {meta}</text>
+      <rect x={4} y={29} width={w - 8} height={3.2} rx={1.6} fill="#1A2E05" />
+      <rect x={4} y={29} width={Math.max(2, (w - 8) * pct)} height={3.2} rx={1.6} fill="#A3E635" />
+      <text x={4} y={h - 5} fontSize={3.4} fontWeight={700} fill="#A3E635">{live} MEJORA{live === 1 ? '' : 'S'} EN MARCHA</text>
+      <text x={w - 4} y={h - 5} fontSize={3.4} fontWeight={700} fill="#65A30D" textAnchor="end">CICLO SEMANAL · LUNES</text>
+    </g>
+  );
+}
+
+// Tablero del laboratorio: por dónde va cada propuesta.
+function PipelineBoard({ w, h, items }: { w: number; h: number; items: MkInnovation[] }) {
+  const cols: [string, MkInnovation['status'][], string][] = [
+    ['SOPORTE', ['en_revision'], '#94A3B8'], ['TU DECISIÓN', ['pendiente'], '#FBBF24'],
+    ['EN MARCHA', ['aprobada', 'aplicada', 'en_construccion'], '#A3E635'],
+  ];
+  const cw = (w - 10) / 3;
+  return (
+    <g>
+      <rect x={-3} y={-3} width={w + 6} height={h + 6} rx={4} fill="#05080F" />
+      <rect width={w} height={h} rx={3} fill="url(#screenBg)" />
+      <text x={4} y={6.5} fontSize={4.2} fontWeight={800} fill="#BEF264">LABORATORIO DE IA · PROPUESTAS</text>
+      {cols.map(([label, sts, color], c) => {
+        const list = items.filter((i) => sts.includes(i.status));
+        return (
+          <g key={label} transform={`translate(${3 + c * (cw + 2)},10)`}>
+            <rect width={cw} height={h - 13} rx={2} fill="#0B1220" stroke={`${color}55`} strokeWidth={0.5} />
+            <text x={2.5} y={5} fontSize={3} fontWeight={800} fill={color}>{label} · {list.length}</text>
+            {list.slice(0, 3).map((i, n) => (
+              <g key={i.id} transform={`translate(2,${8 + n * 6.4})`}>
+                <rect width={cw - 4} height={5.2} rx={1} fill="#111A2E" />
+                <text x={1.5} y={3.6} fontSize={2.6} fontWeight={600} fill="#E2E8F0">{i.title.slice(0, Math.floor((cw - 6) / 1.45))}</text>
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 // ── Caminatas ────────────────────────────────────────────────────────
 
 type Trip = { agent: string; path: P[]; stops: { at: number; ms: number; target: string }[]; total: number; started: number; done?: () => void; room?: { seat: number; dir: 'in' | 'out' } };
@@ -427,9 +482,11 @@ function tripState(tr: Trip, now: number): { dist: number; visiting?: string; ne
 
 // ── Oficina ──────────────────────────────────────────────────────────
 
-export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts, meeting, projections, onOpenProjection, onOpenMeeting }: {
+const NO_INNOVATIONS: MkInnovation[] = [];
+
+export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts, meeting, projections, onOpenProjection, onOpenMeeting, innovations = NO_INNOVATIONS }: {
   agents: MkAgent[]; activity: MkActivity[]; selected: string | null; onSelect: (id: string | null) => void;
-  kpis: MkKpis | null; posts: MkPost[];
+  kpis: MkKpis | null; posts: MkPost[]; innovations?: MkInnovation[];
   meeting: MkMeeting | null; projections: MkProjection[]; onOpenProjection: (p: MkProjection) => void; onOpenMeeting: () => void;
 }) {
   const [trips, setTrips] = useState<Record<string, Trip>>({});
@@ -645,7 +702,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
       }
       // Computadoras tipo iMac (dos en Dirección): marco de aluminio, pantalla
       // de vidrio, barbilla plateada, pie delgado, teclado y mouse plateados.
-      const screens = exec ? [x + 0.45, x + 1.6] : [x + 0.62];
+      const screens = exec || zone === 'innovacion' ? [x + 0.45, x + 1.6] : [x + 0.62];
       screens.forEach((mx, si) => {
         const sw = 1.0, zt = 1.5, zb = 0.86, yy = y + 0.36;
         const Wd = sw * T, H = (zt - zb) * T, scrH = H * 0.78, neck = (zb - 0.74) * T;
@@ -747,6 +804,16 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   ) });
   drawables.push(plant('jt-plant', 29.2, 13.7));
   drawables.push(plant('rh-plant', 29.2, 19.2));
+  // ── Gerencia e Innovación: oficina arriba, laboratorio de IA abajo
+  drawables.push(glowMat('inn-rug', 31.8, 11.0, 4.6, 4.4, '#A3E635'));
+  drawables.push(box('inn-table', 32.7, 12.1, 0, 2.8, 1.9, 0.72, '#16210F', { top: '#1F2C17', edge: '#A3E635' }));
+  [[32.3, 12.6], [32.3, 13.5], [35.7, 12.6], [35.7, 13.5]].forEach(([cx, cy], i) => drawables.push(box(`inn-stool-${i}`, cx - 0.2, cy - 0.2, 0, 0.4, 0.4, 0.42, '#1A2E05', { top: '#3F6212' })));
+  drawables.push(hologram('inn-holo', 34.1, 13.05));
+  drawables.push(box('inn-board-stand', 31.6, 17.0, 0, 4.8, 0.25, 0.4, '#111827', { edge: '#A3E635' }));
+  drawables.push({ key: 'inn-board', depth: 31.6 + 17.0 + 5.2, node: <g key="inn-board" transform={alongX(31.6, 17.0, 2.7)}><PipelineBoard w={4.8 * T} h={2.1 * T} items={innovations} /></g> });
+  drawables.push(box('inn-shelf', 36.2, 0.6, 0, 0.5, 2.6, 2.2, '#16210F', { edge: '#A3E635' }));
+  drawables.push(plant('inn-plant', 36.3, 8.9));
+  drawables.push(plant('inn-plant2', 36.3, 19.3));
   // ── Pasillo
   drawables.push(box('reception', 18.9, 7.35, 0, 1.0, 1.3, 0.95, '#0B1220', { top: '#111A2E', edge: '#10B981' }));
   drawables.push(box('coffee', 9.6, 7.7, 0, 0.7, 0.7, 1.3, '#1F1A17', { top: '#2D2520', edge: '#F59E0B' }));
@@ -760,12 +827,16 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
       drawables.push({ key: `${key}-edge`, depth: x + w + y + d + 0.02, node: <line key={`${key}-edge`} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke={z.accent} strokeWidth={1.6} filter="url(#softGlow)" opacity={0.9} /> });
     };
     if (z.x + z.w < W) glass(`gw-e-${z.id}`, z.x + z.w - 0.08, z.y, 0.08, z.d);
+    if (z.id === 'innovacion') { // muro oeste con la puerta a la altura del pasillo
+      glass('gw-w-inn-a', z.x, 0, 0.08, HALL_Y - 0.8);
+      glass('gw-w-inn-b', z.x, HALL_Y + 0.8, 0.08, z.d - HALL_Y - 0.8);
+    }
     glass(`gw-s-${z.id}-a`, z.x, z.y + z.d - 0.08, z.w * 0.38, 0.08);
     glass(`gw-s-${z.id}-b`, z.x + z.w * 0.62, z.y + z.d - 0.08, z.w * 0.38, 0.08);
   }
 
   return drawables;
-  }, [agents, awayKey, posts, meeting, projections, onOpenProjection, onOpenMeeting]);
+  }, [agents, awayKey, posts, meeting, projections, onOpenProjection, onOpenMeeting, innovations]);
 
   const drawables: Drawable[] = [...staticScene];
   for (const a of agents) {
@@ -788,6 +859,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
     { z: 'social', at: [16.6, 9.2, 2.3] },
     { z: 'rh', at: [28.2, 18.4, 2.1] },
     { z: 'juntas', at: [21.6, 9.32, 3.85], wall: true },
+    { z: 'innovacion', at: [31.4, 0.02, 4.7], wall: true },
   ];
 
   // Fondo, muros con pantallas y letreros: solo cambian con los datos.
@@ -800,7 +872,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
         <polyline points={pts([iso(-0.6, D + 0.6), iso(W + 0.6, D + 0.6), iso(W + 0.6, -0.6)])} fill="none" stroke="#10B981" strokeWidth={1.4} opacity={0.6} filter="url(#softGlow)" />
         <polygon points={floorPoly(0, 0, W, D)} fill="url(#hall)" />
         {/* Guías luminosas del pasillo */}
-        <line x1={iso(0.6, HALL_Y)[0]} y1={iso(0.6, HALL_Y)[1]} x2={iso(W - 0.6, HALL_Y)[0]} y2={iso(W - 0.6, HALL_Y)[1]} stroke="#10B981" strokeWidth={1.2} strokeDasharray="10 12" opacity={0.55} className="mk-dash" />
+        <line x1={iso(0.6, HALL_Y)[0]} y1={iso(0.6, HALL_Y)[1]} x2={iso(30.4, HALL_Y)[0]} y2={iso(30.4, HALL_Y)[1]} stroke="#10B981" strokeWidth={1.2} strokeDasharray="10 12" opacity={0.55} className="mk-dash" />
         {ZONES.map((z) => (
           <g key={`f-${z.id}`}>
             <polygon points={floorPoly(z.x, z.y, z.w, z.d)} fill={`url(#${z.pattern})`} />
@@ -834,6 +906,8 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
 
         {/* Dashboard del Director (KPIs reales) */}
         <g transform={alongX(4.0, 0.03, 3.45)}><DirectorDashboard w={4.9 * T} h={2.35 * T} k={kpis} /></g>
+        {/* Muro de la Gerencia de Innovación: avance hacia la meta */}
+        <g transform={alongX(31.5, 0.03, 3.45)}><GoalBoard w={4.6 * T} h={2.3 * T} k={kpis} items={innovations} /></g>
         {/* Muro de Estrategia */}
         <g transform={alongX(13.4, 0.03, 3.4)}><StrategyBoard w={5.2 * T} h={2.2 * T} k={kpis} posts={posts} /></g>
         {/* Estudio creativo: piezas reales en el muro izquierdo */}
@@ -851,7 +925,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
 
       </>
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [kpis, posts, night, focus]);
+  ), [kpis, posts, night, focus, innovations]);
   const signs = useMemo(() => (
       <>
         {/* Letreros de departamento */}
@@ -905,6 +979,9 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
           </pattern>
           <pattern id="tech" width="22.5" height="13" patternUnits="userSpaceOnUse">
             <rect width="22.5" height="13" fill="#0F1828" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#22D3EE2e" strokeWidth="0.8" />
+          </pattern>
+          <pattern id="innoP" width="22.5" height="13" patternUnits="userSpaceOnUse">
+            <rect width="22.5" height="13" fill="#141C12" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#A3E63526" strokeWidth="0.8" />
           </pattern>
           <pattern id="hall" width="22.5" height="13" patternUnits="userSpaceOnUse">
             <rect width="22.5" height="13" fill="#131A28" /><path d="M0,6.5 L11.25,0 L22.5,6.5 L11.25,13 Z" fill="none" stroke="#ffffff0a" strokeWidth="0.8" />

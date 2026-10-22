@@ -11,6 +11,7 @@ import { MeetingRoom } from '@/components/admin/marketing/meeting-room';
 import { ProjectionModal } from '@/components/admin/marketing/projection-viewer';
 import type { MkProjection } from '@/hooks/use-marketing';
 import { ActivityFeed, CommentsView, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
+import { InnovationView } from '@/components/admin/marketing/innovation-view';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -30,6 +31,7 @@ const TABS = [
   { id: 'requests', label: 'Solicitudes' },
   { id: 'manual', label: 'Manual del equipo' },
   { id: 'costs', label: 'Equipo y costos' },
+  { id: 'innovation', label: 'Propuestas de innovación' },
 ] as const;
 
 export default function MarketingPage() {
@@ -53,6 +55,7 @@ export default function MarketingPage() {
   const closeRoom = useCallback(() => setRoomOpen(false), []);
   const agent = mk.agents.find((a) => a.id === selected) ?? mk.agents.find((a) => a.id === 'director');
   const pendingRequests = mk.requests.filter((r) => r.status === 'pendiente').length;
+  const pendingInnovations = mk.innovations.filter((i) => i.status === 'pendiente' || i.status === 'en_revision').length;
   const paused = !!mk.settings.autopilot?.paused;
   const k = mk.kpis;
   const spendPct = k && k.tope_mes_usd ? Math.min(100, (k.gasto_mes_usd / k.tope_mes_usd) * 100) : 0;
@@ -120,7 +123,8 @@ export default function MarketingPage() {
             Pasa el cursor por una sala para acercarte · toca a un agente para hablar con él
           </div>
           <OfficeFloor agents={mk.agents} activity={mk.activity} selected={selected} onSelect={selectAgent} kpis={mk.kpis} posts={mk.posts}
-                       meeting={mk.meeting} projections={mk.projections} onOpenProjection={setViewing} onOpenMeeting={openRoom} />
+                       meeting={mk.meeting} projections={mk.projections} onOpenProjection={setViewing} onOpenMeeting={openRoom}
+                       innovations={mk.innovations} />
         </div>
         <div className="h-[720px] xl:h-auto xl:max-h-[760px]">
           {mk.meeting && (
@@ -164,6 +168,9 @@ export default function MarketingPage() {
               {t.id === 'comments' && mk.comments.some((c) => c.status === 'nuevo' || c.status === 'escalado') && (
                 <span className="ml-1.5 rounded-full bg-sky-500 px-1.5 text-[10px] text-white">{mk.comments.filter((c) => c.status === 'nuevo' || c.status === 'escalado').length}</span>
               )}
+              {t.id === 'innovation' && pendingInnovations > 0 && (
+                <span className="ml-1.5 rounded-full bg-lime-500 px-1.5 text-[10px] text-white">{pendingInnovations}</span>
+              )}
               {t.id === 'requests' && pendingRequests > 0 && (
                 <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] text-white">{pendingRequests}</span>
               )}
@@ -181,6 +188,8 @@ export default function MarketingPage() {
             {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
             {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
             {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}
+            {tab === 'innovation' && <InnovationView innovations={mk.innovations} agents={mk.agents} kpis={mk.kpis} loop={mk.settings.innovation_loop}
+                                                     onDecide={mk.decideInnovation} onOpenChat={selectAgent} />}
           </div>
         )}
       </div>

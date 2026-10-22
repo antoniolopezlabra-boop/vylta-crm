@@ -47,6 +47,11 @@ const TOOL_INFO: Record<string, { label: string; desc: string; approval?: boolea
   terminar_tarea: { label: 'Entregar tareas', desc: 'Cierra su trabajo con un resultado.' },
   reportar_problema: { label: 'Reportar fallas', desc: 'Avisa a Soporte Técnico con el error exacto cuando algo no funciona.' },
   ver_fallas: { label: 'Ver fallas del sistema', desc: 'Tareas fallidas, errores y alertas recientes para diagnosticar.' },
+  auditar_equipo: { label: 'Auditar a la oficina', desc: 'Revisa a cada agente: qué entrega, qué le falla, cuánto cuesta y con qué herramientas trabaja.' },
+  ver_innovaciones: { label: 'Ver propuestas de innovación', desc: 'Lo propuesto, lo que decidiste y cómo se movieron las ventas después.' },
+  proponer_innovacion: { label: 'Proponer mejoras', desc: 'Deja propuestas en lenguaje sencillo; pasan por Soporte y tú decides.', approval: true },
+  revisar_innovacion: { label: 'Revisar propuestas de innovación', desc: 'Da su opinión técnica antes de que lleguen a ti.' },
+  decidir_innovacion: { label: 'Registrar tu decisión', desc: 'Anota tu sí o no cuando le contestas en el chat; nunca decide por ti.', approval: true },
   web: { label: 'Búsqueda en internet', desc: 'Investiga fuentes actuales (máx. 4 por tarea).' },
 };
 
