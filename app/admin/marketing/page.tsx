@@ -124,8 +124,8 @@ export default function MarketingPage() {
       {paused && <div className="rounded-2xl bg-rose-500/10 p-3 text-center text-sm font-semibold text-rose-200 ring-1 ring-rose-500/25">El equipo está en pausa: nadie trabaja ni publica hasta que lo reactives.</div>}
 
       {/* Indicadores: la meta del área primero */}
-      <section aria-label="Indicadores" className="grid gap-px overflow-hidden rounded-3xl bg-white/[.07] ring-1 ring-white/[.08] sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        <div className="relative bg-[#0C1220] p-5 2xl:col-span-1">
+      <section aria-label="Indicadores" className="grid gap-px overflow-hidden rounded-3xl bg-white/[.07] ring-1 ring-white/[.08] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="relative bg-[#0C1220] p-5">
           <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-emerald-400/10 blur-2xl" />
           <MetricLabel icon={Crown} tone="text-emerald-300 bg-emerald-400/10">Negocios pagando</MetricLabel>
           <div className="mt-3 flex items-baseline gap-1.5"><span className="text-[30px] font-bold leading-none tracking-tight text-white tabular-nums">{paying}</span><span className="text-sm font-semibold text-[#6B778C]">/ {goal}</span></div>
