@@ -12,6 +12,7 @@ import { ProjectionModal } from '@/components/admin/marketing/projection-viewer'
 import type { MkProjection } from '@/hooks/use-marketing';
 import { ActivityFeed, CommentsView, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
 import { InnovationView } from '@/components/admin/marketing/innovation-view';
+import { OutreachCard } from '@/components/admin/marketing/outreach-card';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -187,7 +188,7 @@ export default function MarketingPage() {
             {tab === 'comments' && <CommentsView comments={mk.comments} onUnhide={mk.unhideComment} />}
             {tab === 'requests' && <RequestsList requests={mk.requests} agents={mk.agents} onDecide={mk.decideRequest} />}
             {tab === 'manual' && <KnowledgeView knowledge={mk.knowledge} />}
-            {tab === 'costs' && <TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} />}
+            {tab === 'costs' && <><TeamCosts agents={mk.agents} spend={mk.spendByAgent} onSelect={setSelected} /><OutreachCard supabase={mk.supabase} policy={mk.settings.outreach_policy} /></>}
             {tab === 'innovation' && <InnovationView innovations={mk.innovations} agents={mk.agents} kpis={mk.kpis} loop={mk.settings.innovation_loop}
                                                      onDecide={mk.decideInnovation} onOpenChat={selectAgent} />}
           </div>
