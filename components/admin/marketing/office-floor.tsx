@@ -811,7 +811,7 @@ export function OfficeFloor({ agents, activity, selected, onSelect, kpis, posts,
   drawables.push(hologram('inn-holo', 34.1, 13.05));
   drawables.push(box('inn-board-stand', 31.6, 17.0, 0, 4.8, 0.25, 0.4, '#111827', { edge: '#A3E635' }));
   drawables.push({ key: 'inn-board', depth: 31.6 + 17.0 + 5.2, node: <g key="inn-board" transform={alongX(31.6, 17.0, 2.7)}><PipelineBoard w={4.8 * T} h={2.1 * T} items={innovations} /></g> });
-  drawables.push(box('inn-shelf', 36.2, 0.6, 0, 0.5, 2.6, 2.2, '#16210F', { edge: '#A3E635' }));
+  drawables.push(plant('inn-plant3', 36.3, 6.4));
   drawables.push(plant('inn-plant', 36.3, 8.9));
   drawables.push(plant('inn-plant2', 36.3, 19.3));
   // ── Pasillo
