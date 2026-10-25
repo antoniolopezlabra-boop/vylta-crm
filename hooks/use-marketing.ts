@@ -329,6 +329,18 @@ export function useMarketing() {
     return status;
   }, [supabase]);
 
+  const connectAds = useCallback(async (adsToken: string) => {
+    const { data, error } = await supabase.functions.invoke('mk-engine', { body: { action: 'connect_ads', ads_token: adsToken } });
+    if (error) {
+      let msg = error.message;
+      try { const b = await (error as any).context?.json?.(); if (b?.error) msg = b.error; } catch { /* sin cuerpo */ }
+      throw new Error(msg);
+    }
+    const status = (data as any).status;
+    setSettings((s) => ({ ...s, ads_status: status }));
+    return status;
+  }, [supabase]);
+
   const assignTask = useCallback(async (agentId: string, title: string, detail: string, priority: number) => {
     const { error } = await supabase.functions.invoke('mk-engine', { body: { action: 'assign_task', agent_id: agentId, title, detail, priority } });
     if (error) {
@@ -362,6 +374,8 @@ export function useMarketing() {
     const { error } = await supabase.from('mk_requests')
       .update({ status: approve ? 'aprobada' : 'rechazada', decision_note: note ?? null, decided_at: new Date().toISOString() }).eq('id', id);
     if (error) throw new Error(error.message);
+    // Aplica la decisión ya (p. ej. encender o borrar una campaña) sin esperar el ciclo de 10 min.
+    await supabase.functions.invoke('mk-engine', { body: { action: 'apply_decisions' } }).catch(() => {});
   }, [supabase]);
 
   const discardPost = useCallback(async (id: string) => {
@@ -377,6 +391,6 @@ export function useMarketing() {
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
     startMeeting, endMeeting, meetingChat, getProjection, unhideComment, innovations, decideInnovation, previewOutreach,
-    chat, runNow, connectMeta, connectInstagram, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
+    chat, runNow, connectMeta, connectInstagram, connectAds, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Facebook, Instagram, Check, X, Trash2, BookOpen, AlertTriangle } from 'lucide-react';
+import { Facebook, Instagram, Check, X, Trash2, BookOpen, AlertTriangle, Megaphone, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { MkActivity, MkAgent, MkKnowledge, MkPost, MkRequest } from '@/hooks/use-marketing';
@@ -113,6 +113,7 @@ export function RequestsList({ requests, agents, onDecide }: {
           </div>
           <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-600">{r.justification}</p>
           {r.expected_results && <p className="mt-2 text-[13px] text-slate-600"><b className="text-slate-800">Resultados esperados:</b> {r.expected_results}</p>}
+          {r.kind === 'anuncio' && <AdDetails p={(r.payload ?? {}) as any} />}
           {r.kind === 'contratacion' && (
             <p className="mt-2 text-[12px] text-slate-500">
               Modelo: {String((r.payload as any)?.modelo ?? '—')} · Herramientas: {((r.payload as any)?.herramientas ?? []).join(', ')}
@@ -293,6 +294,67 @@ export function CommentsView({ comments, onUnhide }: { comments: MkComment[]; on
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// Detalle de una campaña propuesta por Lucía: lo que se va a gastar, a quién y cómo se ve.
+function AdDetails({ p }: { p: Record<string, any> }) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-4 rounded-xl bg-slate-50 p-3">
+      {p.imagen_url && <img src={p.imagen_url} alt="Imagen del anuncio" className="h-32 w-32 rounded-lg object-cover" />}
+      <div className="min-w-[220px] flex-1 space-y-1 text-[12.5px] text-slate-600">
+        <p><b className="text-slate-800">Presupuesto:</b> ${p.diario_mxn} MXN al día × {p.dias} días = <b>${p.total_mxn} MXN</b> (máximo)</p>
+        {p.segmentacion && <p><b className="text-slate-800">Público:</b> {p.segmentacion}</p>}
+        {p.destino && <p className="truncate"><b className="text-slate-800">Lleva a:</b> {p.destino}</p>}
+        {p.preview_url && <a href={p.preview_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline"><ExternalLink className="h-3.5 w-3.5" />Ver cómo se verá en Facebook</a>}
+        {p.activada_at && <p className="font-semibold text-emerald-700">Encendida el {new Date(p.activada_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}</p>}
+        {p.pausada && <p className="font-semibold text-amber-700">Pausada por Lucía: {p.motivo_pausa}</p>}
+        {p.eliminada && <p className="text-slate-500">Eliminada de Meta sin gastar.</p>}
+        {p.error_activacion && <p className="font-semibold text-rose-700">No se pudo encender: {p.error_activacion}</p>}
+      </div>
+    </div>
+  );
+}
+
+// Conexión de anuncios: token del usuario del sistema "VYLTA Agentes".
+export function AdsConnect({ status, onConnect }: {
+  status: { usuario?: string; cuenta?: string; estado?: string; moneda?: string } | null;
+  onConnect: (token: string) => Promise<any>;
+}) {
+  const [open, setOpen] = useState(!status?.cuenta);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await onConnect(token.trim());
+      setToken(''); setOpen(false);
+      toast.success(`Anuncios conectados: ${r.cuenta} (${r.estado})`);
+    } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); }
+  };
+  if (status?.cuenta && !open) {
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <span className="inline-flex items-center gap-2 font-semibold"><Megaphone className="h-4 w-4" />Anuncios en Meta: {status.cuenta} · {status.estado}</span>
+        <button onClick={() => setOpen(true)} className="text-[12px] font-semibold text-emerald-800 underline">Cambiar token</button>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-4 space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+      <div className="flex items-center gap-2 font-semibold"><Megaphone className="h-5 w-5" />Conectar anuncios (para que Lucía arme campañas)</div>
+      <p className="text-[12.5px] leading-relaxed">
+        Meta Business → Configuración del negocio → <b>Usuarios del sistema</b> → <b>VYLTA Agentes</b> → <b>Generar token</b> → app <b>VYLTA Marketing</b> → caducidad <b>Nunca</b> →
+        permisos <code>ads_management</code>, <code>ads_read</code>, <code>business_management</code>, <code>pages_manage_ads</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code> → copia y pega aquí:
+      </p>
+      <div className="flex gap-2">
+        <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Token de VYLTA Agentes" autoComplete="off"
+               className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-slate-400" />
+        <button onClick={run} disabled={busy || token.trim().length < 40} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">{busy ? 'Conectando…' : 'Conectar'}</button>
+      </div>
+      <p className="text-[11.5px] text-amber-800/80">El token se guarda en privado en el servidor y no se vuelve a mostrar. Lucía solo puede crear campañas en pausa; tú las apruebas aquí.</p>
+      {status?.cuenta && <button onClick={() => setOpen(false)} className="text-[12px] font-semibold underline">Cerrar</button>}
     </div>
   );
 }
