@@ -13,6 +13,7 @@ import type { MkProjection } from '@/hooks/use-marketing';
 import { ActivityFeed, AdsConnect, CommentsView, KnowledgeView, MetaConnect, PostsGrid, RequestsList, TeamCosts } from '@/components/admin/marketing/marketing-sections';
 import { InnovationView } from '@/components/admin/marketing/innovation-view';
 import { OutreachCard } from '@/components/admin/marketing/outreach-card';
+import { AdsDashboard } from '@/components/admin/marketing/ads-dashboard';
 import { cn } from '@/lib/utils';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -145,6 +146,9 @@ export default function MarketingPage() {
           <p className="mt-2 text-[12px] text-[#8B97AB]">USD este mes · {spendPct.toFixed(0)}% del tope</p>
         </div>
       </section>
+
+      {/* Pauta pagada: dinero de anuncios y lo que produce (lo ve también el equipo) */}
+      <AdsDashboard snapshot={mk.settings.ads_snapshot ?? null} policy={mk.settings.ads_policy ?? null} supabase={mk.supabase} onRefresh={mk.loadAdsDashboard} />
 
       {/* Oficina + ficha del agente */}
       <div className="grid gap-5 xl:grid-cols-[1fr_400px]">

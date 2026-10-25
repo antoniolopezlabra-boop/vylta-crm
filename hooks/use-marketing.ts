@@ -329,6 +329,13 @@ export function useMarketing() {
     return status;
   }, [supabase]);
 
+  const loadAdsDashboard = useCallback(async () => {
+    const { data, error } = await supabase.functions.invoke('mk-engine', { body: { action: 'ads_dashboard', force: true } });
+    if (error) throw new Error(error.message);
+    setSettings((s) => ({ ...s, ads_snapshot: data }));
+    return data;
+  }, [supabase]);
+
   const connectAds = useCallback(async (adsToken: string) => {
     const { data, error } = await supabase.functions.invoke('mk-engine', { body: { action: 'connect_ads', ads_token: adsToken } });
     if (error) {
@@ -391,6 +398,6 @@ export function useMarketing() {
   return {
     loading, agents, activity, posts, requests, knowledge, tasks, kpis, spendByAgent, settings, meeting, projections, comments,
     startMeeting, endMeeting, meetingChat, getProjection, unhideComment, innovations, decideInnovation, previewOutreach,
-    chat, runNow, connectMeta, connectInstagram, connectAds, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
+    chat, runNow, connectMeta, connectInstagram, connectAds, loadAdsDashboard, assignTask, loadLedger, setAgentEnabled, setPaused, decideRequest, discardPost, loadThread, reload: loadAll, supabase,
   };
 }
