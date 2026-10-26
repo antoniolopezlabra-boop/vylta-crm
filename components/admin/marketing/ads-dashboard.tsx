@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BadgeDollarSign, RefreshCw, Loader2, Pencil, Check, Eye, MousePointerClick, UserPlus, Heart, MessageCircle, Share2, Globe, Target } from 'lucide-react';
+import { BadgeDollarSign, ExternalLink, RefreshCw, Loader2, Pencil, Check, Eye, MousePointerClick, UserPlus, Heart, MessageCircle, Share2, Globe, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -20,7 +20,7 @@ export type AdsSnapshot = {
   actualizado: string; conectado: boolean;
   bolsa: { cargado_mxn: number; gastado_mxn: number; comprometido_mxn: number; disponible_mxn: number; max_diario_mxn: number } | null;
   hoy: Stats; ultimos_7d: Stats; total: Stats;
-  campanas: (Stats & { titulo: string; estado: string; presupuesto_mxn: number })[];
+  campanas: (Stats & { titulo: string; estado: string; presupuesto_mxn: number; ver_anuncio?: string | null; en_meta?: string | null })[];
   sitio_desde_anuncios_7d: { sesiones: number; clics_descargar_o_registro: number };
   registros_desde_anuncios: { total: number; ultimos_7d: number; costo_por_registro: number | null };
   organico_7d: { publicaciones: number; reacciones: number; comentarios: number; compartidos: number; guardados: number; alcance_instagram: number; visitas_web: number; clics_descargar: number; clics_registro: number };
@@ -134,9 +134,9 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
 
           {s.campanas.length > 0 && (
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-[12px]">
+              <table className="w-full min-w-[760px] text-left text-[12px]">
                 <thead className="text-[10.5px] uppercase tracking-wider text-[#6B778C]">
-                  <tr><th className="py-1.5 pr-3 font-semibold">Campaña</th><th className="pr-3 font-semibold">Estado</th><th className="pr-3 text-right font-semibold">Gasto / presupuesto</th><th className="pr-3 text-right font-semibold">Alcance</th><th className="pr-3 text-right font-semibold">Clics</th><th className="pr-3 text-right font-semibold">Visitas</th><th className="text-right font-semibold">$ por visita</th></tr>
+                  <tr><th className="py-1.5 pr-3 font-semibold">Campaña</th><th className="pr-3 font-semibold">Estado</th><th className="pr-3 text-right font-semibold">Gasto / presupuesto</th><th className="pr-3 text-right font-semibold">Alcance</th><th className="pr-3 text-right font-semibold">Clics</th><th className="pr-3 text-right font-semibold">Visitas</th><th className="pr-3 text-right font-semibold">$ por visita</th><th className="font-semibold">Anuncio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-white/[.05] text-[#CBD5E1]">
                   {s.campanas.map((c, i) => (
@@ -148,7 +148,11 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
                       <td className="pr-3 text-right tabular-nums">{num(c.alcance)}</td>
                       <td className="pr-3 text-right tabular-nums">{num(c.clics)}</td>
                       <td className="pr-3 text-right tabular-nums">{num(c.visitas)}</td>
-                      <td className="text-right tabular-nums">{mxn(c.costo_por_visita)}</td>
+                      <td className="pr-3 text-right tabular-nums">{mxn(c.costo_por_visita)}</td>
+                      <td className="whitespace-nowrap">
+                        {c.ver_anuncio && <a href={c.ver_anuncio} target="_blank" rel="noreferrer" className="mr-3 inline-flex items-center gap-1 font-semibold text-sky-300 hover:text-sky-200"><ExternalLink className="h-3 w-3" />Ver anuncio</a>}
+                        {c.en_meta && c.estado !== 'rechazada' && <a href={c.en_meta} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#8B97AB] hover:text-white"><ExternalLink className="h-3 w-3" />En Meta</a>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
