@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BadgeDollarSign, RefreshCw, Loader2, Pencil, Check, Eye, MousePointerClick, UserPlus, Heart, MessageCircle, Share2, Globe, Target } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -40,6 +40,8 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
   const [editing, setEditing] = useState(false);
   const [bolsa, setBolsa] = useState(String(policy?.bolsa_mxn ?? ''));
   const [diario, setDiario] = useState(String(policy?.max_diario_mxn ?? ''));
+  // Si llega un tablero más nuevo (p. ej. justo después de aprobar), se muestra.
+  useEffect(() => { if (snapshot && (!snap || snapshot.actualizado > snap.actualizado)) setSnap(snapshot); }, [snapshot]); // eslint-disable-line react-hooks/exhaustive-deps
   const s = snap ?? snapshot;
 
   const refresh = async () => {
@@ -141,7 +143,7 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
                     <tr key={i}>
                       <td className="max-w-[260px] truncate py-2 pr-3 font-medium text-white" title={c.titulo}>{c.titulo.replace(/^Campaña: /, '')}</td>
                       <td className="pr-3"><span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
-                        c.estado === 'encendida' ? 'bg-emerald-400/15 text-emerald-300' : c.estado === 'esperando tu aprobación' ? 'bg-amber-400/15 text-amber-300' : c.estado === 'error' ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[.06] text-[#8B97AB]')}>{c.estado}</span></td>
+                        ['encendida', 'publicándose'].includes(c.estado) ? 'bg-emerald-400/15 text-emerald-300' : c.estado === 'en revisión de Meta' ? 'bg-sky-400/15 text-sky-300' : c.estado === 'esperando tu aprobación' ? 'bg-amber-400/15 text-amber-300' : ['error', 'rechazada por Meta', 'con problemas en Meta'].includes(c.estado) ? 'bg-rose-500/15 text-rose-300' : 'bg-white/[.06] text-[#8B97AB]')}>{c.estado}</span></td>
                       <td className="pr-3 text-right tabular-nums">{mxn(c.gasto)} / {mxn(c.presupuesto_mxn)}</td>
                       <td className="pr-3 text-right tabular-nums">{num(c.alcance)}</td>
                       <td className="pr-3 text-right tabular-nums">{num(c.clics)}</td>

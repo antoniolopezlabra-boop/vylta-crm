@@ -91,9 +91,27 @@ export function PostsGrid({ posts, onDiscard }: { posts: MkPost[]; onDiscard: (i
 }
 
 export function RequestsList({ requests, agents, onDecide }: {
-  requests: MkRequest[]; agents: MkAgent[]; onDecide: (id: string, approve: boolean) => Promise<void>;
+  requests: MkRequest[]; agents: MkAgent[]; onDecide: (id: string, approve: boolean) => Promise<{ titulo: string; resultado: string; mensaje: string }[]>;
 }) {
   const byId = Object.fromEntries(agents.map((a) => [a.id, a]));
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Al decidir se aplica de inmediato y se muestra qué pasó (en anuncios: si
+  // se encendió en Meta o por qué no), para que nunca parezca que no hizo nada.
+  const decide = async (r: MkRequest, approve: boolean) => {
+    setBusyId(r.id);
+    const t = toast.loading(r.kind === 'anuncio' ? (approve ? 'Encendiendo la campaña en Meta…' : 'Eliminando la campaña de Meta…') : 'Guardando tu decisión…');
+    try {
+      const res = await onDecide(r.id, approve);
+      const mine = res.find((x) => x.titulo === r.title) ?? res[0];
+      if (r.kind === 'anuncio' && mine) {
+        (mine.resultado === 'error' ? toast.error : toast.success)(mine.mensaje, { id: t, duration: 9000 });
+      } else {
+        toast.success(approve ? 'Aprobado' : 'Rechazado', { id: t });
+      }
+    } catch (e) {
+      toast.error((e as Error).message, { id: t });
+    } finally { setBusyId(null); }
+  };
   if (!requests.length) return <Empty text="Cuando el Director pida presupuesto o RH proponga una contratación, aparecerá aquí para tu decisión." />;
   return (
     <ul className="space-y-3">
@@ -121,11 +139,11 @@ export function RequestsList({ requests, agents, onDecide }: {
           )}
           {r.status === 'pendiente' && (
             <div className="mt-3 flex gap-2">
-              <button onClick={() => onDecide(r.id, true).then(() => toast.success('Aprobado')).catch((e) => toast.error(e.message))}
+              <button onClick={() => decide(r, true)} disabled={busyId === r.id}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">
                 <Check className="h-4 w-4" />Aprobar
               </button>
-              <button onClick={() => onDecide(r.id, false).then(() => toast('Rechazado')).catch((e) => toast.error(e.message))}
+              <button onClick={() => decide(r, false)} disabled={busyId === r.id}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
                 <X className="h-4 w-4" />Rechazar
               </button>

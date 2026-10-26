@@ -381,8 +381,13 @@ export function useMarketing() {
     const { error } = await supabase.from('mk_requests')
       .update({ status: approve ? 'aprobada' : 'rechazada', decision_note: note ?? null, decided_at: new Date().toISOString() }).eq('id', id);
     if (error) throw new Error(error.message);
-    // Aplica la decisión ya (p. ej. encender o borrar una campaña) sin esperar el ciclo de 10 min.
-    await supabase.functions.invoke('mk-engine', { body: { action: 'apply_decisions' } }).catch(() => {});
+    // Aplica la decisión ya (p. ej. encender o borrar una campaña) sin esperar el ciclo de 10 min,
+    // y trae de vuelta qué pasó para mostrárselo al fundador.
+    const { data } = await supabase.functions.invoke('mk-engine', { body: { action: 'apply_decisions' } }).catch(() => ({ data: null }));
+    const { data: fresh } = await supabase.from('mk_requests').select('*').order('created_at', { ascending: false }).limit(30);
+    if (fresh) setRequests(fresh as MkRequest[]);
+    if ((data as any)?.tablero) setSettings((st) => ({ ...st, ads_snapshot: (data as any).tablero }));
+    return ((data as any)?.anuncios ?? []) as { titulo: string; resultado: string; mensaje: string }[];
   }, [supabase]);
 
   const discardPost = useCallback(async (id: string) => {
