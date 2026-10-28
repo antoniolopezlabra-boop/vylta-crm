@@ -318,9 +318,20 @@ export function CommentsView({ comments, onUnhide }: { comments: MkComment[]; on
 
 // Detalle de una campaña propuesta por Lucía: lo que se va a gastar, a quién y cómo se ve.
 function AdDetails({ p }: { p: Record<string, any> }) {
+  // Una imagen por versión (A, B…); las campañas viejas solo traen imagen_url.
+  const imgs: string[] = Array.isArray(p.imagenes) && p.imagenes.length ? p.imagenes : p.imagen_url ? [p.imagen_url] : [];
   return (
     <div className="mt-3 flex flex-wrap gap-4 rounded-xl bg-slate-50 p-3">
-      {p.imagen_url && <img src={p.imagen_url} alt="Imagen del anuncio" className="h-32 w-32 rounded-lg object-cover" />}
+      {imgs.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {imgs.map((src, i) => (
+            <a key={src} href={src} target="_blank" rel="noreferrer" className="block text-center" title="Abrir en tamaño completo">
+              <img src={src} alt={`Imagen del anuncio, versión ${String.fromCharCode(65 + i)}`} className="h-64 w-auto rounded-lg border border-slate-200 bg-white object-contain" />
+              {imgs.length > 1 && <span className="mt-1 block text-[11px] font-semibold text-slate-500">Versión {String.fromCharCode(65 + i)}</span>}
+            </a>
+          ))}
+        </div>
+      )}
       <div className="min-w-[220px] flex-1 space-y-1 text-[12.5px] text-slate-600">
         <p><b className="text-slate-800">Presupuesto:</b> ${p.diario_mxn} MXN al día × {p.dias} días = <b>${p.total_mxn} MXN</b> (máximo)</p>
         {p.segmentacion && <p><b className="text-slate-800">Público:</b> {p.segmentacion}</p>}
