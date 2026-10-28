@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { VyltaLogo } from '@/components/layout/vylta-logo';
+import { trackFunnel } from '@/lib/funnel';
 
 // ══════════════════════════════════════════════════════════════════════
 // Register dark premium — espejo de LoginForm.
@@ -34,6 +35,8 @@ export function RegisterForm() {
   const [showPwd, setShowPwd]   = useState(false);
   const [loading, setLoading]   = useState(false);
 
+  useEffect(() => { trackFunnel('register_view'); }, []);
+
   function validate(): string | null {
     if (!name.trim()) return 'Ingresa tu nombre';
     if (name.trim().length < 2) return 'El nombre es muy corto';
@@ -50,9 +53,11 @@ export function RegisterForm() {
 
     const error = validate();
     if (error) {
+      trackFunnel('register_invalid', { detalle: error });
       toast.error(error);
       return;
     }
+    trackFunnel('register_submit');
 
     setLoading(true);
     const supabase = createClient();
@@ -87,6 +92,7 @@ export function RegisterForm() {
           : msg.includes('invalid') && msg.includes('email')
           ? 'El correo electrónico no es válido'
           : 'No pudimos crear tu cuenta. Intenta de nuevo.';
+      trackFunnel('register_error', { detalle: signUpError.message.slice(0, 200) });
       toast.error(friendly);
       return;
     }
@@ -107,6 +113,7 @@ export function RegisterForm() {
       return;
     }
 
+    trackFunnel('register_success');
     toast.success('¡Cuenta creada! Vamos a configurar tu negocio.');
     // El refresh es importante para que el middleware vea la nueva sesión
     // antes de la siguiente navegación.
