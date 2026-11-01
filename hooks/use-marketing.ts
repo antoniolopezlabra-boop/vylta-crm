@@ -50,6 +50,8 @@ export type MkPost = {
   channel: 'facebook' | 'instagram';
   caption: string | null;
   image_url: string | null;
+  media_type?: 'imagen' | 'reel';
+  video_url?: string | null;
   scheduled_for: string | null;
   status: string;
   error: string | null;
@@ -60,7 +62,7 @@ export type MkPost = {
 
 export type MkRequest = {
   id: string;
-  kind: 'presupuesto' | 'contratacion' | 'anuncio';
+  kind: 'presupuesto' | 'contratacion' | 'anuncio' | 'video';
   agent_id: string;
   title: string;
   justification: string;

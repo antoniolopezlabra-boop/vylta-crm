@@ -17,6 +17,7 @@ const KIND_STYLE: Record<string, string> = {
 const KIND_LABEL: Record<string, string> = { think: 'inicia', work: 'trabajo', talk: 'equipo', publish: 'publicado', alert: 'aviso', done: 'entrega', system: 'sistema' };
 const POST_STATUS: Record<string, [string, string]> = {
   borrador: ['En preparación', 'bg-slate-100 text-slate-600'],
+  en_aprobacion: ['Espera tu aprobación', 'bg-amber-100 text-amber-800'],
   listo: ['Programado', 'bg-sky-100 text-sky-700'],
   publicado: ['Publicado', 'bg-emerald-100 text-emerald-700'],
   error: ['Error', 'bg-red-100 text-red-700'],
@@ -62,7 +63,9 @@ export function PostsGrid({ posts, onDiscard }: { posts: MkPost[]; onDiscard: (i
         return (
           <article key={p.id} className={cn('overflow-hidden rounded-2xl border border-slate-200 bg-white', p.status === 'descartado' && 'opacity-50')}>
             <div className="relative aspect-[4/5] bg-slate-100">
-              {p.image_url
+              {p.media_type === 'reel' && p.video_url
+                ? <video src={p.video_url} poster={p.image_url ?? undefined} controls playsInline preload="metadata" className="h-full w-full bg-black object-contain" />
+                : p.image_url
                 ? <img src={p.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
                 : <div className="flex h-full items-center justify-center text-xs text-slate-400">Imagen en proceso…</div>}
               <span className={cn('absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold text-white', p.channel === 'facebook' ? 'bg-[#1877F2]' : 'bg-gradient-to-r from-[#F58529] via-[#DD2A7B] to-[#8134AF]')}>
@@ -91,17 +94,24 @@ export function PostsGrid({ posts, onDiscard }: { posts: MkPost[]; onDiscard: (i
 }
 
 export function RequestsList({ requests, agents, onDecide }: {
-  requests: MkRequest[]; agents: MkAgent[]; onDecide: (id: string, approve: boolean) => Promise<{ titulo: string; resultado: string; mensaje: string }[]>;
+  requests: MkRequest[]; agents: MkAgent[]; onDecide: (id: string, approve: boolean, note?: string) => Promise<{ titulo: string; resultado: string; mensaje: string }[]>;
 }) {
   const byId = Object.fromEntries(agents.map((a) => [a.id, a]));
   const [busyId, setBusyId] = useState<string | null>(null);
   // Al decidir se aplica de inmediato y se muestra qué pasó (en anuncios: si
   // se encendió en Meta o por qué no), para que nunca parezca que no hizo nada.
   const decide = async (r: MkRequest, approve: boolean) => {
+    // En videos, el motivo del rechazo le llega a Héctor para el siguiente guion.
+    let note: string | undefined;
+    if (r.kind === 'video' && !approve) {
+      const v = window.prompt('¿Qué no te gustó? Héctor lo toma en cuenta para el siguiente video.');
+      if (v === null) return;
+      note = v.trim() || undefined;
+    }
     setBusyId(r.id);
     const t = toast.loading(r.kind === 'anuncio' ? (approve ? 'Encendiendo la campaña en Meta…' : 'Eliminando la campaña de Meta…') : 'Guardando tu decisión…');
     try {
-      const res = await onDecide(r.id, approve);
+      const res = await onDecide(r.id, approve, note);
       const mine = res.find((x) => x.titulo === r.title) ?? res[0];
       if (r.kind === 'anuncio' && mine) {
         (mine.resultado === 'error' ? toast.error : toast.success)(mine.mensaje, { id: t, duration: 9000 });
@@ -120,7 +130,7 @@ export function RequestsList({ requests, agents, onDecide }: {
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                {r.kind === 'presupuesto' ? 'Solicitud de presupuesto' : r.kind === 'contratacion' ? 'Propuesta de contratación' : 'Anuncio pagado'} · {byId[r.agent_id]?.name}
+                {r.kind === 'presupuesto' ? 'Solicitud de presupuesto' : r.kind === 'contratacion' ? 'Propuesta de contratación' : r.kind === 'video' ? 'Video (Reel) para aprobar' : 'Anuncio pagado'} · {byId[r.agent_id]?.name}
               </span>
               <h4 className="mt-0.5 font-semibold text-slate-900">{r.title}</h4>
             </div>
@@ -132,6 +142,7 @@ export function RequestsList({ requests, agents, onDecide }: {
           <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-600">{r.justification}</p>
           {r.expected_results && <p className="mt-2 text-[13px] text-slate-600"><b className="text-slate-800">Resultados esperados:</b> {r.expected_results}</p>}
           {r.kind === 'anuncio' && <AdDetails p={(r.payload ?? {}) as any} />}
+          {r.kind === 'video' && <VideoDetails p={(r.payload ?? {}) as any} />}
           {r.kind === 'contratacion' && (
             <p className="mt-2 text-[12px] text-slate-500">
               Modelo: {String((r.payload as any)?.modelo ?? '—')} · Herramientas: {((r.payload as any)?.herramientas ?? []).join(', ')}
@@ -152,6 +163,22 @@ export function RequestsList({ requests, agents, onDecide }: {
         </li>
       ))}
     </ul>
+  );
+}
+
+function VideoDetails({ p }: { p: { video_url?: string; cover_url?: string; caption_facebook?: string; caption_instagram?: string; guion?: string } }) {
+  if (!p.video_url) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-4">
+      <video src={p.video_url} poster={p.cover_url} controls playsInline preload="metadata"
+             className="h-[420px] w-auto rounded-xl border border-slate-200 bg-black" />
+      <div className="min-w-[220px] max-w-md flex-1 space-y-2 text-[12.5px] text-slate-600">
+        {p.guion && <p className="whitespace-pre-wrap"><b className="text-slate-800">Guion:</b> {p.guion}</p>}
+        {p.caption_facebook && <p className="whitespace-pre-wrap"><b className="text-slate-800">Texto Facebook:</b> {p.caption_facebook}</p>}
+        {p.caption_instagram && <p className="whitespace-pre-wrap"><b className="text-slate-800">Texto Instagram:</b> {p.caption_instagram}</p>}
+        <p className="text-[11px] text-slate-400">Al aprobarlo se publica como Reel en Facebook e Instagram a la hora de publicación.</p>
+      </div>
+    </div>
   );
 }
 
