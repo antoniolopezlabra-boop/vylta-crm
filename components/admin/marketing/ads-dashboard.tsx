@@ -28,6 +28,7 @@ export type AdsSnapshot = {
 
 const mxn = (n: number | null | undefined) => (n == null ? '—' : `$${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 })}`);
 const num = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-MX'));
+const PAGE = 5;
 
 export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
   snapshot: AdsSnapshot | null;
@@ -37,12 +38,16 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
 }) {
   const [snap, setSnap] = useState<AdsSnapshot | null>(snapshot);
   const [busy, setBusy] = useState(false);
+  // Historial de campañas paginado: siempre 5 filas, las más recientes primero.
+  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(false);
   const [bolsa, setBolsa] = useState(String(policy?.bolsa_mxn ?? ''));
   const [diario, setDiario] = useState(String(policy?.max_diario_mxn ?? ''));
   // Si llega un tablero más nuevo (p. ej. justo después de aprobar), se muestra.
   useEffect(() => { if (snapshot && (!snap || snapshot.actualizado > snap.actualizado)) setSnap(snapshot); }, [snapshot]); // eslint-disable-line react-hooks/exhaustive-deps
   const s = snap ?? snapshot;
+  const pages = Math.max(1, Math.ceil((s?.campanas?.length ?? 0) / PAGE));
+  const pageNow = Math.min(page, pages - 1);
 
   const refresh = async () => {
     setBusy(true);
@@ -139,7 +144,7 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
                   <tr><th className="py-1.5 pr-3 font-semibold">Campaña</th><th className="pr-3 font-semibold">Estado</th><th className="pr-3 text-right font-semibold">Gasto / presupuesto</th><th className="pr-3 text-right font-semibold">Alcance</th><th className="pr-3 text-right font-semibold">Clics</th><th className="pr-3 text-right font-semibold">Visitas</th><th className="pr-3 text-right font-semibold">$ por visita</th><th className="font-semibold">Anuncio</th></tr>
                 </thead>
                 <tbody className="divide-y divide-white/[.05] text-[#CBD5E1]">
-                  {s.campanas.map((c, i) => (
+                  {s.campanas.slice(pageNow * PAGE, pageNow * PAGE + PAGE).map((c, i) => (
                     <tr key={i}>
                       <td className="max-w-[260px] truncate py-2 pr-3 font-medium text-white" title={c.titulo}>{c.titulo.replace(/^Campaña: /, '')}</td>
                       <td className="pr-3"><span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
@@ -157,6 +162,18 @@ export function AdsDashboard({ snapshot, policy, supabase, onRefresh }: {
                   ))}
                 </tbody>
               </table>
+              {pages > 1 && (
+                <div className="mt-2 flex items-center justify-between text-[11.5px] text-[#8B97AB]">
+                  <span>{pageNow * PAGE + 1}–{Math.min(s.campanas.length, pageNow * PAGE + PAGE)} de {s.campanas.length} campañas</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setPage(pageNow - 1)} disabled={pageNow === 0}
+                            className="rounded-md px-2 py-1 font-semibold hover:bg-white/[.06] hover:text-white disabled:pointer-events-none disabled:opacity-30">← Más recientes</button>
+                    <span className="px-1 tabular-nums">{pageNow + 1} / {pages}</span>
+                    <button onClick={() => setPage(pageNow + 1)} disabled={pageNow >= pages - 1}
+                            className="rounded-md px-2 py-1 font-semibold hover:bg-white/[.06] hover:text-white disabled:pointer-events-none disabled:opacity-30">Anteriores →</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
