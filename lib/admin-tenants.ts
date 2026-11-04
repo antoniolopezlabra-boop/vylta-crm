@@ -38,6 +38,11 @@ export interface TenantListItem {
   last_seen_at: string | null;
   appointments_count: number;
   clients_count: number;
+  // De dónde llegó (RPC admin_get_tenant_origins). null si la RPC falla.
+  origen: string | null;
+  origen_detalle: string | null;
+  origen_via: string | null;
+  origen_metodo: string | null;
 }
 
 export interface TenantDetail extends TenantListItem {
@@ -89,6 +94,7 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
     { data: profiles, error: profilesError },
     { data: sessions },
     { data: plans, error: plansError },
+    { data: origins, error: originsError },
   ] = await Promise.all([
     supabase
       .from('business_profiles')
@@ -99,6 +105,7 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
       .select('user_id, last_seen_at')
       .gte('last_seen_at', new Date(Date.now() - 30 * 86400000).toISOString()),
     supabase.rpc('get_all_subscription_plans'),
+    supabase.rpc('admin_get_tenant_origins'),
   ]);
 
   if (profilesError) {
@@ -108,7 +115,14 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
     console.error('[fetchAllTenants] plans RPC error:', plansError);
   }
 
+  if (originsError) {
+    console.error('[fetchAllTenants] origins RPC error:', originsError);
+  }
+
   if (!profiles || profiles.length === 0) return [];
+
+  const originMap = new Map<string, any>();
+  origins?.forEach((o: any) => originMap.set(o.user_id, o));
 
   // Mapas para lookup rápido O(1)
   const sessionMap = new Map<string, string>();
@@ -154,6 +168,10 @@ export async function fetchAllTenants(): Promise<TenantListItem[]> {
         last_seen_at: lastSeen,
         appointments_count: appointmentsCount || 0,
         clients_count: clientsCount || 0,
+        origen: originMap.get(p.user_id)?.origen ?? null,
+        origen_detalle: originMap.get(p.user_id)?.detalle ?? null,
+        origen_via: originMap.get(p.user_id)?.via ?? null,
+        origen_metodo: originMap.get(p.user_id)?.metodo ?? null,
       };
     }),
   );
@@ -243,6 +261,10 @@ export async function fetchTenantDetail(userId: string): Promise<TenantDetail | 
     last_seen_at: lastSeen,
     appointments_count: apptCount || 0,
     clients_count: clientCount || 0,
+    origen: null,
+    origen_detalle: null,
+    origen_via: null,
+    origen_metodo: null,
     appointments_this_month: apptThisMonth || 0,
     appointments_paid: paidCount,
     total_revenue: totalRevenue,

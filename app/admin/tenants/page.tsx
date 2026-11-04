@@ -174,6 +174,7 @@ export default function AdminTenantsPage() {
               <tr className="text-left text-[10px] font-bold uppercase tracking-[0.15em] text-vylta-subtle">
                 <th className="py-3 px-4">Negocio</th>
                 <th className="py-3 px-4">Contacto</th>
+                <th className="py-3 px-4">Origen</th>
                 <th className="py-3 px-4">Plan</th>
                 <th className="py-3 px-4 text-center">Citas</th>
                 <th className="py-3 px-4 text-center">Clientes</th>
@@ -256,6 +257,10 @@ function TenantRow({ tenant, onHover }: { tenant: TenantListItem; onHover: () =>
             <span className="text-[11px] text-vylta-subtle">Sin contacto</span>
           )}
         </div>
+      </td>
+
+      <td className="py-3 px-4">
+        <OrigenCell tenant={tenant} />
       </td>
 
       <td className="py-3 px-4">
@@ -343,5 +348,40 @@ function PlanPill({
         {count}
       </span>
     </button>
+  );
+}
+
+// Origen del registro: anuncio, embajador, Facebook, Play Store…
+// "metodo" dice qué tan seguro es el dato (enlace/play/embajador = exacto).
+function OrigenCell({ tenant }: { tenant: TenantListItem }) {
+  if (!tenant.origen) return <span className="text-[11px] text-vylta-subtle">—</span>;
+  const tone =
+    tenant.origen === 'Sin rastro'
+      ? 'bg-vylta-card/60 text-vylta-muted border-border'
+      : tenant.origen === 'Embajador'
+        ? 'bg-vylta-gold/10 text-vylta-gold border-vylta-gold/30'
+        : tenant.origen.startsWith('Anuncio') || tenant.origen === 'Google Ads'
+          ? 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+          : 'bg-vylta-green/10 text-vylta-green border-vylta-green/30';
+  const metodoLabel: Record<string, string> = {
+    enlace: 'Rastreo exacto (sesión web)',
+    play: 'Rastreo exacto (Google Play)',
+    embajador: 'Código de embajador',
+    navegador: 'Estimado por el navegador',
+    ninguno: 'Sin datos de origen',
+  };
+  return (
+    <div
+      className="flex flex-col gap-0.5"
+      title={tenant.origen_metodo ? metodoLabel[tenant.origen_metodo] ?? tenant.origen_metodo : undefined}
+    >
+      <span className={cn('inline-flex w-fit items-center rounded-md border px-2 py-0.5 text-[10px] font-bold', tone)}>
+        {tenant.origen}
+      </span>
+      {tenant.origen_detalle && (
+        <span className="truncate max-w-[200px] text-[11px] text-vylta-muted">{tenant.origen_detalle}</span>
+      )}
+      {tenant.origen_via && <span className="text-[10px] text-vylta-subtle">{tenant.origen_via}</span>}
+    </div>
   );
 }
