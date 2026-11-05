@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAdminUserServer } from '@/lib/admin-server';
@@ -13,6 +14,10 @@ import { createAdminClient } from '@/lib/supabase/admin';
 //   • mode "link":  genera el enlace de recuperación (sin enviar correo)
 //     para que el admin se lo comparta por WhatsApp si el correo no llega.
 //     El enlace es de un solo uso y caduca; solo super_admin.
+//   • mode "temp":  fija una contraseña temporal generada aquí (nunca la
+//     escribe el admin) y la devuelve UNA vez para compartirla con el dueño.
+//     También confirma el correo. El usuario la cambia luego desde la app
+//     (Ajustes → Contraseña). Solo super_admin.
 // Ambos terminan en book.vylta.lat/reset.html, donde el usuario elige su
 // contraseña nueva.
 // ══════════════════════════════════════════════════════════════════════
@@ -24,8 +29,16 @@ const REDIRECT_TO = 'https://book.vylta.lat/reset.html';
 
 const BodySchema = z.object({
   user_id: z.string().uuid(),
-  mode: z.enum(['email', 'link']),
+  mode: z.enum(['email', 'link', 'temp']),
 });
+
+// Sin caracteres ambiguos (0/O, 1/I/l). Formato: Vylta-ABCD-1234
+function tempPassword(): string {
+  const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const D = '23456789';
+  const pick = (a: string, n: number) => Array.from({ length: n }, () => a[randomInt(a.length)]).join('');
+  return `Vylta-${pick(L, 4)}-${pick(D, 4)}`;
+}
 
 function isSuperAdminRole(role: string): boolean {
   return (role || '').toLowerCase().replace(/_/g, '') === 'superadmin';
@@ -42,9 +55,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Solicitud inválida' }, { status: 400 });
   }
 
-  if (body.mode === 'link' && !isSuperAdminRole(caller.role)) {
+  if (body.mode !== 'email' && !isSuperAdminRole(caller.role)) {
     return NextResponse.json(
-      { error: 'Solo un super admin puede generar enlaces de recuperación' },
+      { error: 'Solo un super admin puede hacer esto' },
       { status: 403 },
     );
   }
@@ -70,6 +83,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, email });
   }
 
+  if (body.mode === 'temp') {
+    const password = tempPassword();
+    const { error } = await admin.auth.admin.updateUserById(body.user_id, {
+      password,
+      email_confirm: true,
+    });
+    if (error) {
+      console.error('[admin/reset-password] temp', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, email, password });
+  }
+
   const { data, error } = await admin.auth.admin.generateLink({
     type: 'recovery',
     email,
@@ -77,6 +103,7 @@ export async function POST(request: Request) {
   });
   const link = data?.properties?.action_link;
   if (error || !link) {
+    console.error('[admin/reset-password] link', error?.message);
     return NextResponse.json({ error: error?.message || 'No se pudo generar el enlace' }, { status: 500 });
   }
   return NextResponse.json({ ok: true, email, link });

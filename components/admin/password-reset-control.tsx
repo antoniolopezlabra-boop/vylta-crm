@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { KeyRound, Mail, Link2, Loader2, Copy, Check, MessageCircle } from 'lucide-react';
+import { KeyRound, Mail, Link2, Wand2, Loader2, Copy, Check, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,9 +17,9 @@ import { cn } from '@/lib/utils';
 // ══════════════════════════════════════════════════════════════════════
 // PasswordResetControl — recuperar el acceso de un negocio desde el panel.
 //
-// El admin no ve ni escribe contraseñas: o se le manda al usuario el correo
-// de "restablecer contraseña", o se genera el enlace de recuperación para
-// compartirlo por WhatsApp (si el correo no llega / cae en spam).
+// Tres vías: (1) contraseña temporal generada por el servidor (se muestra una
+// vez para probar el acceso y pasársela al dueño; luego él la cambia en la app),
+// (2) correo de "restablecer contraseña", (3) enlace de recuperación por WhatsApp.
 // Backend: POST /api/admin/reset-password (service role, valida admin).
 // ══════════════════════════════════════════════════════════════════════
 
@@ -32,13 +32,16 @@ interface Props {
   variant?: 'icon' | 'button';
 }
 
+type Mode = 'email' | 'link' | 'temp';
+
 export function PasswordResetControl({ userId, businessName, email, phone, variant = 'icon' }: Props) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<'email' | 'link' | null>(null);
+  const [busy, setBusy] = useState<Mode | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [temp, setTemp] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  async function run(mode: 'email' | 'link') {
+  async function run(mode: Mode) {
     setBusy(mode);
     try {
       const res = await fetch('/api/admin/reset-password', {
@@ -53,6 +56,8 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
           description: 'Le llega un enlace para crear su contraseña nueva (válido 1 hora).',
         });
         setOpen(false);
+      } else if (mode === 'temp') {
+        setTemp(data.password);
       } else {
         setLink(data.link);
       }
@@ -63,10 +68,12 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
     }
   }
 
+  const shown = temp ?? link;
+
   async function copy() {
-    if (!link) return;
+    if (!shown) return;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(shown);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -76,9 +83,11 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
 
   const waPhone = (phone || '').replace(/\D/g, '');
   const waNumber = waPhone.length === 10 ? `52${waPhone}` : waPhone;
-  const waText = link
-    ? `Hola, te comparto el enlace para crear tu contraseña nueva de VYLTA (${businessName}). Es de un solo uso y vence en 1 hora:\n${link}`
-    : '';
+  const waText = temp
+    ? `Hola, ya quedó tu acceso a VYLTA (${businessName}).\nCorreo: ${email ?? ''}\nContraseña temporal: ${temp}\nCuando gustes la cambias en la app: Ajustes → Contraseña.`
+    : link
+      ? `Hola, te comparto el enlace para crear tu contraseña nueva de VYLTA (${businessName}). Es de un solo uso y vence en 1 hora:\n${link}`
+      : '';
 
   return (
     <Dialog
@@ -87,6 +96,7 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
         setOpen(o);
         if (!o) {
           setLink(null);
+          setTemp(null);
           setCopied(false);
         }
       }}
@@ -117,12 +127,20 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
           </DialogTitle>
           <DialogDescription>
             <b className="text-vylta-bone">{businessName}</b>
-            {email ? ` · ${email}` : ''}. El usuario elige su contraseña nueva; tú nunca la ves.
+            {email ? ` · ${email}` : ''}
           </DialogDescription>
         </DialogHeader>
 
-        {!link ? (
+        {!shown ? (
           <div className="flex flex-col gap-3 pt-1">
+            <OptionButton
+              Icon={Wand2}
+              title="Generar contraseña temporal"
+              desc="Reemplaza su contraseña actual por una nueva que ves aquí. Úsala para probar el acceso y pásasela; luego la cambia en la app."
+              loading={busy === 'temp'}
+              disabled={!!busy}
+              onClick={() => run('temp')}
+            />
             <OptionButton
               Icon={Mail}
               title="Enviarle el correo de recuperación"
@@ -142,13 +160,22 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
           </div>
         ) : (
           <div className="flex flex-col gap-3 pt-1">
-            <div className="rounded-lg border border-border bg-vylta-card/40 p-3 text-[11px] text-vylta-muted break-all max-h-24 overflow-auto">
-              {link}
-            </div>
+            {temp ? (
+              <div className="rounded-lg border border-vylta-gold/40 bg-vylta-gold/5 p-3">
+                <div className="text-[11px] text-vylta-muted">Correo</div>
+                <div className="text-sm font-semibold text-vylta-bone break-all">{email}</div>
+                <div className="mt-2 text-[11px] text-vylta-muted">Contraseña temporal</div>
+                <div className="font-mono text-lg font-bold tracking-wide text-vylta-gold select-all">{temp}</div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-vylta-card/40 p-3 text-[11px] text-vylta-muted break-all max-h-24 overflow-auto">
+                {link}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={copy} className="gap-1.5">
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? 'Copiado' : 'Copiar enlace'}
+                {copied ? 'Copiado' : temp ? 'Copiar contraseña' : 'Copiar enlace'}
               </Button>
               {waNumber && (
                 <Button size="sm" variant="outline" asChild className="gap-1.5">
@@ -164,7 +191,9 @@ export function PasswordResetControl({ userId, businessName, email, phone, varia
               )}
             </div>
             <p className="text-[11px] text-vylta-subtle">
-              Compártelo solo con el dueño del negocio: quien lo abra puede cambiar la contraseña.
+              {temp
+                ? 'Ya está activa: su contraseña anterior dejó de funcionar. Solo se muestra esta vez; cópiala antes de cerrar.'
+                : 'Compártelo solo con el dueño del negocio: quien lo abra puede cambiar la contraseña.'}
             </p>
           </div>
         )}
