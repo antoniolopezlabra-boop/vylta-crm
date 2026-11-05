@@ -27,6 +27,7 @@ import { cn, formatCurrency, getInitials } from '@/lib/utils';
 import { getApptStatusStyle } from '@/lib/appointments';
 import { MONTHS_ES } from '@/lib/date-utils';
 import { StaffLimitEditor } from '@/components/admin/staff-limit-editor';
+import { PasswordResetControl } from '@/components/admin/password-reset-control';
 
 // ══════════════════════════════════════════════════════════════════════
 // /admin/tenants/[id] — Detalle de un negocio específico
@@ -188,6 +189,21 @@ export default function AdminTenantDetailPage() {
         <DetailKpi label="Clientes" value={tenant.clients_count} Icon={Users} color="luxury" />
         <DetailKpi label="Citas este mes" value={tenant.appointments_this_month} Icon={TrendingUp} color="sky" />
         <DetailKpi label="Ingresos históricos" value={formatCurrency(tenant.total_revenue)} Icon={DollarSign} color="gold" tabular />
+      </div>
+
+      {/* Recuperar acceso: correo o enlace de restablecer contraseña */}
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-vylta-surface px-5 py-3 shadow-card">
+        <div>
+          <div className="text-sm font-bold text-vylta-bone">Acceso a la cuenta</div>
+          <div className="text-[11px] text-vylta-muted">¿No puede entrar? Mándale su enlace para crear una contraseña nueva.</div>
+        </div>
+        <PasswordResetControl
+          variant="button"
+          userId={tenant.user_id}
+          businessName={tenant.business_name}
+          email={tenant.email}
+          phone={tenant.phone}
+        />
       </div>
 
       {/* Control admin del límite de colaboradores (base Enterprise) */}

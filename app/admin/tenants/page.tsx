@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { formatLastSeen, fetchTenantDetail, type TenantListItem } from '@/lib/admin-tenants';
 import { useAdminTenants } from '@/hooks/use-admin-tenants';
+import { PasswordResetControl } from '@/components/admin/password-reset-control';
 import { cn, getInitials } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
@@ -179,7 +180,7 @@ export default function AdminTenantsPage() {
                 <th className="py-3 px-4 text-center">Citas</th>
                 <th className="py-3 px-4 text-center">Clientes</th>
                 <th className="py-3 px-4">Actividad</th>
-                <th className="py-3 px-4 w-12" />
+                <th className="py-3 px-4 w-24" />
               </tr>
             </thead>
             <tbody>
@@ -309,7 +310,17 @@ function TenantRow({ tenant, onHover }: { tenant: TenantListItem; onHover: () =>
       </td>
 
       <td className="py-3 px-4">
-        <ArrowRight className="h-4 w-4 text-vylta-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-vylta-gold" />
+        <div className="flex items-center justify-end gap-1">
+          <PasswordResetControl
+            userId={tenant.user_id}
+            businessName={tenant.business_name}
+            email={tenant.email}
+            phone={tenant.phone}
+          />
+          <Link href={`/admin/tenants/${tenant.user_id}`} prefetch aria-label="Ver detalle" className="flex h-8 w-8 items-center justify-center">
+            <ArrowRight className="h-4 w-4 text-vylta-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-vylta-gold" />
+          </Link>
+        </div>
       </td>
     </tr>
   );
