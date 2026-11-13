@@ -377,18 +377,45 @@ export async function getStaffAvailability(
   return busyStaff;
 }
 
-export async function fetchActiveStaff(): Promise<Array<{ id: string; name: string; color: string; role: string | null }>> {
+export interface ActiveStaff {
+  id: string;
+  name: string;
+  color: string;
+  role: string | null;
+  /** false = solo realiza los servicios de serviceIds (nov 2026). */
+  serves_all_services: boolean;
+  serviceIds: string[];
+}
+
+export async function fetchActiveStaff(): Promise<ActiveStaff[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
-  const { data } = await supabase
-    .from('staff_members')
-    .select('id, name, color, role')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .order('sort_order', { ascending: true })
-    .order('created_at', { ascending: true });
-  return (data || []) as any;
+  const [{ data }, { data: skills }] = await Promise.all([
+    supabase
+      .from('staff_members')
+      .select('id, name, color, role, serves_all_services')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('staff_services')
+      .select('staff_id, service_id')
+      .eq('user_id', user.id),
+  ]);
+  return (data || []).map((m: any) => ({
+    ...m,
+    serves_all_services: m.serves_all_services !== false,
+    serviceIds: (skills || []).filter((r: any) => r.staff_id === m.id).map((r: any) => r.service_id),
+  }));
+}
+
+/** ¿El colaborador realiza este servicio? Sin servicio elegido → sí. */
+export function staffDoesService(m: Pick<ActiveStaff, 'serves_all_services' | 'serviceIds'>, serviceId?: string | null): boolean {
+  if (!serviceId) return true;
+  if (m.serves_all_services !== false) return true;
+  return (m.serviceIds || []).includes(serviceId);
 }
 
 function decorate(apt: any): AppointmentWithMeta {

@@ -49,6 +49,7 @@ import { toLocalDateString } from '@/lib/date-utils';
 import { useClients } from '@/lib/queries/use-clients';
 import { useServices } from '@/lib/queries/use-services';
 import { useActiveStaff } from '@/lib/queries/use-appointments';
+import { staffDoesService } from '@/lib/appointments';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
 import { getBlocksForDate, findBlockConflict } from '@/lib/time-blocks';
 import { hasPremiumAccess } from '@/lib/plan-labels';
@@ -186,7 +187,26 @@ export function AppointmentFormDialog({
 
   const selectedClientId  = watch('clientId');
   const selectedServiceId = watch('serviceId');
+
+  // Solo colaboradores que realizan el servicio elegido (nov 2026). En edición
+  // se conserva a quien ya tenía asignado aunque no aparezca en su lista.
+  const eligibleStaff = useMemo(
+    () => staffMembers.filter(m =>
+      staffDoesService(m, selectedServiceId) ||
+      (isEditMode && initialAppointment?.staff_id === m.id),
+    ),
+    [staffMembers, selectedServiceId, isEditMode, initialAppointment?.staff_id],
+  );
+  const staffFiltered = eligibleStaff.length < staffMembers.length;
   const selectedStaffId   = watch('staffId');
+
+  // Si cambia el servicio y el colaborador elegido no lo realiza → Sin asignar.
+  useEffect(() => {
+    if (!selectedStaffId || selectedStaffId === UNASSIGNED_KEY || staffMembers.length === 0) return;
+    if (!eligibleStaff.some(m => m.id === selectedStaffId)) {
+      setValue('staffId', UNASSIGNED_KEY);
+    }
+  }, [eligibleStaff, selectedStaffId, setValue, staffMembers.length]);
   const selectedDate      = watch('date');
   const selectedTime      = watch('start_time');
 
@@ -699,7 +719,7 @@ export function AppointmentFormDialog({
                       <SelectItem value={UNASSIGNED_KEY}>
                         <span className="text-vylta-muted">Sin asignar</span>
                       </SelectItem>
-                      {staffMembers.map((m) => (
+                      {eligibleStaff.map((m) => (
                         <SelectItem key={m.id} value={m.id}>
                           <div className="flex items-center gap-2">
                             <span
@@ -719,6 +739,9 @@ export function AppointmentFormDialog({
                   </Select>
                 )}
               />
+              {staffFiltered && selectedServiceId && (
+                <p className="text-[11px] text-vylta-muted">Mostrando solo a quien realiza este servicio.</p>
+              )}
               {selectedStaff && (
                 <p className="mt-1.5 flex items-center gap-1.5 text-xs text-vylta-muted">
                   <span
