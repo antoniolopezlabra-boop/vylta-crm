@@ -59,6 +59,7 @@ export interface StaffMember {
   is_active: boolean;
   sort_order: number;
   created_at: string;
+  serves_all_services?: boolean;
 }
 
 export interface StaffHour {
@@ -71,6 +72,8 @@ export interface StaffHour {
 
 export interface StaffMemberWithStats extends StaffMember {
   hasAccount: boolean;
+  /** Cuántos servicios realiza si serves_all_services = false. */
+  servicesCount?: number;
   appointmentsCount?: number;
   monthRevenue?: number;
 }
@@ -131,7 +134,7 @@ export async function fetchStaff(): Promise<StaffMemberWithStats[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const [staffRes, accountsRes] = await Promise.all([
+  const [staffRes, accountsRes, skillsRes] = await Promise.all([
     supabase
       .from('staff_members')
       .select('*')
@@ -141,6 +144,10 @@ export async function fetchStaff(): Promise<StaffMemberWithStats[]> {
     supabase
       .from('staff_accounts')
       .select('staff_member_id'),
+    supabase
+      .from('staff_services')
+      .select('staff_id')
+      .eq('user_id', user.id),
   ]);
 
   if (staffRes.error) {
@@ -150,9 +157,13 @@ export async function fetchStaff(): Promise<StaffMemberWithStats[]> {
 
   const accountSet = new Set((accountsRes.data || []).map((a: any) => a.staff_member_id));
 
+  const skillCount = new Map<string, number>();
+  (skillsRes.data || []).forEach((r: any) => skillCount.set(r.staff_id, (skillCount.get(r.staff_id) || 0) + 1));
+
   return (staffRes.data || []).map((s: any) => ({
     ...s,
     hasAccount: accountSet.has(s.id),
+    servicesCount: skillCount.get(s.id) || 0,
   }));
 }
 

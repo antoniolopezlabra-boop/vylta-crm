@@ -43,6 +43,8 @@ import {
   type StaffHour,
 } from '@/lib/staff';
 import { StaffAccessSection } from './staff-access-section';
+import { StaffServicesSection, type StaffServicesValue } from './staff-services-section';
+import { fetchStaffServiceIds, saveStaffServices } from '@/lib/staff-services';
 
 // ══════════════════════════════════════════════════════════════════════
 // Modal de crear/editar colaborador.
@@ -81,6 +83,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
   const [isActive, setIsActive] = useState(true);
   const [hours, setHours] = useState<StaffHour[]>([]);
   const [hasAccount, setHasAccount] = useState(false);
+  const [svcSkills, setSvcSkills] = useState<StaffServicesValue>({ servesAll: true, serviceIds: [] });
 
   // Bumpear este key fuerza re-fetch del estado de la cuenta (tras
   // crear/revocar acceso desde el StaffAccessSection)
@@ -94,10 +97,11 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
       setLoading(true);
       if (isEdit && staffId) {
         const supabase = createClient();
-        const [smRes, hoursData, acctRes] = await Promise.all([
+        const [smRes, hoursData, acctRes, skillIds] = await Promise.all([
           supabase.from('staff_members').select('*').eq('id', staffId).maybeSingle(),
           fetchStaffHours(staffId),
           supabase.from('staff_accounts').select('id').eq('staff_member_id', staffId).maybeSingle(),
+          fetchStaffServiceIds(staffId),
         ]);
         if (!cancelled && smRes.data) {
           const sm = smRes.data;
@@ -107,6 +111,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
           setIsActive(sm.is_active !== false);
           setHours(hoursData);
           setHasAccount(!!acctRes.data);
+          setSvcSkills({ servesAll: sm.serves_all_services !== false, serviceIds: skillIds });
         }
       } else {
         // Crear: cargar horario del negocio como default
@@ -115,6 +120,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
         setColor(STAFF_PALETTE[0]);
         setIsActive(true);
         setHasAccount(false);
+        setSvcSkills({ servesAll: true, serviceIds: [] });
         const businessHours = await fetchBusinessHoursAsDefault();
         if (!cancelled) setHours(businessHours);
       }
@@ -139,6 +145,10 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
       toast.error('El nombre del colaborador es obligatorio');
       return;
     }
+    if (!svcSkills.servesAll && svcSkills.serviceIds.length === 0) {
+      toast.error('Marca al menos un servicio o elige "Todos los servicios"');
+      return;
+    }
     setSaving(true);
     const result = await saveStaffMember({
       id: staffId || undefined,
@@ -157,6 +167,15 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
 
     if ('error' in result) {
       toast.error(result.error);
+      return;
+    }
+    // Servicios que realiza (todos / solo algunos)
+    try {
+      await saveStaffServices(result.id, svcSkills.servesAll, svcSkills.serviceIds);
+    } catch (err) {
+      console.error('[saveStaffServices] error:', err);
+      toast.error('Se guardó el colaborador, pero no sus servicios. Intenta de nuevo.');
+      onSaved?.();
       return;
     }
     toast.success(isEdit ? 'Colaborador actualizado' : 'Colaborador creado');
@@ -306,6 +325,9 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
                 onChanged={handleAccessChanged}
               />
             )}
+
+            {/* Servicios que realiza (nov 2026) */}
+            <StaffServicesSection staffName={name.trim()} value={svcSkills} onChange={setSvcSkills} />
 
             {/* Horarios */}
             <div className="space-y-2">

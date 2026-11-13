@@ -272,6 +272,11 @@ function StaffCard({
         {member.role && (
           <p className="truncate text-xs text-muted-foreground">{member.role}</p>
         )}
+        <p className="truncate text-[11px] font-semibold text-vylta-green-700 dark:text-vylta-green-400">
+          {member.serves_all_services === false
+            ? `Realiza ${member.servicesCount || 0} ${member.servicesCount === 1 ? 'servicio' : 'servicios'}`
+            : 'Todos los servicios'}
+        </p>
       </div>
 
       {/* Toggle activo */}
