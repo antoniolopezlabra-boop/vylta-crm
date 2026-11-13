@@ -34,7 +34,6 @@ import { cn, getInitials } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import {
   STAFF_PALETTE,
-  STAFF_ROLES,
   DAYS_OF_WEEK,
   fetchStaffHours,
   fetchBusinessHoursAsDefault,
@@ -45,6 +44,7 @@ import {
 import { StaffAccessSection } from './staff-access-section';
 import { StaffServicesSection, type StaffServicesValue } from './staff-services-section';
 import { fetchStaffServiceIds, saveStaffServices } from '@/lib/staff-services';
+import { getRolesForBusiness } from '@/lib/staff-roles';
 
 // ══════════════════════════════════════════════════════════════════════
 // Modal de crear/editar colaborador.
@@ -83,6 +83,9 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
   const [isActive, setIsActive] = useState(true);
   const [hours, setHours] = useState<StaffHour[]>([]);
   const [hasAccount, setHasAccount] = useState(false);
+  // Puestos según el giro del negocio (nov 2026) + puesto libre ("Otro…")
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  const [customRole, setCustomRole] = useState(false);
   const [svcSkills, setSvcSkills] = useState<StaffServicesValue>({ servesAll: true, serviceIds: [] });
 
   // Bumpear este key fuerza re-fetch del estado de la cuenta (tras
@@ -129,6 +132,26 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
 
     return () => { cancelled = true; };
   }, [open, isEdit, staffId, accountReloadKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCustomRole(false);
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('business_profiles')
+        .select('business_type')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!cancelled) setBusinessType(data?.business_type ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const roleOptions = useMemo(() => getRolesForBusiness(businessType, role), [businessType, role]);
 
   function toggleDay(dow: number) {
     setHours(h => h.map(d => d.day_of_week === dow ? { ...d, is_open: !d.is_open } : d));
@@ -234,7 +257,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
               </div>
               <div className="min-w-0">
                 <div className="truncate text-base font-bold">{name || 'Nombre del colaborador'}</div>
-                <div className="truncate text-xs text-muted-foreground">{role || 'Sin rol definido'}</div>
+                <div className="truncate text-xs text-muted-foreground">{role || 'Sin puesto definido'}</div>
               </div>
             </div>
 
@@ -254,18 +277,39 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
               <div className="space-y-1.5">
                 <Label className="flex items-center gap-1.5 text-xs font-semibold">
                   <Briefcase className="h-3 w-3 text-muted-foreground" />
-                  Rol
+                  Puesto
                 </Label>
-                <Select value={role || undefined} onValueChange={setRole}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un rol" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STAFF_ROLES.map((r) => (
-                      <SelectItem key={r} value={r}>{r}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {customRole ? (
+                  <div className="flex gap-2">
+                    <Input
+                      autoFocus
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      placeholder="Escribe el puesto"
+                      maxLength={40}
+                    />
+                    <Button type="button" variant="outline" size="sm" className="h-10 shrink-0" onClick={() => setCustomRole(false)}>
+                      Lista
+                    </Button>
+                  </div>
+                ) : (
+                  <Select
+                    value={role || undefined}
+                    onValueChange={(v) => {
+                      if (v === '__custom__') { setRole(''); setCustomRole(true); } else setRole(v);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecciona un puesto" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {roleOptions.map((r) => (
+                        <SelectItem key={r} value={r}>{r}</SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">Otro… (escribir)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
 
