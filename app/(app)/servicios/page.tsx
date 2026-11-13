@@ -18,6 +18,7 @@ import {
   Folders,
   Wand2,
   X,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -25,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { ServiceFormDialog } from '@/components/services/service-form-dialog';
 import { AutoGroupDialog } from '@/components/services/auto-group-dialog';
 import { ServiceGroupsDialog } from '@/components/services/service-groups-dialog';
+import { BookingTermsDialog } from '@/components/services/booking-terms-dialog';
 import { useServices, useToggleService, useInvalidateServices, type Service } from '@/lib/queries/use-services';
 import {
   useServiceGroups,
@@ -67,6 +69,7 @@ export default function ServiciosPage() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [autoOpen, setAutoOpen] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moving, setMoving] = useState(false);
@@ -240,6 +243,10 @@ export default function ServiciosPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => setTermsOpen(true)}>
+            <FileText className="h-4 w-4" />
+            Términos y condiciones
+          </Button>
           {services.length > 0 && (
             <Button size="sm" variant="outline" className="shrink-0" onClick={() => setGroupsOpen(true)}>
               <Folders className="h-4 w-4" />
@@ -462,6 +469,7 @@ export default function ServiciosPage() {
         onSuccess={() => invalidate()}
       />
       <AutoGroupDialog open={autoOpen} onOpenChange={setAutoOpen} services={services} />
+      <BookingTermsDialog open={termsOpen} onOpenChange={setTermsOpen} />
       <ServiceGroupsDialog open={groupsOpen} onOpenChange={setGroupsOpen} groups={groups} services={services} />
     </div>
   );
