@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Briefcase, Clock, DollarSign, FileText } from 'lucide-react';
+import { Loader2, Briefcase, Clock, DollarSign, FileText, FolderOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import type { ServiceGroup } from '@/lib/queries/use-service-groups';
 
 // ══════════════════════════════════════════════════════════════════════
 // Form servicio — schema alineado con BD real:
@@ -45,6 +46,7 @@ const serviceSchema = z.object({
     .min(0, 'No puede ser negativo')
     .max(999999, 'Precio demasiado alto'),
   is_active: z.boolean(),
+  group_id: z.string().optional(),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -53,6 +55,7 @@ interface ServiceFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialService?: any | null;
+  groups?: ServiceGroup[];
   onSuccess?: () => void;
 }
 
@@ -60,6 +63,7 @@ export function ServiceFormDialog({
   open,
   onOpenChange,
   initialService,
+  groups = [],
   onSuccess,
 }: ServiceFormDialogProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -80,6 +84,7 @@ export function ServiceFormDialog({
       duration_minutes: initialService?.duration_minutes || 60,
       price: initialService?.price ?? 0,
       is_active: initialService?.is_active ?? true,
+      group_id: initialService?.group_id || '',
     },
   });
 
@@ -94,6 +99,7 @@ export function ServiceFormDialog({
         duration_minutes: initialService?.duration_minutes || 60,
         price: initialService?.price ?? 0,
         is_active: initialService?.is_active ?? true,
+        group_id: initialService?.group_id || '',
       });
     }
   }, [open, initialService?.id, reset]);
@@ -116,6 +122,7 @@ export function ServiceFormDialog({
       duration_minutes: data.duration_minutes,
       price: data.price,
       is_active: data.is_active,
+      group_id: data.group_id || null,
       user_id: user.id,
       updated_at: new Date().toISOString(),
     };
@@ -202,6 +209,20 @@ export function ServiceFormDialog({
               />
             </Field>
           </div>
+
+          {groups.length > 0 && (
+            <Field label="Grupo" icon={FolderOpen}>
+              <select
+                {...register('group_id')}
+                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">Sin grupo</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
 
           <Controller
             control={control}

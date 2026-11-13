@@ -22,6 +22,7 @@ export interface Service {
   is_active: boolean;
   category?: string | null;
   color?: string | null;
+  group_id?: string | null;
 }
 
 export const SERVICES_KEY = 'services';
