@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronRight,
   ChevronLeft,
+  Palette,
 } from 'lucide-react';
 import { BusinessTab } from './tabs/business-tab';
 import { PlanTab } from './tabs/plan-tab';
@@ -21,6 +22,7 @@ import { BlocksTab } from './tabs/blocks-tab';
 import { AccountTab } from './tabs/account-tab';
 import { HoursTab } from './tabs/hours-tab';
 import { BookingBlocksCard } from './tabs/booking-blocks-card';
+import { DesignTab } from './tabs/design-tab';
 import { hasPremiumAccess, hasLuxuryAccess, getEffectivePlanType } from '@/lib/plan-labels';
 import { cn } from '@/lib/utils';
 
@@ -67,6 +69,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'horarios', icon: Clock,      label: 'Horarios de atención',   desc: 'Días y horas de atención',     accent: 'sky' },
   { id: 'plan',     icon: CreditCard, label: 'Tu plan',                desc: 'Suscripción y facturación',   accent: 'luxury' },
   { id: 'link',     icon: Link2,      label: 'Link público',           desc: 'Tu página de autoagenda',     accent: 'green' },
+  { id: 'diseno',   icon: Palette,    label: 'Diseño del formulario',  desc: 'Colores, letras y bienvenida', accent: 'luxury' },
   { id: 'bloqueos', icon: Coffee,     label: 'Bloqueos y descansos',   desc: 'Vacaciones y días libres',    accent: 'amber' },
   { id: 'overlaps', icon: Sparkles,   label: 'Opciones avanzadas',     desc: 'Citas simultáneas y más',     accent: 'luxury' },
   { id: 'cuenta',   icon: Shield,     label: 'Cuenta y seguridad',     desc: 'Contraseña y datos de acceso', accent: 'rose' },
@@ -104,6 +107,8 @@ export function ConfiguracionShell({ user, profile, plan, bookingLink }: ConfigS
         return <PlanTab userId={user.id} plan={plan} />;
       case 'link':
         return <BookingLinkTab userId={user.id} bookingLink={bookingLink} isPremium={isPremiumOrAbove} />;
+      case 'diseno':
+        return <DesignTab userId={user.id} isLuxury={isLuxury} slug={bookingLink?.slug ?? null} onGoToPlan={() => setActive('plan')} />;
       case 'bloqueos':
         return <BlocksTab userId={user.id} />;
       case 'overlaps':
