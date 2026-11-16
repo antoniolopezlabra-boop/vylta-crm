@@ -13,6 +13,8 @@ import {
   ShieldOff,
   AlertTriangle,
   PartyPopper,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -222,6 +224,7 @@ function CreateAccessDialog({
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   function reset() {
@@ -286,14 +289,28 @@ function CreateAccessDialog({
               <KeyRound className="h-3 w-3 text-muted-foreground" />
               Contraseña temporal <span className="text-destructive">*</span>
             </Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo 8 caracteres"
-              autoComplete="new-password"
-              disabled={submitting}
-            />
+            {/* Ojito para ver/ocultar la contraseña que se está escribiendo. */}
+            <div className="relative">
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                autoComplete="new-password"
+                disabled={submitting}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <p className={cn(
               'text-[11px]',
               password.length > 0 && password.length < 8 ? 'text-destructive' : 'text-muted-foreground',
