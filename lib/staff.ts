@@ -370,6 +370,22 @@ export interface CreateStaffAccountResult {
  * @returns Las credenciales creadas para mostrar al dueño (single-shot).
  * @throws Error con mensaje legible si algo falla.
  */
+/**
+ * Mensaje legible de un error de Edge Function. Con status != 2xx,
+ * supabase-js solo da "Edge Function returned a non-2xx status code";
+ * el motivo real (p. ej. "correo ya registrado") viene en el cuerpo JSON.
+ */
+async function edgeErrorMessage(error: any, fallback: string): Promise<string> {
+  try {
+    const body = await error?.context?.json?.();
+    if (body?.error) return String(body.error);
+  } catch { /* cuerpo no JSON */ }
+  if (error?.name === 'FunctionsFetchError') {
+    return 'No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.';
+  }
+  return fallback;
+}
+
 export async function createStaffAccount(
   input: CreateStaffAccountInput,
 ): Promise<CreateStaffAccountResult> {
@@ -401,7 +417,7 @@ export async function createStaffAccount(
   // 2. `data.error` (la función corrió pero devolvió error de negocio)
   if (error) {
     console.error('[createStaffAccount] invoke error:', error);
-    throw new Error(error.message || 'No se pudo crear el acceso');
+    throw new Error(await edgeErrorMessage(error, 'No se pudo crear el acceso'));
   }
   if (data?.error) {
     console.error('[createStaffAccount] business error:', data.error);
@@ -430,7 +446,7 @@ export async function deleteStaffAccount(staffMemberId: string): Promise<void> {
 
   if (error) {
     console.error('[deleteStaffAccount] invoke error:', error);
-    throw new Error(error.message || 'No se pudo revocar el acceso');
+    throw new Error(await edgeErrorMessage(error, 'No se pudo revocar el acceso'));
   }
   if (data?.error) {
     console.error('[deleteStaffAccount] business error:', data.error);
