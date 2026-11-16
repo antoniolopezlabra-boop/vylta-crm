@@ -132,7 +132,10 @@ export function ClientFormDialog({
     setSubmitting(false);
 
     if (result.error) {
-      toast.error(isEdit ? 'No pudimos actualizar el cliente' : 'No pudimos crear el cliente');
+      // 23505 = teléfono ya registrado en otro cliente del negocio (sin duplicados).
+      toast.error(result.error.code === '23505'
+        ? result.error.message
+        : isEdit ? 'No pudimos actualizar el cliente' : 'No pudimos crear el cliente');
       return;
     }
 

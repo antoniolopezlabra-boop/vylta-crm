@@ -93,7 +93,7 @@ export default function ImportClientesPage() {
   const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
   const [rows, setRows] = useState<Row[]>([]);
   const [importing, setImporting] = useState(false);
-  const [results, setResults] = useState<{ inserted: number; skipped: number } | null>(null);
+  const [results, setResults] = useState<{ inserted: number; skipped: number; duplicates?: number } | null>(null);
 
   function handleFile(file: File) {
     const reader = new FileReader();
@@ -145,9 +145,33 @@ export default function ImportClientesPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setImporting(false); return; }
+    // (Importar es solo del dueño; las asistentes no tienen esta pantalla.)
 
-    const valid = rows.filter(r => r.valid);
-    const skipped = rows.length - valid.length;
+    const validRows = rows.filter(r => r.valid);
+    const skipped = rows.length - validRows.length;
+
+    // ⚡ nov 2026: no duplicar clientes. Se omiten los teléfonos que ya
+    // existen en el negocio y los repetidos dentro del mismo archivo (mismo
+    // criterio que la base de datos: últimos 10 dígitos).
+    const phoneKey = (p?: string | null) => {
+      const d = (p || '').replace(/\D/g, '');
+      return d.length >= 10 ? d.slice(-10) : d.length >= 7 ? d : null;
+    };
+    const existing = new Set<string>();
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await supabase.from('clients').select('phone')
+        .eq('user_id', user.id).order('id').range(from, from + 999);
+      (page || []).forEach((c: any) => { const k = phoneKey(c.phone); if (k) existing.add(k); });
+      if (!page || page.length < 1000) break;
+    }
+    let duplicates = 0;
+    const valid = validRows.filter(r => {
+      const k = phoneKey(r.phone);
+      if (!k) return true;
+      if (existing.has(k)) { duplicates++; return false; }
+      existing.add(k);
+      return true;
+    });
 
     // Lotes de 50
     let inserted = 0;
@@ -162,14 +186,21 @@ export default function ImportClientesPage() {
         is_active: true,
       }));
       const { error, count } = await supabase.from('clients').insert(batch).select('id', { count: 'exact' });
-      if (error) {
-        toast.error('Error al importar lote ' + Math.floor(i / 50 + 1) + ': ' + error.message);
-      } else {
+      if (!error) {
         inserted += count || batch.length;
+      } else if (error.code === '23505') {
+        // Alguien agregó uno de estos mientras tanto: guardar uno por uno.
+        for (const row of batch) {
+          const { error: e1 } = await supabase.from('clients').insert(row);
+          if (!e1) inserted++;
+          else if (e1.code === '23505') duplicates++;
+        }
+      } else {
+        toast.error('Error al importar lote ' + Math.floor(i / 50 + 1) + ': ' + error.message);
       }
     }
 
-    setResults({ inserted, skipped });
+    setResults({ inserted, skipped, duplicates });
     setStep('done');
     setImporting(false);
     if (inserted > 0) toast.success(`${inserted} clientes importados`);
@@ -325,6 +356,7 @@ export default function ImportClientesPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {results.inserted} clientes agregados a tu base de datos.
             {results.skipped > 0 && <> {results.skipped} filas se omitieron por datos incompletos.</>}
+            {!!results.duplicates && <> {results.duplicates} ya existían (mismo teléfono) y no se duplicaron.</>}
           </p>
           <div className="mt-4 flex justify-center gap-2">
             <Button variant="outline" onClick={() => { setRows([]); setResults(null); setStep('upload'); }}>
