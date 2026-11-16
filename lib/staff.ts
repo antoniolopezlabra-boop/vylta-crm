@@ -60,6 +60,8 @@ export interface StaffMember {
   sort_order: number;
   created_at: string;
   serves_all_services?: boolean;
+  /** Asistente / recepción (nov 2026): no atiende servicios, no ocupa lugar del límite. */
+  is_assistant?: boolean;
 }
 
 export interface StaffHour {
@@ -225,6 +227,7 @@ export interface SaveStaffInput {
   role: string | null;
   color: string;
   is_active: boolean;
+  is_assistant?: boolean;
   hours: { day_of_week: number; is_open: boolean; start_time: string; end_time: string }[];
 }
 
@@ -250,6 +253,7 @@ export async function saveStaffMember(input: SaveStaffInput): Promise<{ id: stri
         role: input.role?.trim() || null,
         color: input.color,
         is_active: input.is_active,
+        is_assistant: !!input.is_assistant,
       })
       .select('id')
       .single();
@@ -267,6 +271,7 @@ export async function saveStaffMember(input: SaveStaffInput): Promise<{ id: stri
         role: input.role?.trim() || null,
         color: input.color,
         is_active: input.is_active,
+        is_assistant: !!input.is_assistant,
       })
       .eq('id', staffId)
       .eq('user_id', user.id);

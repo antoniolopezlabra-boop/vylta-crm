@@ -69,10 +69,12 @@ interface StaffFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   staffId: string | null;
+  /** Crear directamente como asistente (recepción). */
+  initialAssistant?: boolean;
   onSaved?: () => void;
 }
 
-export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffFormDialogProps) {
+export function StaffFormDialog({ open, onOpenChange, staffId, onSaved, initialAssistant = false }: StaffFormDialogProps) {
   const isEdit = !!staffId;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -81,6 +83,8 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
   const [role, setRole] = useState('');
   const [color, setColor] = useState(STAFF_PALETTE[0]);
   const [isActive, setIsActive] = useState(true);
+  // Asistente / recepción (nov 2026): no atiende servicios ni sale en la agenda.
+  const [isAssistant, setIsAssistant] = useState(false);
   const [hours, setHours] = useState<StaffHour[]>([]);
   const [hasAccount, setHasAccount] = useState(false);
   // Puestos según el giro del negocio (nov 2026) + puesto libre ("Otro…")
@@ -112,6 +116,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
           setRole(sm.role || '');
           setColor(sm.color || STAFF_PALETTE[0]);
           setIsActive(sm.is_active !== false);
+          setIsAssistant(sm.is_assistant === true);
           setHours(hoursData);
           setHasAccount(!!acctRes.data);
           setSvcSkills({ servesAll: sm.serves_all_services !== false, serviceIds: skillIds });
@@ -122,6 +127,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
         setRole('');
         setColor(STAFF_PALETTE[0]);
         setIsActive(true);
+        setIsAssistant(initialAssistant);
         setHasAccount(false);
         setSvcSkills({ servesAll: true, serviceIds: [] });
         const businessHours = await fetchBusinessHoursAsDefault();
@@ -168,7 +174,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
       toast.error('El nombre del colaborador es obligatorio');
       return;
     }
-    if (!svcSkills.servesAll && svcSkills.serviceIds.length === 0) {
+    if (!isAssistant && !svcSkills.servesAll && svcSkills.serviceIds.length === 0) {
       toast.error('Marca al menos un servicio o elige "Todos los servicios"');
       return;
     }
@@ -179,6 +185,7 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
       role,
       color,
       is_active: isActive,
+      is_assistant: isAssistant,
       hours: hours.map(h => ({
         day_of_week: h.day_of_week,
         is_open: h.is_open,
@@ -192,8 +199,8 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
       toast.error(result.error);
       return;
     }
-    // Servicios que realiza (todos / solo algunos)
-    try {
+    // Servicios que realiza (todos / solo algunos) — no aplica a asistentes
+    if (!isAssistant) try {
       await saveStaffServices(result.id, svcSkills.servesAll, svcSkills.serviceIds);
     } catch (err) {
       console.error('[saveStaffServices] error:', err);
@@ -296,7 +303,12 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
                   <Select
                     value={role || undefined}
                     onValueChange={(v) => {
-                      if (v === '__custom__') { setRole(''); setCustomRole(true); } else setRole(v);
+                      if (v === '__custom__') { setRole(''); setCustomRole(true); }
+                      else {
+                        setRole(v);
+                        // Puesto de recepción → sugerir "Asistente".
+                        if (/asistente|recepci/i.test(v)) setIsAssistant(true);
+                      }
                     }}
                   >
                     <SelectTrigger>
@@ -310,6 +322,30 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
                     </SelectContent>
                   </Select>
                 )}
+              </div>
+            </div>
+
+            {/* Tipo: atiende servicios o asistente (nov 2026) */}
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Tipo</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { v: false, t: 'Atiende servicios', d: 'Aparece en la agenda y sus clientes pueden reservar con él/ella.' },
+                  { v: true, t: 'Asistente (recepción)', d: 'No atiende servicios ni sale en la agenda. Gestiona citas y clientes del equipo desde la app. No ocupa lugar de colaborador.' },
+                ].map((o) => (
+                  <button
+                    key={String(o.v)}
+                    type="button"
+                    onClick={() => setIsAssistant(o.v)}
+                    className={cn(
+                      'rounded-lg border p-3 text-left transition',
+                      isAssistant === o.v ? 'border-vylta-green-500 bg-vylta-green-500/5 ring-1 ring-vylta-green-500' : 'border-border hover:bg-secondary/50',
+                    )}
+                  >
+                    <div className="text-sm font-semibold">{o.t}</div>
+                    <div className="text-[11px] text-muted-foreground">{o.d}</div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -371,10 +407,12 @@ export function StaffFormDialog({ open, onOpenChange, staffId, onSaved }: StaffF
             )}
 
             {/* Servicios que realiza (nov 2026) */}
-            <StaffServicesSection staffName={name.trim()} value={svcSkills} onChange={setSvcSkills} />
+            {!isAssistant && (
+              <StaffServicesSection staffName={name.trim()} value={svcSkills} onChange={setSvcSkills} />
+            )}
 
-            {/* Horarios */}
-            <div className="space-y-2">
+            {/* Horarios (las asistentes no tienen agenda) */}
+            <div className={cn('space-y-2', isAssistant && 'hidden')}>
               <Label className="flex items-center gap-1.5 text-xs font-semibold">
                 <CalIcon className="h-3 w-3 text-muted-foreground" />
                 Horario propio

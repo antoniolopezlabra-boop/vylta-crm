@@ -63,7 +63,11 @@ export default function EquipoPage() {
 
   const activeStaff = useMemo(() => staff.filter(s => s.is_active), [staff]);
   const inactiveStaff = useMemo(() => staff.filter(s => !s.is_active), [staff]);
-  const atLimit = staff.length >= maxStaff;
+  // Las asistentes (recepción) no cuentan para el límite (nov 2026).
+  const prosCount = useMemo(() => staff.filter(s => !s.is_assistant).length, [staff]);
+  const assistantsCount = useMemo(() => staff.filter(s => s.is_assistant && s.is_active).length, [staff]);
+  const atLimit = prosCount >= maxStaff;
+  const [createAsAssistant, setCreateAsAssistant] = useState(false);
 
   async function handleToggleActive(member: StaffMemberWithStats) {
     const newState = !member.is_active;
@@ -84,9 +88,16 @@ export default function EquipoPage() {
 
   function openCreate() {
     if (atLimit) {
-      toast.error(`Límite de ${maxStaff} colaboradores alcanzado. Desactiva o elimina uno para agregar otro.`);
+      toast.error(`Límite de ${maxStaff} colaboradores alcanzado. Desactiva o elimina uno, o agrega una asistente (no ocupa lugar).`);
       return;
     }
+    setCreateAsAssistant(false);
+    setEditingId(null);
+    setFormOpen(true);
+  }
+
+  function openCreateAssistant() {
+    setCreateAsAssistant(true);
     setEditingId(null);
     setFormOpen(true);
   }
@@ -125,13 +136,19 @@ export default function EquipoPage() {
           <p className="text-sm text-muted-foreground">
             {loading
               ? 'Cargando...'
-              : `${activeStaff.length} ${activeStaff.length === 1 ? 'colaborador activo' : 'colaboradores activos'} de ${maxStaff} máximo`}
+              : `${activeStaff.filter(s => !s.is_assistant).length} de ${maxStaff} colaboradores${assistantsCount > 0 ? ` · ${assistantsCount} asistente${assistantsCount !== 1 ? 's' : ''}` : ''}`}
           </p>
         </div>
-        <Button size="sm" onClick={openCreate} disabled={atLimit}>
-          <UserPlus className="h-4 w-4" />
-          Agregar colaborador
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={openCreateAssistant}>
+            <UserPlus className="h-4 w-4" />
+            Agregar asistente
+          </Button>
+          <Button size="sm" onClick={openCreate} disabled={atLimit}>
+            <UserPlus className="h-4 w-4" />
+            Agregar colaborador
+          </Button>
+        </div>
       </div>
 
       {/* Banner informativo / límite */}
@@ -140,14 +157,14 @@ export default function EquipoPage() {
           <div className="flex items-start gap-3 rounded-lg border border-vylta-amber-500/40 bg-vylta-amber-500/5 p-3">
             <Sparkles className="h-4 w-4 shrink-0 text-vylta-amber-700 dark:text-amber-400" />
             <p className="text-xs text-vylta-amber-700 dark:text-amber-400">
-              <span className="font-bold">Límite alcanzado:</span> Has registrado los {maxStaff} colaboradores disponibles en tu plan. Desactiva o elimina uno para agregar otro.
+              <span className="font-bold">Límite alcanzado:</span> Has registrado los {maxStaff} colaboradores disponibles en tu plan. Desactiva o elimina uno para agregar otro. Las asistentes (recepción) no cuentan: puedes agregarlas.
             </p>
           </div>
         ) : (
           <div className="flex items-start gap-3 rounded-lg border border-vylta-indigo-500/30 bg-vylta-indigo-500/5 p-3">
             <Users className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
             <p className="text-xs text-foreground/80">
-              <span className="font-bold">{staff.length}/{maxStaff} colaboradores</span>. Cada uno tiene su propio horario, color identificador y citas asignables.
+              <span className="font-bold">{prosCount}/{maxStaff} colaboradores</span>. Cada uno tiene su propio horario, color identificador y citas asignables. Las asistentes no cuentan.
             </p>
           </div>
         )
@@ -196,6 +213,7 @@ export default function EquipoPage() {
           if (!open) setEditingId(null);
         }}
         staffId={editingId}
+        initialAssistant={createAsAssistant}
         onSaved={() => reload()}
       />
     </div>
@@ -271,6 +289,9 @@ function StaffCard({
         </div>
         {member.role && (
           <p className="truncate text-xs text-muted-foreground">{member.role}</p>
+        )}
+        {member.is_assistant && (
+          <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">Asistente · no atiende servicios</p>
         )}
         <p className="truncate text-[11px] font-semibold text-vylta-green-700 dark:text-vylta-green-400">
           {member.serves_all_services === false

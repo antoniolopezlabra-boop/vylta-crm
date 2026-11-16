@@ -402,6 +402,7 @@ export async function fetchActiveStaff(): Promise<ActiveStaff[]> {
       .select('id, name, color, role, serves_all_services')
       .eq('user_id', user.id)
       .eq('is_active', true)
+      .eq('is_assistant', false) // asistentes (recepción) no atienden citas
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true }),
     supabase
