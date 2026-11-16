@@ -421,10 +421,10 @@ export default function AppointmentDetailPage() {
                   {!['Cancelada', 'No asistió', 'Rechazada'].includes(appointment.status) && (
                     <button
                       type="button"
-                      onClick={() => setCostDialog('ajustar')}
+                      onClick={() => setCostDialog(appointment.status === 'Completada' ? 'cobrar' : 'ajustar')}
                       className="rounded-md border border-border px-2 py-0.5 text-[11px] font-semibold text-vylta-muted hover:border-vylta-green/40 hover:text-vylta-green"
                     >
-                      Ajustar precio
+                      {appointment.status === 'Completada' ? 'Cobrar con otro precio' : 'Ajustar precio'}
                     </button>
                   )}
                   {appointment.cost_adjust_note && (
@@ -445,7 +445,7 @@ export default function AppointmentDetailPage() {
                     <span className={m ? 'font-semibold' : 'text-vylta-muted'}>{m ? `${m.emoji} ${m.label}` : 'Sin especificar'}</span>
                     <button
                       type="button"
-                      onClick={() => setCostDialog('ajustar')}
+                      onClick={() => setCostDialog(appointment.status === 'Completada' ? 'cobrar' : 'ajustar')}
                       className="rounded-md border border-border px-2 py-0.5 text-[11px] font-semibold text-vylta-muted hover:border-vylta-green/40 hover:text-vylta-green"
                     >
                       {m ? 'Cambiar' : 'Indicar'}

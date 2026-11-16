@@ -127,7 +127,9 @@ export function FinalCostDialog({
           <DialogDescription>
             {mode === 'cobrar'
               ? 'Confirma cuánto se cobró. Si el servicio salió más caro o más barato, cámbialo aquí.'
-              : 'Cambia el monto final de esta cita. Así se reflejará en tus reportes.'}
+              : appointment.status === 'Pagado'
+                ? 'Corrige el monto cobrado o la forma de pago. Así se reflejará en tus reportes.'
+                : 'Esto solo cambia el precio; NO cobra la cita. Para cerrarla usa "Marcar como pagado".'}
           </DialogDescription>
         </DialogHeader>
 
