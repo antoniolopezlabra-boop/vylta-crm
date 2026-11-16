@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { Client } from '@/lib/clients';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // Formulario crear/editar cliente
@@ -94,7 +95,7 @@ export function ClientFormDialog({
   async function onSubmit(data: ClientFormData) {
     setSubmitting(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getActingUser(supabase);
     if (!user) {
       toast.error('Sesión expirada. Vuelve a iniciar sesión.');
       setSubmitting(false);

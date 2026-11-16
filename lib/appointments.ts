@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import { getBlocksForDate, findBlockConflict, type TimeBlock } from '@/lib/time-blocks';
+import { getActingUser } from '@/lib/acting-user';
 
 // ═════════════════════════════════════════════════════════════════════
 // Citas — schema alineado con app móvil.
@@ -55,7 +56,7 @@ export async function fetchAppointmentsInRange(
   endDate: string,
 ): Promise<AppointmentWithMeta[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
 
   const { data, error } = await supabase
@@ -77,7 +78,7 @@ export async function fetchAppointmentsInRange(
 
 export async function fetchAppointmentById(id: string): Promise<Appointment | null> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return null;
 
   const { data, error } = await supabase
@@ -99,7 +100,7 @@ export async function updateAppointmentStatus(
   newStatus: string,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -120,7 +121,7 @@ export async function assignStaffToAppointment(
   staffId: string | null,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -152,7 +153,7 @@ export async function hardDeleteAppointment(
   id: string,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   // Verificar status actual antes de borrar (defensa en profundidad).
@@ -205,7 +206,7 @@ export async function softDeleteAppointment(
   previousStatus: string,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -232,7 +233,7 @@ export async function restoreAppointment(
   restoreStatus: string,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -256,7 +257,7 @@ export async function updateAppointmentSchedule(
   status: 'Reagendada' | 'Confirmada' | 'Pendiente' = 'Reagendada',
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -299,7 +300,7 @@ export async function updateAppointmentFull(
   data: AppointmentUpdatePayload,
 ): Promise<{ ok: true } | { error: string }> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return { error: 'No autenticado' };
 
   const { error } = await supabase
@@ -330,7 +331,7 @@ export async function getStaffAvailability(
   timeBlocks?: TimeBlock[],
 ): Promise<Set<string>> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return new Set();
 
   const { data } = await supabase
@@ -394,7 +395,7 @@ export interface ActiveStaff {
 
 export async function fetchActiveStaff(): Promise<ActiveStaff[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
   const [{ data }, { data: skills }] = await Promise.all([
     supabase

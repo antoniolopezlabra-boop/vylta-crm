@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseRealtime } from '@/lib/hooks/use-supabase-realtime';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // useServices — hook con React Query para la lista de servicios
@@ -29,7 +30,7 @@ export const SERVICES_KEY = 'services';
 
 async function fetchServices(): Promise<Service[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
   const { data, error } = await supabase
     .from('services')

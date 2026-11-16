@@ -29,6 +29,7 @@ import { toLocalDateString } from '@/lib/date-utils';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
 import { getBlocksForDate, findBlockConflict } from '@/lib/time-blocks';
 import { updateAppointmentSchedule, type Appointment } from '@/lib/appointments';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // RescheduleDialog — reagendar con las MISMAS 4 capas de validación
@@ -101,7 +102,7 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
       const { data: bh } = await supabase
         .from('business_hours')
@@ -127,7 +128,7 @@ export function RescheduleDialog({ open, onOpenChange, appointment, onSuccess }:
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
       const { data } = await supabase
         .from('appointments')

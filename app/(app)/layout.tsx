@@ -7,6 +7,7 @@ import { RouteTransition } from '@/components/layout/route-transition';
 import { QueryProvider } from '@/components/providers/query-provider';
 import { SessionTracker } from '@/components/session-tracker';
 import { MobileNavProvider } from '@/components/layout/mobile-nav-context';
+import { AssistantGuard } from '@/components/layout/assistant-guard';
 
 // Layout autenticado (App Shell) + React Query.
 //  - Si el user es admin (vylta_admins) -> redirect /admin.
@@ -28,16 +29,22 @@ export default async function AppLayout({
     redirect('/login');
   }
 
-  // Colaborador / asistente (staff_accounts) -> solo usa la app móvil.
-  // El CRM es del dueño: reportes de ventas, equipo, eliminar cuenta, etc.
+  // Colaborador (staff_accounts) -> solo usa la app móvil.
+  // ASISTENTE activa -> entra al CRM en modo recepción (solo Citas y Clientes,
+  //   con los datos del negocio de su jefe; ver lib/acting-user.ts).
   const { data: staffAccount } = await supabase
     .from('staff_accounts')
     .select('id')
     .eq('user_id', user.id)
     .maybeSingle();
+  let assistantOrgId: string | null = null;
   if (staffAccount) {
-    redirect('/solo-app');
+    const { data: orgId } = await supabase.rpc('assistant_org_id');
+    assistantOrgId = (orgId as string | null) ?? null;
+    if (!assistantOrgId) redirect('/solo-app');
   }
+  const isAssistant = !!assistantOrgId;
+  const businessUserId = assistantOrgId ?? user.id;
 
   // Admin -> Control Center.
   const adminUser = await getAdminUserServer();
@@ -47,7 +54,7 @@ export default async function AppLayout({
 
   // Embajador? y perfil de negocio? Necesito ambos para decidir el routing
   // de las cuentas DUALES (un negocio que tambien es embajador).
-  const { data: embajador } = await supabase
+  const { data: embajador } = isAssistant ? { data: null } : await supabase
     .from('embajadores')
     .select('id')
     .eq('user_id', user.id)
@@ -57,7 +64,7 @@ export default async function AppLayout({
   const { data: profile } = await supabase
     .from('business_profiles')
     .select('business_name, logo_url')
-    .eq('user_id', user.id)
+    .eq('user_id', businessUserId)
     .maybeSingle();
 
   // Embajador PURO (sin negocio) -> directo a su portal.
@@ -69,7 +76,8 @@ export default async function AppLayout({
 
   const isAmbassador = !!embajador;
 
-  const displayName =
+  const displayName = isAssistant
+    ? (user.user_metadata?.name || user.email?.split('@')[0] || 'Asistente') :
     profile?.business_name ||
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
@@ -81,23 +89,24 @@ export default async function AppLayout({
 
   return (
     <QueryProvider>
-      <SessionTracker userId={user.id} />
+      {!isAssistant && <SessionTracker userId={user.id} />}
 
       <MobileNavProvider>
         <div className="flex h-screen overflow-hidden bg-background">
           <RouteTransition />
 
-          <Sidebar businessName={businessName} logoUrl={logoUrl} isAmbassador={isAmbassador} />
+          <Sidebar businessName={businessName} logoUrl={logoUrl} isAmbassador={isAmbassador} isAssistant={isAssistant} />
           <div className="flex flex-1 flex-col overflow-hidden">
             <Topbar
               user={{
                 email: user.email,
                 displayName,
               }}
+              isAssistant={isAssistant}
             />
             <main className="flex-1 overflow-y-auto">
               <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 md:p-8">
-                {children}
+                {isAssistant ? <AssistantGuard>{children}</AssistantGuard> : children}
               </div>
             </main>
           </div>

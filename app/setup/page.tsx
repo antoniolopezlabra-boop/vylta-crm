@@ -49,7 +49,7 @@ export default async function SetupPage() {
     .select('id')
     .eq('user_id', user.id)
     .maybeSingle();
-  if (staffAccount) redirect('/solo-app');
+  if (staffAccount) redirect('/citas'); // asistente → CRM; colaborador → /solo-app (lo decide el layout)
 
   // ⚡ Detección de setup completo: ¿tiene al menos 1 servicio?
   //

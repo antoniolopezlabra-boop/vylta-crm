@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { SERVICES_KEY, type Service } from '@/lib/queries/use-services';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // Grupos de servicios (nov 2026)
@@ -25,14 +26,14 @@ export const SERVICE_GROUPS_KEY = 'service-groups';
 
 async function getUserId(): Promise<string> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) throw new Error('Sesión expirada');
   return user.id;
 }
 
 async function fetchGroups(): Promise<ServiceGroup[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
   const { data, error } = await supabase
     .from('service_groups')

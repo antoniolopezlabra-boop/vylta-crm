@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // /clientes/inactivos — Lista de clientes sin visita reciente con plantillas
@@ -115,7 +116,7 @@ export default function ClientesInactivosPage() {
   async function load() {
     setLoading(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getActingUser(supabase);
     if (!user) { setLoading(false); return; }
 
     const thirtyDaysAgo = (() => {

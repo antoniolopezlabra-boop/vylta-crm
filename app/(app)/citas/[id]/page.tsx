@@ -63,6 +63,8 @@ import { useAppointment, useInvalidateAppointment } from '@/lib/queries/use-appo
 import { useInvalidateAppointments } from '@/lib/queries/use-appointments';
 import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
 import { AppointmentFormDialog } from '@/components/appointments/appointment-form-dialog';
+import { getActingUser } from '@/lib/acting-user';
+import { useIsAssistant } from '@/lib/hooks/use-is-assistant';
 
 // ═════════════════════════════════════════════════════════════════════
 // Detail de cita — Sprint 3:
@@ -75,6 +77,7 @@ import { AppointmentFormDialog } from '@/components/appointments/appointment-for
 // ═════════════════════════════════════════════════════════════════════
 
 export default function AppointmentDetailPage() {
+  const isAssistant = useIsAssistant();
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id;
@@ -246,7 +249,7 @@ export default function AppointmentDetailPage() {
     }
     setSavingClient(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getActingUser(supabase);
     if (!user) { setSavingClient(false); return; }
 
     const { data: newClient, error: cErr } = await supabase
@@ -312,7 +315,8 @@ export default function AppointmentDetailPage() {
   // En estados "terminales" como Pagado, edición es riesgosa pero permitida (warning)
   const isFinalStatus = appointment.status === 'Pagado';
   // ¿Puede borrarse permanentemente? Solo si está en uno de los status seguros.
-  const canHardDelete = HARD_DELETABLE_STATUSES.includes(appointment.status);
+  // Asistente: no puede borrar citas de forma permanente (solo el dueño).
+  const canHardDelete = !isAssistant && HARD_DELETABLE_STATUSES.includes(appointment.status);
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 animate-fade-in">

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // useNewAppointmentsTracker — Detecta INSERTS de citas en tiempo real.
@@ -79,7 +80,7 @@ export function useNewAppointmentsTracker() {
     const supabase = createClient();
 
     async function setup() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
 
       // Channel name único por mount (matching pattern de

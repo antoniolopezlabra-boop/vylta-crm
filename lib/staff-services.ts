@@ -1,6 +1,7 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // Servicios por colaborador (nov 2026)
@@ -22,7 +23,7 @@ export interface StaffSkill {
 
 async function uid(): Promise<string> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) throw new Error('Sesión expirada');
   return user.id;
 }

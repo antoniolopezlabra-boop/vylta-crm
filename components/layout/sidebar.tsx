@@ -88,9 +88,14 @@ interface SidebarProps {
   logoUrl?: string | null;
   /** Cuenta dual: este negocio también es embajador → muestra el switcher al portal. */
   isAmbassador?: boolean;
+  /** Asistente (recepción): solo Citas y Clientes. */
+  isAssistant?: boolean;
 }
 
-export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
+export function Sidebar({ businessName, logoUrl, isAmbassador, isAssistant }: SidebarProps) {
+  const primaryItems = isAssistant
+    ? NAV_PRIMARY.filter(i => i.href === '/citas' || i.href === '/clientes')
+    : NAV_PRIMARY;
   const pathname = usePathname();
   const router = useRouter();
   const { open, setOpen } = useMobileNav();
@@ -178,7 +183,7 @@ export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           {!collapsed && <SectionLabel>Operaciones</SectionLabel>}
           <ul className="space-y-0.5">
-            {NAV_PRIMARY.map((item) => (
+            {primaryItems.map((item) => (
               <SidebarItem
                 key={item.href}
                 item={item}
@@ -191,7 +196,7 @@ export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
             ))}
           </ul>
 
-          <div className="mt-5">
+          {!isAssistant && <div className="mt-5">
             {!collapsed && <SectionLabel>Crecimiento</SectionLabel>}
             <ul className="space-y-0.5">
               {NAV_PREMIUM.map((item) => (
@@ -206,7 +211,7 @@ export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
                 />
               ))}
             </ul>
-          </div>
+          </div>}
 
           {/* Switcher solo para cuentas duales (negocio + embajador). */}
           {isAmbassador && (
@@ -228,7 +233,7 @@ export function Sidebar({ businessName, logoUrl, isAmbassador }: SidebarProps) {
 
         <div className="border-t border-border">
           <ul className="space-y-0.5 p-3">
-            {NAV_BOTTOM.map((item) => (
+            {(isAssistant ? [] : NAV_BOTTOM).map((item) => (
               <SidebarItem
                 key={item.href}
                 item={item}

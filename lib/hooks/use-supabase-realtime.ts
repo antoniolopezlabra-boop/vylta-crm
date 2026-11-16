@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // useSupabaseRealtime — Hook para suscripciones Realtime de Supabase.
@@ -49,7 +50,7 @@ export function useSupabaseRealtime(
     const supabase = createClient();
 
     async function setupChannel() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
 
       // ── CHANNEL NAME ÚNICO POR MOUNT ──

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // Tipos y queries para clientes
@@ -45,7 +46,7 @@ const PAID_STATUSES = ['Pagado', 'Completada'];
 
 export async function fetchClients(filters: ClientFilters = {}): Promise<Client[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
 
   const [clientsRes, apptsRes] = await Promise.all([
@@ -138,7 +139,7 @@ export async function fetchClients(filters: ClientFilters = {}): Promise<Client[
 
 export async function fetchClientAppointments(clientId: string): Promise<ClientAppointment[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
 
   const { data } = await supabase

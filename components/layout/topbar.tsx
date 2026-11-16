@@ -44,9 +44,11 @@ interface TopbarProps {
     email?: string;
     displayName?: string;
   };
+  /** Asistente (recepción): sin acceso a Configuración. */
+  isAssistant?: boolean;
 }
 
-export function Topbar({ user }: TopbarProps) {
+export function Topbar({ user, isAssistant }: TopbarProps) {
   const router = useRouter();
   const { setOpen } = useMobileNav();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -151,13 +153,13 @@ export function Topbar({ user }: TopbarProps) {
               </div>
             </div>
             <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuItem
+            {!isAssistant && <DropdownMenuItem
               onSelect={() => router.push('/configuracion')}
               className="text-vylta-muted focus:text-vylta-bone focus:bg-secondary cursor-pointer"
             >
               <Settings className="h-4 w-4" />
               Configuración
-            </DropdownMenuItem>
+            </DropdownMenuItem>}
             <DropdownMenuItem
               onSelect={() => window.open('https://vylta.lat#faq', '_blank')}
               className="text-vylta-muted focus:text-vylta-bone focus:bg-secondary cursor-pointer"

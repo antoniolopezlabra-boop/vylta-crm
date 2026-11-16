@@ -54,6 +54,7 @@ import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
 import { getBlocksForDate, findBlockConflict } from '@/lib/time-blocks';
 import { hasPremiumAccess } from '@/lib/plan-labels';
 import { updateAppointmentFull, type Appointment } from '@/lib/appointments';
+import { getActingUser } from '@/lib/acting-user';
 
 // ═════════════════════════════════════════════════════════════════════
 // Form de Cita — ahora soporta CREAR y EDITAR
@@ -218,7 +219,7 @@ export function AppointmentFormDialog({
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
       const [{ data: bp }, { data: sub }, { data: bh }] = await Promise.all([
         supabase.from('business_profiles').select('allow_overlapping').eq('user_id', user.id).maybeSingle(),
@@ -294,7 +295,7 @@ export function AppointmentFormDialog({
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
       const { data } = await supabase
         .from('appointments')
@@ -462,7 +463,7 @@ export function AppointmentFormDialog({
     if (!name.trim()) return;
     setCreatingClient(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getActingUser(supabase);
     if (!user) {
       setCreatingClient(false);
       return;
@@ -494,7 +495,7 @@ export function AppointmentFormDialog({
 
     setSubmitting(true);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getActingUser(supabase);
     if (!user) {
       toast.error('Sesión expirada');
       setSubmitting(false);

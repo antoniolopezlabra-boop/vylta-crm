@@ -18,6 +18,7 @@ import { cn, getInitials, formatCurrency } from '@/lib/utils';
 import { useClients } from '@/lib/queries/use-clients';
 import { createClient } from '@/lib/supabase/client';
 import { toLocalDateString, formatShortDate } from '@/lib/date-utils';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // CommandPalette — búsqueda global ⌘K
@@ -78,7 +79,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     let cancelled = false;
     (async () => {
       const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getActingUser(supabase);
       if (!user || cancelled) return;
       const today = toLocalDateString(new Date());
       const future = new Date();

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { getActingUser } from '@/lib/acting-user';
 
 // ══════════════════════════════════════════════════════════════════════
 // time-blocks.ts — gestión de bloqueos de horario (comida, vacaciones, etc)
@@ -30,7 +31,7 @@ export interface TimeBlock {
 /** Devuelve TODOS los bloqueos activos del usuario (cacheable). */
 export async function fetchTimeBlocks(): Promise<TimeBlock[]> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getActingUser(supabase);
   if (!user) return [];
 
   const { data, error } = await supabase
