@@ -599,7 +599,11 @@ export function AppointmentFormDialog({
     ? staffMembers.find(s => s.id === selectedStaffId)
     : null;
 
-  const statusOptions = isEditMode ? STATUS_OPTIONS_EDIT : STATUS_OPTIONS_CREATE;
+  // "Pagado" no se elige aquí: se cobra con "Marcar como pagado" para que pregunte
+  // el monto final y la forma de pago. Solo se muestra si la cita ya está pagada.
+  const statusOptions = isEditMode
+    ? STATUS_OPTIONS_EDIT.filter(st => st !== 'Pagado' || initialAppointment?.status === 'Pagado')
+    : STATUS_OPTIONS_CREATE;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -168,7 +168,7 @@ export async function getReportsData(period: ReportPeriod): Promise<ReportsData>
   const [currentRes, previousRes, newClientsRes] = await Promise.all([
     supabase
       .from('appointments')
-      .select('id, date, start_time, service_name, service_cost, original_cost, status, payment_method, client_id, client_name_temp, client:clients(id, name)')
+      .select('id, date, start_time, service_name, service_cost, original_cost, status, paid, payment_method, client_id, client_name_temp, client:clients(id, name)')
       .eq('user_id', userId)
       .gte('date', period.startDate)
       .lte('date', period.endDate),
@@ -250,7 +250,8 @@ export async function getReportsData(period: ReportPeriod): Promise<ReportsData>
     .sort((a, b) => b.count - a.count);
 
   // ── Formas de pago: solo citas realmente PAGADAS ──
-  const paidOnly = current.filter((a: any) => a.status === 'Pagado');
+  // Pagado, o Completada con pago registrado por un colaborador (paid=true).
+  const paidOnly = current.filter((a: any) => a.status === 'Pagado' || (a.status === 'Completada' && a.paid));
   const paymentBreakdown: PaymentBreakdownItem[] = [...PAYMENT_METHODS, PAYMENT_UNSPECIFIED]
     .map((m) => {
       const rows = paidOnly.filter((a: any) => (a.payment_method ?? null) === m.value);
@@ -367,11 +368,11 @@ export function generateCSV(rawAppointments: any[], periodLabel: string): string
     a.service_cost || 0,
     a.original_cost ?? a.service_cost ?? 0,
     a.status || '',
-    a.status === 'Pagado' ? paymentMethodLabel(a.payment_method) : '',
+    (a.status === 'Pagado' || a.paid) ? paymentMethodLabel(a.payment_method) : '',
   ]);
 
   // Resumen por forma de pago (solo citas pagadas)
-  const paid = rawAppointments.filter((a: any) => a.status === 'Pagado');
+  const paid = rawAppointments.filter((a: any) => a.status === 'Pagado' || (a.status === 'Completada' && a.paid));
   const summary = [...PAYMENT_METHODS, PAYMENT_UNSPECIFIED].map((m) => {
     const rs = paid.filter((a: any) => (a.payment_method ?? null) === m.value);
     return [m.label, rs.length, rs.reduce((s: number, a: any) => s + (Number(a.service_cost) || 0), 0)];
