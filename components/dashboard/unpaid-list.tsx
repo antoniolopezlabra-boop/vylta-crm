@@ -4,33 +4,16 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, CheckCircle2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { createClient } from '@/lib/supabase/client';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { UnpaidAppointment } from '@/lib/home-stats';
+import { FinalCostDialog } from '@/components/appointments/final-cost-dialog';
 
 export function UnpaidList({ appointments }: { appointments: UnpaidAppointment[] }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [paying, setPaying] = useState<string | null>(null);
-
-  async function markAsPaid(id: string, name: string, amount: number) {
-    const ok = confirm(`Registrar pago de ${name}${amount ? ' — ' + formatCurrency(amount) : ''}?`);
-    if (!ok) return;
-    setPaying(id);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('appointments')
-      .update({ status: 'Pagado', updated_at: new Date().toISOString() })
-      .eq('id', id);
-    setPaying(null);
-    if (error) {
-      toast.error('No se pudo registrar el pago: ' + error.message);
-      return;
-    }
-    toast.success('Pago registrado');
-    startTransition(() => router.refresh());
-  }
+  // Cobrar abre el diálogo de monto final (se puede ajustar el precio, nov 2026).
+  const [charging, setCharging] = useState<UnpaidAppointment | null>(null);
 
   return (
     <ul className="divide-y divide-vylta-amber-500/20 border-t border-vylta-amber-500/20 bg-card/60">
@@ -57,7 +40,7 @@ export function UnpaidList({ appointments }: { appointments: UnpaidAppointment[]
             ) : null}
             <button
               type="button"
-              onClick={() => markAsPaid(a.id, a.client_name, a.service_cost || 0)}
+              onClick={() => setCharging(a)}
               disabled={isPaying}
               className={cn(
                 'inline-flex shrink-0 items-center gap-1 rounded-lg bg-vylta-amber-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-vylta-amber-600 disabled:opacity-60',
@@ -69,6 +52,15 @@ export function UnpaidList({ appointments }: { appointments: UnpaidAppointment[]
           </li>
         );
       })}
+      {charging && (
+        <FinalCostDialog
+          open={!!charging}
+          onOpenChange={(o) => { if (!o) setCharging(null); }}
+          appointment={{ id: charging.id, service_cost: charging.service_cost }}
+          mode="cobrar"
+          onDone={() => { setCharging(null); startTransition(() => router.refresh()); }}
+        />
+      )}
     </ul>
   );
 }

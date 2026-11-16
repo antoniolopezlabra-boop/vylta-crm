@@ -57,6 +57,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
+import { FinalCostDialog } from '@/components/appointments/final-cost-dialog';
 import { useAppointment, useInvalidateAppointment } from '@/lib/queries/use-appointment';
 import { useInvalidateAppointments } from '@/lib/queries/use-appointments';
 import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
@@ -139,8 +140,13 @@ export default function AppointmentDetailPage() {
     setStaffList(prev => prev.map(s => ({ ...s, busy: busySet.has(s.id) })));
   }
 
+  // Cobrar / ajustar precio final (nov 2026)
+  const [costDialog, setCostDialog] = useState<null | 'cobrar' | 'ajustar'>(null);
+
   async function handleStatusChange(newStatus: string, confirmMsg?: string) {
     if (!appointment) return;
+    // Al cobrar se confirma (o ajusta) el monto final en un diálogo propio.
+    if (newStatus === 'Pagado') { setCostDialog('cobrar'); return; }
     if (confirmMsg && !confirm(confirmMsg)) return;
     setActionLoading(true);
     const result = await updateAppointmentStatus(appointment.id, newStatus);
@@ -399,11 +405,32 @@ export default function AppointmentDetailPage() {
           <InfoRow icon={Calendar} label="Fecha" value={formattedDate} />
           <InfoRow icon={Clock} label="Hora" value={`${appointment.start_time?.slice(0, 5)}${appointment.end_time ? ' \u2014 ' + appointment.end_time.slice(0, 5) : ''}`} />
           <InfoRow icon={Scissors} label="Servicio" value={appointment.service_name || 'Servicio'} />
-          {appointment.service_cost ? (
+          {appointment.service_cost != null ? (
             <InfoRow
               icon={DollarSign}
-              label="Precio"
-              value={<span className="font-bold text-vylta-green">{formatCurrency(appointment.service_cost)}</span>}
+              label={appointment.status === 'Pagado' ? 'Total cobrado' : 'Precio'}
+              value={
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-bold text-vylta-green">{formatCurrency(appointment.service_cost)}</span>
+                  {appointment.original_cost != null && Number(appointment.original_cost) !== Number(appointment.service_cost) && (
+                    <span className="text-xs text-vylta-muted">
+                      (reservado en <span className="line-through">{formatCurrency(appointment.original_cost)}</span>)
+                    </span>
+                  )}
+                  {!['Cancelada', 'No asistió', 'Rechazada'].includes(appointment.status) && (
+                    <button
+                      type="button"
+                      onClick={() => setCostDialog('ajustar')}
+                      className="rounded-md border border-border px-2 py-0.5 text-[11px] font-semibold text-vylta-muted hover:border-vylta-green/40 hover:text-vylta-green"
+                    >
+                      Ajustar precio
+                    </button>
+                  )}
+                  {appointment.cost_adjust_note && (
+                    <span className="block w-full text-xs text-vylta-muted">Motivo: {appointment.cost_adjust_note}</span>
+                  )}
+                </span>
+              }
             />
           ) : null}
           {appointment.notes && <InfoRow icon={StickyNote} label="Notas" value={appointment.notes} />}
@@ -528,6 +555,16 @@ export default function AppointmentDetailPage() {
       </div>
 
       {/* DIALOG ASIGNAR STAFF */}
+      {costDialog && (
+        <FinalCostDialog
+          open={!!costDialog}
+          onOpenChange={(o) => { if (!o) setCostDialog(null); }}
+          appointment={appointment}
+          mode={costDialog}
+          onDone={refreshAll}
+        />
+      )}
+
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

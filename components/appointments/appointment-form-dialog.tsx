@@ -528,7 +528,11 @@ export function AppointmentFormDialog({
       const result = await updateAppointmentFull(initialAppointment.id, {
         client_id: data.clientId,
         service_name: service.name,
-        service_cost: service.price || 0,
+        // Si el servicio no cambió se conserva el costo actual: puede ser un
+        // precio final ajustado o la suma de una cita multi-servicio.
+        service_cost: service.name === initialAppointment.service_name && initialAppointment.service_cost != null
+          ? Number(initialAppointment.service_cost)
+          : (service.price || 0),
         date: data.date,
         start_time: data.start_time,
         end_time,

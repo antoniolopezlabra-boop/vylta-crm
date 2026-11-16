@@ -15,6 +15,9 @@ export interface Appointment {
   client_phone_temp: string | null;
   service_name: string;
   service_cost: number | null;
+  /** Precio con que se reservó si el dueño ajustó el monto final (nov 2026). */
+  original_cost?: number | null;
+  cost_adjust_note?: string | null;
   date: string;
   start_time: string;
   end_time: string | null;
