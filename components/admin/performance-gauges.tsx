@@ -161,8 +161,18 @@ export function PerformanceGauges() {
     }
 
     fetchPerformance();
-    const interval = setInterval(fetchPerformance, 60_000);
-    return () => clearInterval(interval);
+    // ⚡ PERF (nov 2026): solo refresca con la pestaña visible. Antes consultaba
+    // cada minuto aunque el panel quedara abierto en segundo plano (46k llamadas
+    // a get_system_health_stats en pg_stat_statements).
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchPerformance();
+    }, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchPerformance(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   return (
