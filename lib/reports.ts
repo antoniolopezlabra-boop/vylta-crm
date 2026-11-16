@@ -7,6 +7,7 @@
 
 import { createClient } from '@/lib/supabase/client';
 import { toLocalDateString, MONTHS_ES } from '@/lib/date-utils';
+import { PAYMENT_METHODS, PAYMENT_UNSPECIFIED, paymentMethodLabel } from '@/lib/payment-methods';
 
 export interface ReportsData {
   totalRevenue: number;
@@ -20,7 +21,36 @@ export interface ReportsData {
   topServices: { name: string; revenue: number; count: number; color: string }[];
   topClients: { id: string; name: string; revenue: number; appointments: number }[];
   statusDistribution: { status: string; count: number; color: string }[];
+  /** Citas PAGADAS agrupadas por forma de pago (nov 2026). */
+  paymentBreakdown: PaymentBreakdownItem[];
+  /** Detalle de cada pago: quién pagó, cuánto y cómo. */
+  payments: PaymentRow[];
   rawAppointments: any[];
+}
+
+export interface PaymentBreakdownItem {
+  method: string | null;
+  label: string;
+  emoji: string;
+  color: string;
+  revenue: number;
+  count: number;
+}
+
+export interface PaymentRow {
+  id: string;
+  date: string;
+  start_time: string | null;
+  client: string;
+  service: string;
+  amount: number;
+  method: string | null;
+  methodLabel: string;
+}
+
+/** Nombre del cliente aunque la cita venga del link público (sin ficha). */
+export function appointmentClientName(a: any): string {
+  return a?.client?.name || a?.client_name_temp || 'Sin nombre';
 }
 
 const SERVICE_COLORS = ['#10B981', '#6366F1', '#F59E0B', '#F472B6', '#3B82F6', '#A855F7', '#14B8A6', '#EF4444', '#84CC16', '#06B6D4'];
@@ -138,7 +168,7 @@ export async function getReportsData(period: ReportPeriod): Promise<ReportsData>
   const [currentRes, previousRes, newClientsRes] = await Promise.all([
     supabase
       .from('appointments')
-      .select('id, date, start_time, service_name, service_cost, status, client_id, client:clients(id, name)')
+      .select('id, date, start_time, service_name, service_cost, original_cost, status, payment_method, client_id, client_name_temp, client:clients(id, name)')
       .eq('user_id', userId)
       .gte('date', period.startDate)
       .lte('date', period.endDate),
@@ -219,7 +249,37 @@ export async function getReportsData(period: ReportPeriod): Promise<ReportsData>
     }))
     .sort((a, b) => b.count - a.count);
 
+  // ── Formas de pago: solo citas realmente PAGADAS ──
+  const paidOnly = current.filter((a: any) => a.status === 'Pagado');
+  const paymentBreakdown: PaymentBreakdownItem[] = [...PAYMENT_METHODS, PAYMENT_UNSPECIFIED]
+    .map((m) => {
+      const rows = paidOnly.filter((a: any) => (a.payment_method ?? null) === m.value);
+      return {
+        method: m.value,
+        label: m.label,
+        emoji: m.emoji,
+        color: m.color,
+        revenue: rows.reduce((s: number, a: any) => s + (Number(a.service_cost) || 0), 0),
+        count: rows.length,
+      };
+    })
+    .filter((x) => x.count > 0);
+  const payments: PaymentRow[] = paidOnly
+    .map((a: any) => ({
+      id: a.id,
+      date: a.date,
+      start_time: a.start_time,
+      client: appointmentClientName(a),
+      service: a.service_name || '',
+      amount: Number(a.service_cost) || 0,
+      method: a.payment_method ?? null,
+      methodLabel: paymentMethodLabel(a.payment_method),
+    }))
+    .sort((a, b) => (b.date + (b.start_time || '')).localeCompare(a.date + (a.start_time || '')));
+
   return {
+    paymentBreakdown,
+    payments,
     totalRevenue,
     totalAppointments,
     totalClientsNew,
@@ -298,15 +358,24 @@ function buildMonthlyRevenue(
 }
 
 export function generateCSV(rawAppointments: any[], periodLabel: string): string {
-  const headers = ['Fecha', 'Hora', 'Cliente', 'Servicio', 'Precio', 'Status'];
+  const headers = ['Fecha', 'Hora', 'Cliente', 'Servicio', 'Precio', 'Precio de reserva', 'Status', 'Forma de pago'];
   const rows = rawAppointments.map((a: any) => [
     a.date,
     a.start_time,
-    a.client?.name || 'Sin cliente',
+    appointmentClientName(a),
     a.service_name || '',
     a.service_cost || 0,
+    a.original_cost ?? a.service_cost ?? 0,
     a.status || '',
+    a.status === 'Pagado' ? paymentMethodLabel(a.payment_method) : '',
   ]);
+
+  // Resumen por forma de pago (solo citas pagadas)
+  const paid = rawAppointments.filter((a: any) => a.status === 'Pagado');
+  const summary = [...PAYMENT_METHODS, PAYMENT_UNSPECIFIED].map((m) => {
+    const rs = paid.filter((a: any) => (a.payment_method ?? null) === m.value);
+    return [m.label, rs.length, rs.reduce((s: number, a: any) => s + (Number(a.service_cost) || 0), 0)];
+  }).filter((r) => (r[1] as number) > 0);
 
   const escape = (v: any) => {
     const s = String(v);
@@ -320,6 +389,10 @@ export function generateCSV(rawAppointments: any[], periodLabel: string): string
     `# Generado: ${new Date().toLocaleString('es-MX')}`,
     headers.join(','),
     ...rows.map((r) => r.map(escape).join(',')),
+    '',
+    'RESUMEN POR FORMA DE PAGO (citas pagadas)',
+    'Forma de pago,Citas,Total cobrado',
+    ...summary.map((r) => r.map(escape).join(',')),
   ].join('\n');
 }
 

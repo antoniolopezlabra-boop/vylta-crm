@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   DollarSign,
   CalendarCheck,
@@ -36,6 +37,8 @@ import {
   type PeriodType,
   type ReportsData,
   type ReportPeriod,
+  type PaymentBreakdownItem,
+  type PaymentRow,
 } from '@/lib/reports';
 import { Button } from '@/components/ui/button';
 import { KPICard } from '@/components/dashboard/kpi-card';
@@ -176,7 +179,7 @@ export default function ReportesPage() {
             ) : (
               <Download className="h-4 w-4" />
             )}
-            Exportar CSV
+            Exportar a Excel
           </Button>
         </div>
       </div>
@@ -236,6 +239,9 @@ export default function ReportesPage() {
             <TopClientsList clients={data.topClients} />
           </div>
 
+          {/* Formas de pago: cuánto entró por cada una y quién pagó cómo */}
+          <PaymentMethodsSection breakdown={data.paymentBreakdown} payments={data.payments} />
+
           {/* Distribución por status */}
           <StatusDistribution data={data.statusDistribution} />
 
@@ -261,6 +267,111 @@ export default function ReportesPage() {
               )}
             </p>
           </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Formas de pago (nov 2026) ──
+function PaymentMethodsSection({
+  breakdown,
+  payments,
+}: {
+  breakdown: PaymentBreakdownItem[];
+  payments: PaymentRow[];
+}) {
+  const [filter, setFilter] = useState<string>('todos');
+  const [showAll, setShowAll] = useState(false);
+  const total = breakdown.reduce((s, b) => s + b.revenue, 0);
+  const key = (m: string | null) => m ?? 'sin';
+  const rows = filter === 'todos' ? payments : payments.filter((p) => key(p.method) === filter);
+  const visible = showAll ? rows : rows.slice(0, 15);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+      <h3 className="text-sm font-semibold">Formas de pago</h3>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Cuánto cobraste en efectivo, tarjeta y transferencia, y el detalle de quién pagó y cómo.
+      </p>
+
+      {payments.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">Sin citas pagadas en el período.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {breakdown.map((b) => {
+              const pct = total > 0 ? Math.round((b.revenue / total) * 100) : 0;
+              return (
+                <button
+                  key={key(b.method)}
+                  type="button"
+                  onClick={() => { setFilter(filter === key(b.method) ? 'todos' : key(b.method)); setShowAll(false); }}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition',
+                    filter === key(b.method) ? 'border-vylta-green-500 bg-vylta-green-500/5' : 'border-border hover:bg-secondary/40',
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                    <span>{b.emoji}</span> {b.label}
+                  </div>
+                  <div className="mt-1 text-lg font-bold tabular-nums">{formatCurrency(b.revenue)}</div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: b.color }} />
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {b.count} {b.count === 1 ? 'cita' : 'citas'} · {pct}%
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-5 flex items-center justify-between">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Pagos del período {filter !== 'todos' && `· ${breakdown.find((b) => key(b.method) === filter)?.label}`}
+            </h4>
+            {filter !== 'todos' && (
+              <button type="button" onClick={() => setFilter('todos')} className="text-xs font-semibold text-vylta-green-600 hover:underline dark:text-vylta-green-400">
+                Ver todos
+              </button>
+            )}
+          </div>
+
+          <ul className="mt-2 divide-y divide-border">
+            {visible.map((p) => {
+              const b = breakdown.find((x) => key(x.method) === key(p.method));
+              return (
+                <li key={p.id}>
+                  <Link href={`/citas/${p.id}`} className="flex items-center gap-3 py-2.5 transition hover:bg-secondary/30">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold">{p.client}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {new Date(p.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                        {p.start_time ? ` · ${p.start_time.slice(0, 5)}` : ''} · {p.service}
+                      </div>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold"
+                      style={{ backgroundColor: `${b?.color || '#94A3B8'}1F`, color: b?.color || '#94A3B8' }}
+                    >
+                      {b?.emoji} {p.methodLabel}
+                    </span>
+                    <span className="w-24 shrink-0 text-right text-sm font-bold tabular-nums">{formatCurrency(p.amount)}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {rows.length > 15 && (
+            <button
+              type="button"
+              onClick={() => setShowAll(!showAll)}
+              className="mt-3 w-full rounded-lg border border-border py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary/40"
+            >
+              {showAll ? 'Ver menos' : `Ver los ${rows.length} pagos`}
+            </button>
+          )}
         </>
       )}
     </div>

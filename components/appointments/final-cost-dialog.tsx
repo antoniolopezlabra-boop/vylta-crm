@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency } from '@/lib/utils';
+import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/payment-methods';
 
 // ══════════════════════════════════════════════════════════════════════
 // Cobrar cita / Ajustar precio final (nov 2026)
@@ -33,6 +34,8 @@ export interface FinalCostAppointment {
   service_cost: number | null;
   original_cost?: number | null;
   cost_adjust_note?: string | null;
+  status?: string | null;
+  payment_method?: string | null;
 }
 
 const QUICK = [-100, -50, 50, 100, 200];
@@ -54,6 +57,9 @@ export function FinalCostDialog({
   const [note, setNote] = useState('');
   const [prepaid, setPrepaid] = useState(0);
   const [saving, setSaving] = useState(false);
+  // Forma de pago: obligatoria al cobrar; editable en citas ya pagadas.
+  const [method, setMethod] = useState<PaymentMethod | null>(null);
+  const askMethod = mode === 'cobrar' || appointment.status === 'Pagado';
 
   const booked = Number(appointment.original_cost ?? appointment.service_cost ?? 0);
 
@@ -61,6 +67,7 @@ export function FinalCostDialog({
     if (!open) return;
     setAmount(String(Number(appointment.service_cost ?? 0)));
     setNote(appointment.cost_adjust_note || '');
+    setMethod((PAYMENT_METHODS.find(m => m.value === appointment.payment_method)?.value) ?? null);
     let cancelled = false;
     (async () => {
       const supabase = createClient();
@@ -72,15 +79,18 @@ export function FinalCostDialog({
       if (!cancelled) setPrepaid((data || []).reduce((s, p: any) => s + Number(p.amount_prepay || 0) / 100, 0));
     })();
     return () => { cancelled = true; };
-  }, [open, appointment.id, appointment.service_cost, appointment.cost_adjust_note]);
+  }, [open, appointment.id, appointment.service_cost, appointment.cost_adjust_note, appointment.payment_method]);
 
   const value = Number(amount);
   const valid = amount.trim() !== '' && Number.isFinite(value) && value >= 0 && value <= 999999;
   const diff = valid ? value - booked : 0;
   const remaining = valid ? Math.max(0, value - prepaid) : 0;
 
+  const methodOk = mode !== 'cobrar' || !!method;
+
   async function save() {
     if (!valid) return;
+    if (!methodOk) { toast.error('Elige cómo te pagaron: efectivo, tarjeta o transferencia'); return; }
     setSaving(true);
     try {
       const supabase = createClient();
@@ -89,11 +99,12 @@ export function FinalCostDialog({
       if (changed) patch.service_cost = Math.round(value * 100) / 100;
       // La nota solo tiene sentido si el monto final difiere del reservado.
       patch.cost_adjust_note = value !== booked && note.trim() ? note.trim().slice(0, 200) : null;
+      if (askMethod && method) patch.payment_method = method;
       if (mode === 'cobrar') patch.status = 'Pagado';
       const { error } = await supabase.from('appointments').update(patch).eq('id', appointment.id);
       if (error) throw error;
       toast.success(mode === 'cobrar'
-        ? `Cita cobrada por ${formatCurrency(value)}`
+        ? `Cita cobrada por ${formatCurrency(value)}${method ? ' · ' + PAYMENT_METHODS.find(m => m.value === method)!.label : ''}`
         : `Precio final actualizado a ${formatCurrency(value)}`);
       onOpenChange(false);
       onDone();
@@ -178,6 +189,36 @@ export function FinalCostDialog({
             </div>
           )}
 
+          {askMethod && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-vylta-muted">
+                ¿Cómo te pagaron?{mode === 'cobrar' && <span className="text-destructive"> *</span>}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {PAYMENT_METHODS.map(m => {
+                  const on = method === m.value;
+                  return (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setMethod(m.value)}
+                      aria-pressed={on}
+                      className={cn(
+                        'flex flex-col items-center gap-1 rounded-xl border-2 px-2 py-3 text-xs font-bold transition',
+                        on
+                          ? 'border-vylta-green bg-vylta-green/10 text-vylta-bone'
+                          : 'border-border text-vylta-muted hover:border-vylta-green/40 hover:text-vylta-bone',
+                      )}
+                    >
+                      <span className="text-xl leading-none">{m.emoji}</span>
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {prepaid > 0 && valid && (
             <div className="space-y-1 rounded-lg border border-vylta-green/30 bg-vylta-green/5 px-3 py-2 text-sm">
               <div className="flex justify-between"><span className="text-vylta-muted">Anticipo pagado en línea</span><span className="font-semibold">{formatCurrency(prepaid)}</span></div>
@@ -188,7 +229,7 @@ export function FinalCostDialog({
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
-          <Button type="button" onClick={save} disabled={saving || !valid}>
+          <Button type="button" onClick={save} disabled={saving || !valid || !methodOk}>
             {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</>
               : mode === 'cobrar' ? `Cobrar ${valid ? formatCurrency(value) : ''}` : 'Guardar precio'}
           </Button>

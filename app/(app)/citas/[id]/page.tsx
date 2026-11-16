@@ -58,6 +58,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTimeBlocks } from '@/lib/queries/use-time-blocks';
 import { FinalCostDialog } from '@/components/appointments/final-cost-dialog';
+import { PAYMENT_METHODS } from '@/lib/payment-methods';
 import { useAppointment, useInvalidateAppointment } from '@/lib/queries/use-appointment';
 import { useInvalidateAppointments } from '@/lib/queries/use-appointments';
 import { RescheduleDialog } from '@/components/appointments/reschedule-dialog';
@@ -433,6 +434,27 @@ export default function AppointmentDetailPage() {
               }
             />
           ) : null}
+          {appointment.status === 'Pagado' && (
+            <InfoRow
+              icon={DollarSign}
+              label="Forma de pago"
+              value={(() => {
+                const m = PAYMENT_METHODS.find(x => x.value === appointment.payment_method);
+                return (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className={m ? 'font-semibold' : 'text-vylta-muted'}>{m ? `${m.emoji} ${m.label}` : 'Sin especificar'}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCostDialog('ajustar')}
+                      className="rounded-md border border-border px-2 py-0.5 text-[11px] font-semibold text-vylta-muted hover:border-vylta-green/40 hover:text-vylta-green"
+                    >
+                      {m ? 'Cambiar' : 'Indicar'}
+                    </button>
+                  </span>
+                );
+              })()}
+            />
+          )}
           {appointment.notes && <InfoRow icon={StickyNote} label="Notas" value={appointment.notes} />}
         </div>
       </div>
