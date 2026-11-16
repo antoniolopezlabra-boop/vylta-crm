@@ -24,7 +24,7 @@ export default async function SoloAppPage() {
         </div>
         <h1 className="text-lg font-bold">Tu acceso es para la app VYLTA</h1>
         <p className="text-sm text-muted-foreground">
-          Las cuentas de colaborador y asistente se usan desde la app VYLTA en tu celular
+          Las cuentas de colaborador se usan desde la app VYLTA en tu celular
           (Android o iPhone). El panel web es solo para el dueño del negocio.
         </p>
         <SoloAppSignOut />
