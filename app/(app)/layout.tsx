@@ -28,6 +28,17 @@ export default async function AppLayout({
     redirect('/login');
   }
 
+  // Colaborador / asistente (staff_accounts) -> solo usa la app móvil.
+  // El CRM es del dueño: reportes de ventas, equipo, eliminar cuenta, etc.
+  const { data: staffAccount } = await supabase
+    .from('staff_accounts')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (staffAccount) {
+    redirect('/solo-app');
+  }
+
   // Admin -> Control Center.
   const adminUser = await getAdminUserServer();
   if (adminUser) {

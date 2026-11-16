@@ -43,6 +43,14 @@ export default async function SetupPage() {
     redirect('/login?next=/setup');
   }
 
+  // Cuentas de colaborador/asistente no crean negocio: solo usan la app móvil.
+  const { data: staffAccount } = await supabase
+    .from('staff_accounts')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (staffAccount) redirect('/solo-app');
+
   // ⚡ Detección de setup completo: ¿tiene al menos 1 servicio?
   //
   // Si tiene → ya pasó por el wizard (en mobile o web) → dashboard
